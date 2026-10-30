@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.74.0
+- **版本**: v0.74.1
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -105,7 +105,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1874 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 / 空正文冷却·上下文自动探测 / 续写跨档兜底 / 角色身份·改名去重·实体链接 / v0.74.0 语料仓储·V149 lane/task/lease·导演角色/分区·异步调度·租约·聊天/动作·IPC 契约 ·共 10 ignored）
+- `cargo test -p storymoss` ✅ 1879 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 / 空正文冷却·上下文自动探测 / 续写跨档兜底 / 角色身份·改名去重·实体链接 / v0.74 语料仓储·V149 lane/task/lease·导演角色/分区·异步调度·租约·聊天/动作·IPC 契约 / v0.74.1 导演 ToolLoop 拒绝·动作校验·空正文候选剔除·capability 归一化·关系别名 ·共 10 ignored）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 644 passed / 3 skipped（v0.74.0 +3：语料页列表/详情/AI 提炼与交给导演；AgencyStudio +11：四角色/黑板/时间线/run 选择/错误提示/去重/观察/资产跳转/发送消息/审批确认；v0.73.14 +5：`StyleDnaModal` 单一风格先选后确认 / 关闭不落库 / 弹窗限高 / 混合面板固定按钮与保存 / 混合配置异步回填；v0.73.13 +7：`useExecutionState` 取数与降级 3、`loggedInvoke` 失败日志 4；v0.73.12 +2：文思活跃火焰/被动静态图标契约；+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
 - `npx playwright test` ✅ 45 passed / 5 skipped（v0.74.0 +2：语料页加载/选中/AI 提炼；代理工作室剧组/对话/现场与 `agency_chat_send`；v0.73.9 +1：故事卡片点击同步 `notify_frontstage_story_selected`；v0.73.5 +1：日志页「复制」按钮不被幕前悬浮启动器遮挡（1680px trial click）；v0.73.1 +2：模型页签「超时」子页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃；v0.72.3 修掉一处既有 flake：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version` handler——`useUpdater(true)` 挂载 5s 后自动检查，mock 未实现时慢机/并行负载下页面加载类用例会在「无 console 错误」断言上偶发红；门禁仍非阻塞，见未关闭）
@@ -118,6 +118,27 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.74.1 - 按本机日志修复导演/意图图错误
+
+**为什么**：本机 v0.74.0 运行日志（`com.storymoss.app/logs`）出现三类错误：①导演计划 JSON 被
+ToolLoop 当 tool action 解析，连续 8 轮 `missing field type` 熔断；②导演提出 `retry_task` 但
+`target_id=null`，审批确认时报 `VALIDATION_FAILED`；③`PlanExecutor` 报
+`Unknown capability: agent_writer / agent_inspector`，另有关系 `陈砚 -> 小满` 因只查规范名被跳过。
+
+**改动**：①`TaskScheduler::dispatch_sub_agent`、`run_role_task(_reported)`、`DirectorExecutor`
+拒绝 `AgentRole::Director`——导演只走 DirectorPlanner，不再进 ToolLoop；②导演计划新增
+`validate_action`：dispatch 校验 role/instruction、retry/cancel 校验 task_id、cancel_run/
+resume/materialize/recheck 校验 run_id，不合格动作丢弃并在 reply 说明；提示词同步要求
+target_id 来自巡检快照 tasks/runs；③网关执行候选链前剔除「连续空正文、10 分钟冷却」模型，
+全部冷却时快速返回可操作错误，避免 Ds10/死端点空转 100s+；④`canonical_capability_id` 归一化
+意图图旧 id（agent_writer/agent_rewriter→writer、agent_inspector→inspector、skill_*→builtin.*）；
+⑤`asset_bridge`/`materialize` 角色名解析增加 `character_aliases` 回退，简称也能落关系。
+
+- **验证**：Rust **1879 passed / 10 ignored**（+5）；vitest 644 / 3；playwright 45 / 5；
+  tsc / clippy / fmt / guard / IPC manifest 全绿。
+- **未关闭**：安装包仍为 v0.74.0，运行中的二进制不会热更新；v0.74.1 安装后再复测日志。
+  模型配置仍需处理：删除 Ds10（Qwen3.5）或启动本地 MLX `127.0.0.1:11234`。
 
 ### v0.74.0 - 语料资产 + 导演 Agent + 幕后剧组对话 + lane/task/lease
 

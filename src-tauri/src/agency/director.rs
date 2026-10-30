@@ -54,7 +54,7 @@ pub struct DirectorActionSpec {
     pub overwrite: bool,
 }
 
-const DIRECTOR_FALLBACK_SYSTEM: &str = "你是「导演」，代理工作室总控。你的职责是巡检、调度、修复、汇报；不写正文/资产。只输出严格 JSON：{\"reply\":\"...\",\"intent\":\"inspect|dispatch|repair|chat|corpus|none\",\"actions\":[{\"id\":\"a1\",\"type\":\"dispatch\",\"role\":\"producer\",\"instruction\":\"...\",\"corpus_ids\":[],\"depends_on_action\":null,\"reason\":\"...\"}],\"needs_confirmation\":false,\"confirmation\":null}。覆盖手写资产、主创续写/修订、批量、取消/恢复必须 needs_confirmation=true。";
+const DIRECTOR_FALLBACK_SYSTEM: &str = "你是「导演」，代理工作室总控。你的职责是巡检、调度、修复、汇报；不写正文/资产。只输出严格 JSON：{\"reply\":\"...\",\"intent\":\"inspect|dispatch|repair|chat|corpus|none\",\"actions\":[{\"id\":\"a1\",\"type\":\"dispatch\",\"role\":\"producer\",\"instruction\":\"...\",\"corpus_ids\":[],\"depends_on_action\":null,\"reason\":\"...\"}],\"needs_confirmation\":false,\"confirmation\":null}。target_id 只能来自巡检快照 tasks[].id / runs[].id；没有对应 id 就不要生成动作。覆盖手写资产、主创续写/修订、批量、取消/恢复必须 needs_confirmation=true。";
 
 /// 导演规划：巡检快照 + 用户消息 + 会话历史 → 严格 JSON。
 pub struct DirectorPlanner;
@@ -102,10 +102,69 @@ impl DirectorPlanner {
                 confirmation: None,
             });
         plan.actions.truncate(3);
-        if !plan.needs_confirmation {
+        let mut valid = Vec::new();
+        let mut rejected = Vec::new();
+        for action in plan.actions.drain(..) {
+            if let Some(reason) = validate_action(&action) {
+                rejected.push(reason);
+            } else {
+                valid.push(action);
+            }
+        }
+        plan.actions = valid;
+        if !rejected.is_empty() {
+            plan.reply = format!(
+                "{}\n\n导演丢弃了 {} 个不完整动作：{}",
+                plan.reply,
+                rejected.len(),
+                rejected.join("；")
+            );
+        }
+        if plan.actions.is_empty() {
+            plan.needs_confirmation = false;
+        } else if !plan.needs_confirmation {
             plan.needs_confirmation = plan.actions.iter().any(action_requires_confirmation);
         }
         Ok(plan)
+    }
+}
+
+/// 计划动作的最小字段校验：宁可丢弃，也不把缺 target_id 的动作做成审批卡。
+fn validate_action(action: &DirectorActionSpec) -> Option<String> {
+    let at = action.action_type.as_str();
+    match at {
+        "dispatch" => {
+            let role = action.role.as_deref().and_then(AgentRole::from_str)?;
+            if role == AgentRole::Director {
+                return Some("导演不能被派成子 agent".to_string());
+            }
+            if action
+                .instruction
+                .as_deref()
+                .unwrap_or("")
+                .trim()
+                .is_empty()
+            {
+                return Some("dispatch 缺少 instruction".to_string());
+            }
+            None
+        }
+        "retry_task" | "cancel_task" => {
+            if action.target_id.as_deref().unwrap_or("").trim().is_empty() {
+                Some(format!("{at} 缺少 task_id"))
+            } else {
+                None
+            }
+        }
+        "cancel_run" | "resume_run" | "materialize_assets" | "recheck_gate" => {
+            if action.target_id.as_deref().unwrap_or("").trim().is_empty() {
+                Some(format!("{at} 缺少 run_id"))
+            } else {
+                None
+            }
+        }
+        "ensure_assets" | "record_debt" | "escalate" => None,
+        other => Some(format!("未知动作类型 {other}")),
     }
 }
 
@@ -153,6 +212,12 @@ impl DirectorExecutor {
                         .ok_or_else(|| {
                             AppError::validation_failed("dispatch 缺少合法 role", Some("role"))
                         })?;
+                    if role == AgentRole::Director {
+                        return Err(AppError::validation_failed(
+                            "导演不能把自己再派成子 agent",
+                            Some("role"),
+                        ));
+                    }
                     let instruction = action.instruction.as_deref().ok_or_else(|| {
                         AppError::validation_failed(
                             "dispatch 缺少 instruction",
@@ -582,5 +647,44 @@ mod tests {
         let text = render_director_user_prompt(&snapshot, "巡检", &[], "", &[]);
         assert!(text.contains("编审卡住"));
         assert!(text.contains("语料：2 条"));
+    }
+
+    #[test]
+    fn test_validate_action_rejects_missing_target_and_director() {
+        // dispatch producer 合法
+        assert!(validate_action(&DirectorActionSpec {
+            action_type: "dispatch".into(),
+            role: Some("producer".into()),
+            instruction: Some("补资产".into()),
+            ..Default::default()
+        })
+        .is_none());
+        // 导演不能派自己
+        assert!(validate_action(&DirectorActionSpec {
+            action_type: "dispatch".into(),
+            role: Some("director".into()),
+            instruction: Some("巡检".into()),
+            ..Default::default()
+        })
+        .is_some());
+        // retry_task 缺 target_id（真机审批卡报错根因）
+        assert!(validate_action(&DirectorActionSpec {
+            action_type: "retry_task".into(),
+            ..Default::default()
+        })
+        .is_some());
+        // cancel_run 缺 run_id
+        assert!(validate_action(&DirectorActionSpec {
+            action_type: "cancel_run".into(),
+            ..Default::default()
+        })
+        .is_some());
+        // 有 target_id 的 retry_task 合法
+        assert!(validate_action(&DirectorActionSpec {
+            action_type: "retry_task".into(),
+            target_id: Some("task-1".into()),
+            ..Default::default()
+        })
+        .is_none());
     }
 }

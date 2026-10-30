@@ -20,6 +20,20 @@ use crate::{
     router::TaskType,
 };
 
+/// 意图图资产使用 `agent_writer` / `agent_inspector` / `skill_*` 旧 id；
+/// PlanExecutor 注册的是 `writer` / `inspector` / `builtin.*`。在入口统一
+/// 归一化，避免真机日志里的 `Unknown capability: agent_writer`。
+fn canonical_capability_id(id: &str) -> &str {
+    match id {
+        "agent_writer" | "agent_rewriter" => "writer",
+        "agent_inspector" => "inspector",
+        "skill_style_enhancer" => "builtin.style_enhancer",
+        "skill_character_voice" => "builtin.character_voice",
+        "skill_emotion_pacing" => "builtin.emotion_pacing",
+        other => other,
+    }
+}
+
 /// 按正文重写大纲的未落库草稿。确认后才写入；取消丢弃。
 #[derive(Debug, Clone, Serialize, serde::Deserialize, Default)]
 pub struct AssetRefreshDraft {
@@ -652,7 +666,7 @@ impl PlanExecutor {
                         let outputs = step_outputs.lock().await;
                         let mut rp = Self::resolve_parameters(&step.parameters, &outputs);
                         if let Some((ref inspect_id, _)) = has_loop {
-                            if step.capability_id == "writer"
+                            if canonical_capability_id(&step.capability_id) == "writer"
                                 && step.depends_on.contains(inspect_id)
                             {
                                 if let Some(inspector_output) = outputs.get(inspect_id) {
@@ -675,7 +689,7 @@ impl PlanExecutor {
                         // "draft": "{{step_N}}" 参数，导致 inspector 收到空内容并返回
                         // 审查模板而非正文。当 draft 为空时，按 depends_on 顺序查找
                         // writer 步骤的 content，找不到则扫描全部 step_outputs。
-                        if step.capability_id == "inspector" {
+                        if canonical_capability_id(&step.capability_id) == "inspector" {
                             let injected = Self::inject_inspector_draft_fallback(
                                 &mut rp,
                                 &step.depends_on,
@@ -704,9 +718,10 @@ impl PlanExecutor {
                         // v0.30.10: style_mimic / plot_analyzer / builtin 技能 content 兜底注入。
                         // 与 inspector draft 兜底同理：LLM 常遗漏 "content": "{{step_N}}" 参数，
                         // 导致这些 capability 收到空内容并返回"请提供文本"模板而非实际处理结果。
-                        let needs_content_fallback = step.capability_id == "style_mimic"
-                            || step.capability_id == "plot_analyzer"
-                            || step.capability_id.starts_with("builtin.");
+                        let canonical_cap = canonical_capability_id(&step.capability_id);
+                        let needs_content_fallback = canonical_cap == "style_mimic"
+                            || canonical_cap == "plot_analyzer"
+                            || canonical_cap.starts_with("builtin.");
                         if needs_content_fallback {
                             let current_content = plan_context
                                 .current_content_preview
@@ -936,7 +951,7 @@ impl PlanExecutor {
         capability_id: &str,
         output: &serde_json::Value,
     ) {
-        if capability_id != "writer" {
+        if canonical_capability_id(capability_id) != "writer" {
             return;
         }
         if let Some(content) = output.get("content").and_then(|c| c.as_str()) {
@@ -946,7 +961,7 @@ impl PlanExecutor {
 
     /// 将 capability_id 转换为用户友好的中文名称
     fn capability_display_name(capability_id: &str) -> String {
-        match capability_id {
+        match canonical_capability_id(capability_id) {
             "writer" => "写作助手".to_string(),
             "beat_planner" => "节拍规划师".to_string(),
             "inspector" => "质检员".to_string(),
@@ -982,7 +997,7 @@ impl PlanExecutor {
         params: &HashMap<String, serde_json::Value>,
         plan_context: &PlanContext,
     ) -> Result<serde_json::Value, AppError> {
-        match step.capability_id.as_str() {
+        match canonical_capability_id(step.capability_id.as_str()) {
             "create_story" => self.execute_create_story(params).await,
             "create_chapter" => self.execute_create_chapter(params).await,
             "create_character" => self.execute_create_character(params).await,
@@ -2673,6 +2688,22 @@ pub(crate) fn inject_recommended_strategy_params(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_capability_id_maps_intention_graph_aliases() {
+        assert_eq!(canonical_capability_id("agent_writer"), "writer");
+        assert_eq!(canonical_capability_id("agent_rewriter"), "writer");
+        assert_eq!(canonical_capability_id("agent_inspector"), "inspector");
+        assert_eq!(
+            canonical_capability_id("skill_style_enhancer"),
+            "builtin.style_enhancer"
+        );
+        assert_eq!(canonical_capability_id("writer"), "writer");
+        assert_eq!(
+            canonical_capability_id("builtin.plot_twist"),
+            "builtin.plot_twist"
+        );
+    }
 
     #[test]
     fn execute_writer_rejects_continuation_and_genesis() {

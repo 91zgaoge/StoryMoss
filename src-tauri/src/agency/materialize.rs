@@ -77,12 +77,22 @@ fn find_character_id_by_name(
     story_id: &str,
     name: &str,
 ) -> Option<String> {
-    conn.query_row(
-        "SELECT id FROM characters WHERE story_id = ?1 AND name = ?2 LIMIT 1",
-        params![story_id, name],
-        |r| r.get(0),
-    )
-    .ok()
+    let direct = conn
+        .query_row(
+            "SELECT id FROM characters WHERE story_id = ?1 AND name = ?2 LIMIT 1",
+            params![story_id, name],
+            |r| r.get(0),
+        )
+        .ok();
+    direct.or_else(|| {
+        // v0.74.1: 关系里常用简称（「小满」），别名也要解析到角色。
+        conn.query_row(
+            "SELECT character_id FROM character_aliases WHERE story_id = ?1 AND alias = ?2 LIMIT 1",
+            params![story_id, name.trim()],
+            |r| r.get(0),
+        )
+        .ok()
+    })
 }
 
 fn find_existing_relationship_id(

@@ -104,6 +104,15 @@ impl TaskScheduler {
         parent_task_id: Option<String>,
         meta: String,
     ) -> Result<String, AppError> {
+        // Director 是编排层，不是子 agent：导演只走 DirectorPlanner，
+        // 把它塞进 ToolLoop 会让计划 JSON 被当成 tool action 解析（日志曾
+        // 连续 8 轮 missing field `type` 熔断）。
+        if role == AgentRole::Director {
+            return Err(AppError::validation_failed(
+                "Director 是总控，不能作为子 agent 任务；请用剧组对话",
+                Some("role"),
+            ));
+        }
         let mut task =
             AgencyAgentTask::new(run_id, story_id, role, instruction, parent_task_id, meta);
         let pool = self.pool.clone();
@@ -451,6 +460,28 @@ mod tests {
             Arc::new(SlowFinalLlm { delay_ms }),
         ));
         TaskScheduler::new(pool, coordinator, None)
+    }
+
+    #[tokio::test]
+    async fn test_director_role_is_rejected_as_subagent() {
+        let sched = setup(0);
+        let err = sched
+            .dispatch_sub_agent(
+                "story-1",
+                "chat:s1",
+                AgentRole::Director,
+                "前提",
+                "巡检",
+                None,
+                None,
+                "{}".into(),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("Director"),
+            "Director 不能进子 agent ToolLoop: {err}"
+        );
     }
 
     #[tokio::test]

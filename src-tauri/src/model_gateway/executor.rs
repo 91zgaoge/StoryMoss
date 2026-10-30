@@ -77,6 +77,22 @@ pub(crate) fn gateway_content_is_empty(resp: &LlmGenerateResponse) -> bool {
     resp.content.trim().is_empty()
 }
 
+/// 从候选链中剔除「因连续空正文处于冷却期」的模型。
+///
+/// 空正文冷却模型继续留在候选链末尾会再次空转（真机 Ds10 单次可等
+/// 100s+），即使有更健康的候选也会被它拖慢。返回剔除数量。
+fn drop_empty_content_demoted<F>(
+    candidates: &mut Vec<crate::router::RankedCandidate>,
+    is_demoted: F,
+) -> usize
+where
+    F: Fn(&str) -> bool,
+{
+    let before = candidates.len();
+    candidates.retain(|c| !is_demoted(&c.model_id));
+    before - candidates.len()
+}
+
 /// 网关执行器
 pub struct GatewayExecutor<R: Runtime = Wry> {
     app_handle: AppHandle<R>,
@@ -1127,15 +1143,44 @@ impl<R: Runtime> GatewayExecutor<R> {
 
         self.apply_active_model_front(&request, &mut decision);
 
+        let candidates_before_filter = decision.candidates.len();
+        let dropped = drop_empty_content_demoted(&mut decision.candidates, |id| {
+            self.empty_content_demoted(id)
+        });
+        if dropped > 0 {
+            log::warn!(
+                "[Gateway] 跳过 {} 个因连续空正文处于冷却期的候选（原 {} 个）",
+                dropped,
+                candidates_before_filter
+            );
+            self.workflow_log(
+                "gateway.generate.candidate_skip_empty_demoted",
+                format!(
+                    "跳过 {} 个连续空正文冷却候选（原 {}）",
+                    dropped, candidates_before_filter
+                ),
+                Some(serde_json::json!({
+                    "request_id": request.request_id,
+                    "dropped": dropped,
+                    "before": candidates_before_filter,
+                    "after": decision.candidates.len(),
+                })),
+            );
+        }
+
         log::debug!(
-            "[Gateway] 候选链已确定，共 {} 个模型",
+            "[Gateway] 候选链已确定（剔除空正文冷却后），共 {} 个模型",
             decision.candidates.len()
         );
 
         if decision.candidates.is_empty() {
-            return Err(AppError::Internal {
-                message: "没有可用的模型候选".to_string(),
-            });
+            let message = if candidates_before_filter > 0 {
+                "所有候选模型都因连续空正文进入冷却（10 分钟）；请更换模型或修复端点后重试"
+                    .to_string()
+            } else {
+                "没有可用的模型候选".to_string()
+            };
+            return Err(AppError::Internal { message });
         }
 
         let mut last_error: Option<AppError> = None;
@@ -1680,6 +1725,38 @@ mod tests {
         llm::service::LlmService,
         router::{UnifiedModel, UnifiedModelRegistry},
     };
+
+    #[test]
+    fn drop_empty_content_demoted_filters_only_marked_models() {
+        let mut candidates = vec![
+            crate::router::RankedCandidate {
+                model_id: "empty".into(),
+                model_name: "Empty".into(),
+                score: 90.0,
+                reason: "test".into(),
+            },
+            crate::router::RankedCandidate {
+                model_id: "healthy".into(),
+                model_name: "Healthy".into(),
+                score: 80.0,
+                reason: "test".into(),
+            },
+        ];
+        let dropped = drop_empty_content_demoted(&mut candidates, |id| id == "empty");
+        assert_eq!(dropped, 1);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].model_id, "healthy");
+
+        let mut all_empty = vec![crate::router::RankedCandidate {
+            model_id: "empty".into(),
+            model_name: "Empty".into(),
+            score: 90.0,
+            reason: "test".into(),
+        }];
+        let dropped = drop_empty_content_demoted(&mut all_empty, |_| true);
+        assert_eq!(dropped, 1);
+        assert!(all_empty.is_empty());
+    }
 
     #[test]
     fn candidate_fits_prompt_skips_8k_window_for_19k_token_continue() {

@@ -2,6 +2,19 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.74.1（2026-10-31）
+
+**按本机运行日志修复 v0.74.0 的导演/意图图错误。**
+
+- **导演不再进入 ToolLoop**：真机日志 `agency::tool_loop Director ... missing field 'type'` 连续 8 轮熔断——导演计划 JSON 被当成 tool action 解析。现在 `TaskScheduler::dispatch_sub_agent`、`AgencyCoordinator::run_role_task(_reported)`、`DirectorExecutor` 均拒绝 `AgentRole::Director`；导演只走 `DirectorPlanner`（inspect→plan→异步 dispatch→follow-up）。
+- **导演动作先校验再出审批卡**：`retry_task` 缺 `target_id` 曾让审批确认后报 `VALIDATION_FAILED`。现在计划阶段校验 `dispatch` 的 role/instruction、`retry_task`/`cancel_task` 的 task_id、`cancel_run`/`resume_run`/`materialize_assets`/`recheck_gate` 的 run_id；不合格动作直接丢弃并在 reply 说明。导演提示词同步要求 `target_id` 只来自巡检快照的 tasks/runs。
+- **空正文候选不再拖慢整轮**：网关在候选链执行前剔除「连续空正文、10 分钟冷却中」的模型；若全部候选都在冷却，快速返回「所有候选模型都因连续空正文进入冷却；请更换模型或修复端点」。真机 Ds10/本地 MLX 死端点因此不会再让续写空转 100s+。
+- **意图图 capability 旧 id 归一化**：真机 `PlanExecutor Step ig_step_2 failed: Unknown capability: agent_writer` / `agent_inspector`。新增 `canonical_capability_id`：`agent_writer`/`agent_rewriter`→`writer`、`agent_inspector`→`inspector`、`skill_*`→`builtin.*`；最终正文判定与依赖注入同步使用归一化 id。
+- **关系名支持别名**：真机 `[AssetBridge] 关系 陈砚 -> 小满 找不到角色，跳过`。`asset_bridge` 与 `materialize` 的角色名解析增加 `character_aliases` 回退，简称也能落到规范角色。
+- **仍需你处理模型配置**：日志显示 Ds10（Qwen3.5）与本地 MLX `127.0.0.1:11234` 仍返回空正文/连接失败；新版本会跳过冷却中的候选，但要在设置里删除 Ds10 / 启动 MLX，才能恢复正文产出。
+- **验证**：Rust **1879 passed / 10 ignored**（+5）；vitest 644 passed / 3 skipped；playwright 45 passed / 5 skipped；tsc / clippy / fmt / guard / IPC manifest 全绿。
+- **未关闭**：本机安装包仍是 v0.74.0（运行中的二进制不会热更新），需安装 v0.74.1 后再复测日志。
+
 ## v0.74.0（2026-10-30）
 
 **语料资产 + 导演 Agent + 幕后剧组对话 + lane/task/lease 并发底座。**

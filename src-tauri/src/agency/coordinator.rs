@@ -3489,9 +3489,14 @@ impl AgencyCoordinator {
         reporter: &TaskReporter,
         cancel: Option<Arc<AtomicBool>>,
     ) -> Result<crate::agency::tool_loop::LoopResult, AppError> {
-        // 子 agent 任务共享 1 writer / 2 producer / 2 editor 许可，
-        // 与 TaskScheduler 的角色限流上限一致；任务之间各自 budget 不共享
-        // token。
+        if role == AgentRole::Director {
+            return Err(AppError::validation_failed(
+                "Director 是总控，不走 ToolLoop；请用剧组对话",
+                Some("role"),
+            ));
+        }
+        // 单任务预算：角色许可上限与调度器上限一致；跨任务并发由
+        // TaskScheduler 的角色/故事信号量限流。
         let budget = Arc::new(AgencyBudget::with_role_permits(
             1,
             2,
@@ -3530,6 +3535,12 @@ impl AgencyCoordinator {
         premise: &str,
         task: &str,
     ) -> Result<crate::agency::tool_loop::LoopResult, AppError> {
+        if role == AgentRole::Director {
+            return Err(AppError::validation_failed(
+                "Director 是总控，不走 ToolLoop；请用剧组对话",
+                Some("role"),
+            ));
+        }
         let repo = AgencyRepository::new(self.pool.clone());
         let cancel = register_agency_cancel(run_id);
         let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));

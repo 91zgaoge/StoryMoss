@@ -327,12 +327,23 @@ fn find_character_id_by_name(
     story_id: &str,
     name: &str,
 ) -> Option<String> {
-    conn.query_row(
-        "SELECT id FROM characters WHERE story_id = ?1 AND name = ?2 LIMIT 1",
-        params![story_id, name],
-        |r| r.get(0),
-    )
-    .ok()
+    let direct = conn
+        .query_row(
+            "SELECT id FROM characters WHERE story_id = ?1 AND name = ?2 LIMIT 1",
+            params![story_id, name],
+            |r| r.get(0),
+        )
+        .ok();
+    direct.or_else(|| {
+        // v0.74.1: 别名（如「小满」→「陈小满」）也要能解析到角色；
+        // 真机日志里关系 陈砚 -> 小满 因只查规范名被跳过。
+        conn.query_row(
+            "SELECT character_id FROM character_aliases WHERE story_id = ?1 AND alias = ?2 LIMIT 1",
+            params![story_id, name.trim()],
+            |r| r.get(0),
+        )
+        .ok()
+    })
 }
 
 fn sync_relationships(
@@ -926,6 +937,38 @@ mod tests {
     /// 用 JSON 构造 ContentAnalysis（同时覆盖反序列化默认值路径）
     fn analysis_from_json(v: serde_json::Value) -> ContentAnalysis {
         serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn find_character_id_by_name_resolves_alias() {
+        let pool = create_test_pool().unwrap();
+        story(&pool, "s1");
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO characters (id, story_id, name, source, is_auto_generated, created_at, updated_at)
+                 VALUES ('c1', 's1', '陈小满', 'user_created', 0, 'now', 'now')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO character_aliases (id, story_id, character_id, alias, source, created_at)
+                 VALUES ('a1', 's1', 'c1', '小满', 'rename', 'now')",
+                [],
+            )
+            .unwrap();
+        }
+        let conn = pool.get().unwrap();
+        assert_eq!(
+            find_character_id_by_name(&conn, "s1", "陈小满"),
+            Some("c1".into())
+        );
+        assert_eq!(
+            find_character_id_by_name(&conn, "s1", "小满"),
+            Some("c1".into()),
+            "别名应解析到同一角色，关系不再被跳过"
+        );
+        assert_eq!(find_character_id_by_name(&conn, "s1", "不存在"), None);
     }
 
     fn character_entity(name: &str, extra: serde_json::Value) -> serde_json::Value {

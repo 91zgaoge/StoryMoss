@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.74.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.74.1)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.74.1 变更说明
+
+- **日志驱动修复（Rust 1879 passed / 10 ignored，+5）**：
+  ①`TaskScheduler` Director 作为子 agent 被拒绝；②`DirectorPlanner::validate_action` 拒绝缺 target_id 的 retry/cancel 与缺 run_id 的 cancel_run/resume/materialize/recheck；③`drop_empty_content_demoted` 剔除空正文冷却候选；④`canonical_capability_id` 归一化 agent_writer/agent_inspector/skill_* 旧 id；⑤`asset_bridge` 角色别名解析（`陈砚 -> 小满` 不再跳过）。
+- **前端/E2E 无改动**：vitest 644 / 3；playwright 45 / 5。
+- **未关闭**：安装包仍为 v0.74.0，需安装 v0.74.1 后复测日志；Ds10/本地 MLX 端点仍需用户在设置中处理。
 
 ### v0.74.0 变更说明
 
