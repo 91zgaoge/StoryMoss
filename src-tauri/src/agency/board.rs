@@ -14,6 +14,7 @@ pub struct BoardSnapshot {
     pub drafts: Vec<BoardItem>,
     pub reviews: Vec<BoardItem>,
     pub schedules: Vec<BoardItem>,
+    pub directions: Vec<BoardItem>,
 }
 
 impl BoardSnapshot {
@@ -21,11 +22,12 @@ impl BoardSnapshot {
     /// 对应 ECC agent-compress 的 catalog 档位。
     pub fn to_catalog(&self, max_chars: usize) -> String {
         let mut out = String::new();
-        let groups: [(&str, &Vec<BoardItem>); 4] = [
+        let groups: [(&str, &Vec<BoardItem>); 5] = [
             ("asset", &self.assets),
             ("draft", &self.drafts),
             ("review", &self.reviews),
             ("schedule", &self.schedules),
+            ("direction", &self.directions),
         ];
         for (zone, items) in groups {
             for item in items {
@@ -48,11 +50,12 @@ impl BoardSnapshot {
     /// catalog 档位（token 版优先于字符版）。
     pub fn to_catalog_tokens(&self, max_tokens: usize, model_family: &str) -> String {
         let mut out = String::new();
-        let groups: [(&str, &Vec<BoardItem>); 4] = [
+        let groups: [(&str, &Vec<BoardItem>); 5] = [
             ("asset", &self.assets),
             ("draft", &self.drafts),
             ("review", &self.reviews),
             ("schedule", &self.schedules),
+            ("direction", &self.directions),
         ];
         let trailer = "... (更多条目按需用 board_read 取全文)\n";
         for (zone, items) in groups {
@@ -184,6 +187,7 @@ impl BlackboardService {
             drafts: vec![],
             reviews: vec![],
             schedules: vec![],
+            directions: vec![],
         };
         for item in items {
             match item.zone {
@@ -191,6 +195,7 @@ impl BlackboardService {
                 BoardZone::Draft => snap.drafts.push(item),
                 BoardZone::Review => snap.reviews.push(item),
                 BoardZone::Schedule => snap.schedules.push(item),
+                BoardZone::Direction => snap.directions.push(item),
             }
         }
         Ok(snap)

@@ -44,7 +44,7 @@ pub async fn agency_continue_chapter(
     let sid_guard = story_id.clone();
     let has_running = tokio::task::spawn_blocking(move || {
         crate::agency::repository::AgencyRepository::new(pool_guard)
-            .has_running_run_for_story(&sid_guard)
+            .has_running_run_for_story(&sid_guard, "write")
     })
     .await
     .map_err(|e| AppError::from(format!("guard join error: {}", e)))?
@@ -106,7 +106,8 @@ pub async fn agency_continue_batch(
     let pool_guard = pool.clone();
     let sid = story_id.clone();
     let has_running = tokio::task::spawn_blocking(move || {
-        crate::agency::repository::AgencyRepository::new(pool_guard).has_running_run_for_story(&sid)
+        crate::agency::repository::AgencyRepository::new(pool_guard)
+            .has_running_run_for_story(&sid, "write")
     })
     .await
     .map_err(|e| AppError::from(format!("guard join error: {}", e)))?
@@ -408,7 +409,7 @@ fn eval_overview(pool: &DbPool, story_id: &str) -> Result<EvalOverview, AppError
     // token 用量（llm_calls purpose 聚合）
     let mut usage_stmt = conn.prepare(
         "SELECT purpose, COUNT(*), SUM(total_tokens), SUM(duration_ms)
-         FROM llm_calls WHERE purpose IN ('agency_writer','agency_producer','agency_editor')
+         FROM llm_calls WHERE purpose IN ('agency_writer','agency_producer','agency_editor','agency_director')
          GROUP BY purpose",
     )?;
     let token_usage: Vec<PurposeUsage> = usage_stmt

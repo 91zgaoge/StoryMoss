@@ -7627,13 +7627,14 @@ checksum = "e51f1e89f093f99e7432c491c382b88a6860a5adbe6bf02574bf0a08efff1978"
 
 [[package]]
 name = "storymoss"
-version = "0.73.14"
+version = "0.74.0"
 dependencies = [
  "argon2",
  "arrow-array",
  "arrow-schema",
  "async-stream",
  "async-trait",
+ "base64 0.22.1",
  "chrono",
  "cron",
  "datafusion-expr",

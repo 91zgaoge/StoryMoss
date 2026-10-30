@@ -12,7 +12,8 @@ import { create } from 'zustand';
 export const AGENCY_ROLES: { key: string; name: string }[] = [
   { key: 'lead_writer', name: '主创' },
   { key: 'producer', name: '管理' },
-  { key: 'editor_auditor', name: '编辑审计' },
+  { key: 'editor_auditor', name: '编审' },
+  { key: 'director', name: '导演' },
 ];
 
 /** agency-agent-activity 事件载荷（at 为前端接收时刻，后端不携带） */

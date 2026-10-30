@@ -17,6 +17,7 @@ use crate::{
         budget::{AgencyBudget, BudgetedLlm, DEFAULT_RUN_TOKEN_BUDGET},
         models::*,
         persist::PersistMode,
+        reporter::{ReportingLlm, TaskReporter},
         repository::AgencyRepository,
         roles::spec_for,
         tool_loop::{LlmTurn, LoopLlm, ToolLoop},
@@ -271,6 +272,7 @@ impl AgencyLlm {
             return label.clone();
         }
         let short = match self.role {
+            AgentRole::Director => "director",
             AgentRole::LeadWriter | AgentRole::Writer | AgentRole::OutlinePlanner => "writer",
             AgentRole::Producer => "producer",
             AgentRole::EditorAuditor | AgentRole::Inspector | AgentRole::StyleMimic => "editor",
@@ -934,11 +936,11 @@ pub(crate) fn circuit_break_message(role: &str, what: &str, reason: &str) -> Str
     )
 }
 
-/// V109 并发护栏冲突映射：命中 agency_runs 唯一约束 → 用户可读文案。
-/// SQLite 两种报错形态均含 "agency_runs" 子串（部分唯一索引
-/// `UNIQUE constraint failed: index 'idx_agency_runs_one_active_per_story'` /
-/// 列约束 `UNIQUE constraint failed: agency_runs.xxx`）；不匹配宽泛的
-/// "UNIQUE constraint failed"，避免误吞其他表的约束冲突。
+/// 并发护栏冲突映射：命中 agency_runs 唯一约束 → 用户可读文案。
+/// SQLite 两种报错形态均含 "agency_runs" 子串（V149 部分唯一索引
+/// `UNIQUE constraint failed: index 'idx_agency_runs_one_active_per_lane'` /
+/// 列约束 `UNIQUE constraint failed: agency_runs.xxx`；旧 V109 索引名也匹配）；
+/// 不匹配宽泛的 "UNIQUE constraint failed"，避免误吞其他表的约束冲突。
 pub(crate) fn map_active_run_conflict(e: AppError) -> AppError {
     if e.to_string().contains("agency_runs") {
         AppError::validation_failed("该故事已有进行中的创作任务", Some("active_run"))
@@ -3475,6 +3477,48 @@ impl AgencyCoordinator {
         result
     }
 
+    /// 无 run 行的单角色任务：调度器使用同一 run_id/预算/工具循环，
+    /// 但不创建 agency_runs（chat/inspect 上下文）。任务状态由 reporter 落库。
+    pub async fn run_role_task_reported(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        role: AgentRole,
+        premise: &str,
+        task: &str,
+        reporter: &TaskReporter,
+        cancel: Option<Arc<AtomicBool>>,
+    ) -> Result<crate::agency::tool_loop::LoopResult, AppError> {
+        // 子 agent 任务共享 1 writer / 2 producer / 2 editor 许可，
+        // 与 TaskScheduler 的角色限流上限一致；任务之间各自 budget 不共享
+        // token。
+        let budget = Arc::new(AgencyBudget::with_role_permits(
+            1,
+            2,
+            2,
+            DEFAULT_RUN_TOKEN_BUDGET,
+        ));
+        let llm = self.llm_for_run(run_id, role, story_id);
+        let board = self.board();
+        let registry = Arc::new(ToolRegistry::agency_default());
+        run_role_loop_reported(
+            &llm,
+            &budget,
+            &self.pool,
+            &board,
+            &registry,
+            role,
+            run_id,
+            story_id,
+            premise,
+            task,
+            self.current_deadline(),
+            reporter,
+            cancel,
+        )
+        .await
+    }
+
     /// 单角色任务运行：给定角色与任务描述，创建 run 并跑一个 ToolLoop。
     /// 用于将旧 agents/ 高频能力（Writer / Inspector / OutlinePlanner /
     /// StyleMimic） 接入 agency 运行时，同时保留对外命令签名。
@@ -3493,6 +3537,7 @@ impl AgencyCoordinator {
 
         let mut run = AgencyRun::new(run_id, premise);
         run.story_id = Some(story_id.to_string());
+        run.lane = role.run_lane().to_string();
         let repo_c = repo.clone();
         self.db(move || repo_c.create_run(&run).map_err(AppError::from))
             .await
@@ -6255,7 +6300,7 @@ impl AgencyCoordinator {
             let has_running = self
                 .db(move || {
                     crate::agency::repository::AgencyRepository::new(pool)
-                        .has_running_run_for_story(&sid)
+                        .has_running_run_for_story(&sid, "write")
                         .map_err(AppError::from)
                 })
                 .await?;
@@ -6670,6 +6715,41 @@ async fn run_role_loop(
     ToolLoop::new(budgeted, registry.clone())
         .with_max_turns(spec.max_turns)
         .with_deadline(deadline)
+        .run(role, &ctx, &system_prompt, task)
+        .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn run_role_loop_reported(
+    llm: &Arc<dyn LoopLlm>,
+    budget: &Arc<AgencyBudget>,
+    pool: &DbPool,
+    board: &BlackboardService,
+    registry: &Arc<ToolRegistry>,
+    role: AgentRole,
+    run_id: &str,
+    story_id: &str,
+    premise: &str,
+    task: &str,
+    deadline: Option<std::time::Instant>,
+    reporter: &TaskReporter,
+    cancel: Option<Arc<AtomicBool>>,
+) -> Result<crate::agency::tool_loop::LoopResult, AppError> {
+    let spec = spec_for(role);
+    let system_prompt = resolve_role_prompt_with_pool(pool, spec.prompt_id, premise).await;
+    let ctx = ToolContext {
+        run_id: run_id.to_string(),
+        story_id: story_id.to_string(),
+        role,
+        board: board.clone(),
+        pool: pool.clone(),
+    };
+    let budgeted: Arc<dyn LoopLlm> = Arc::new(BudgetedLlm::new(llm.clone(), budget.clone(), role));
+    let reported: Arc<dyn LoopLlm> = Arc::new(ReportingLlm::new(budgeted, reporter.clone()));
+    ToolLoop::new(reported, registry.clone())
+        .with_max_turns(spec.max_turns)
+        .with_deadline(deadline)
+        .with_cancel(cancel)
         .run(role, &ctx, &system_prompt, task)
         .await
 }

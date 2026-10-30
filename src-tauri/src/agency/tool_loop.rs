@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -308,6 +311,8 @@ pub struct ToolLoop {
     /// v0.30.4: run 级 deadline（smart_execute 整体超时）。每轮开始检查，
     /// 剩余 <30s 时熔断保产出，避免硬超时砍掉无结果。None 表示不限制。
     deadline: Option<std::time::Instant>,
+    /// 协作式取消：每个子 agent 任务可单独停止，下一轮开始前退出。
+    cancel: Option<Arc<AtomicBool>>,
 }
 
 impl ToolLoop {
@@ -317,6 +322,7 @@ impl ToolLoop {
             registry,
             max_turns: 8,
             deadline: None,
+            cancel: None,
         }
     }
 
@@ -328,6 +334,12 @@ impl ToolLoop {
     /// v0.30.4: 设置 run 级 deadline，每轮检查剩余时间。
     pub fn with_deadline(mut self, deadline: Option<std::time::Instant>) -> Self {
         self.deadline = deadline;
+        self
+    }
+
+    /// 协作式取消：下一轮开始前检查，命中即返回 aborted。
+    pub fn with_cancel(mut self, cancel: Option<Arc<AtomicBool>>) -> Self {
+        self.cancel = cancel;
         self
     }
 
@@ -350,6 +362,21 @@ impl ToolLoop {
         let mut parse_failures = 0usize;
 
         for turn_idx in 0..self.max_turns {
+            if let Some(cancel) = &self.cancel {
+                if cancel.load(Ordering::SeqCst) {
+                    log::info!(
+                        "agency tool_loop: {:?} 取消命中，第 {} 轮前退出",
+                        role,
+                        turn_idx
+                    );
+                    return Ok(LoopResult {
+                        output: String::new(),
+                        turns,
+                        aborted: true,
+                        abort_reason: None,
+                    });
+                }
+            }
             // v0.30.4: deadline 检查--剩余 <30s 时熔断保产出，避免硬超时
             // （smart_execute tokio::time::timeout）砍掉无结果。此前 writer
             // tool_loop 在第 7 轮 LLM 连接超时 60s×4 候选=240s，刚好顶满
@@ -502,7 +529,10 @@ impl ToolLoop {
 mod tests {
     use std::{
         collections::VecDeque,
-        sync::Mutex,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Mutex,
+        },
         time::{Duration, Instant},
     };
 
@@ -556,6 +586,43 @@ mod tests {
             pool,
         };
         (ctx, Arc::new(ToolRegistry::agency_default()))
+    }
+
+    struct CancelAfterLlm {
+        cancel: Arc<AtomicBool>,
+    }
+
+    #[async_trait::async_trait]
+    impl LoopLlm for CancelAfterLlm {
+        async fn complete(
+            &self,
+            _s: &str,
+            _u: &str,
+            _t: TaskType,
+            _m: i32,
+        ) -> Result<String, AppError> {
+            self.cancel.store(true, Ordering::SeqCst);
+            Ok(r#"{"type":"tool","name":"board_read","args":{"zone":"asset"}}"#.to_string())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_tool_loop_cancel_stops_next_turn() {
+        let (ctx, registry) = setup();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let result = ToolLoop::new(
+            Arc::new(CancelAfterLlm {
+                cancel: cancel.clone(),
+            }),
+            registry,
+        )
+        .with_max_turns(5)
+        .with_cancel(Some(cancel))
+        .run(AgentRole::Producer, &ctx, "system", "task")
+        .await
+        .unwrap();
+        assert!(result.aborted);
+        assert_eq!(result.turns.len(), 1);
     }
 
     #[test]

@@ -22,6 +22,7 @@ mod capabilities;
 mod chat; // RESERVED: story-associated chat sessions (Phase 4)
 mod collab; // RESERVED: collaborative editing WebSocket server (Phase 4)
 mod config;
+mod corpus;
 mod creation_commands;
 mod creative_engine;
 mod db;

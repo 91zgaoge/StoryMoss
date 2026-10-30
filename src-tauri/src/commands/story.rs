@@ -109,9 +109,14 @@ pub fn update_story(
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn delete_story(id: String, pool: State<'_, DbPool>, app: AppHandle) -> Result<(), AppError> {
+    // 先查语料物理文件路径；DB 删除成功后再清文件，DB 失败不提前丢文件。
+    let corpus = crate::corpus::service::CorpusService::new(pool.inner().clone());
+    let paths = corpus.list_file_paths(&id).unwrap_or_default();
     StoryRepository::new(pool.inner().clone())
         .delete(&id)
         .map_err(AppError::from)?;
+    corpus.delete_files(&paths);
+    corpus.cleanup_story_dir(&id, &app);
     let _ = crate::state_sync::StateSync::emit_story_deleted(&app, &id);
     Ok(())
 }

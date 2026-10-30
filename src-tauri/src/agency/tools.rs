@@ -7,6 +7,7 @@ use rusqlite::OptionalExtension;
 
 use crate::{
     agency::{board::BlackboardService, models::*},
+    corpus::repository::CorpusRepository,
     creative_engine::adapter::CreativeEngineAdapter,
     db::DbPool,
     domain::{
@@ -186,12 +187,16 @@ impl ToolRegistry {
         registry.register(Arc::new(AssetQueryTool));
         registry.register(Arc::new(AssetReadTool));
         registry.register(Arc::new(CreativeContextTool));
+        registry.register(Arc::new(CorpusSearchTool));
+        registry.register(Arc::new(CorpusReadTool));
         for role in AgentRole::all() {
             registry.allow(role, "board_read");
             registry.allow(role, "story_info");
             registry.allow(role, "asset_query");
             registry.allow(role, "asset_read");
             registry.allow(role, "creative_context");
+            registry.allow(role, "corpus_search");
+            registry.allow(role, "corpus_read");
         }
         // 编辑审计只读（审查结论经 ToolLoop final 由协调器落审查区）
         registry.allow(AgentRole::LeadWriter, "board_write");
@@ -218,7 +223,7 @@ impl AgentTool for BoardReadTool {
         "读取黑板分区目录（key+摘要+版本）；detail=catalog|summary|full，key 精确读时 summary 档取前 500 字"
     }
     fn args_schema(&self) -> serde_json::Value {
-        serde_json::json!({"zone": "asset|draft|review|schedule（可选，缺省读全部）", "key": "可选，精确读取某条目", "detail": "catalog|summary|full（默认 catalog；key 精确读默认 full）"})
+        serde_json::json!({"zone": "asset|draft|review|schedule|direction（可选，缺省读全部）", "key": "可选，精确读取某条目", "detail": "catalog|summary|full（默认 catalog；key 精确读默认 full）"})
     }
     fn usage_guidance(&self) -> Option<&'static str> {
         Some("资产已注入时不要轮询 board_read 拉全文；只需补读遗漏 key")
@@ -246,7 +251,7 @@ impl AgentTool for BoardReadTool {
                     Some(parsed) => Some(parsed),
                     None => {
                         return Ok(format!(
-                            "非法 zone: {}，可选 asset|draft|review|schedule",
+                            "非法 zone: {}，可选 asset|draft|review|schedule|direction",
                             z
                         ))
                     }
@@ -288,12 +293,14 @@ impl AgentTool for BoardReadTool {
                         drafts: vec![],
                         reviews: vec![],
                         schedules: vec![],
+                        directions: vec![],
                     };
                     match z {
                         BoardZone::Asset => snap.assets = items,
                         BoardZone::Draft => snap.drafts = items,
                         BoardZone::Review => snap.reviews = items,
                         BoardZone::Schedule => snap.schedules = items,
+                        BoardZone::Direction => snap.directions = items,
                     }
                     Ok(snap.to_catalog_tokens(500, "cl100k"))
                 }
@@ -316,7 +323,7 @@ impl AgentTool for BoardWriteTool {
         "写入黑板条目（非本角色分区自动降级为提案）"
     }
     fn args_schema(&self) -> serde_json::Value {
-        serde_json::json!({"zone": "asset|draft|review|schedule", "item_type": "条目类型", "key": "条目标识", "content": "全文", "summary": "一句话摘要（≤80字）"})
+        serde_json::json!({"zone": "asset|draft|review|schedule|direction", "item_type": "条目类型", "key": "条目标识", "content": "全文", "summary": "一句话摘要（≤80字）"})
     }
     fn usage_guidance(&self) -> Option<&'static str> {
         Some("正文写入 draft 区，勿覆盖 user_created 资产。写角色后必须再写 item_type=relationship（缺则建、有则改）")
@@ -891,6 +898,117 @@ impl AgentTool for CreativeContextTool {
     }
 }
 
+/// 语料检索：作者语料库（新闻/故事/概念/灵感/图片/链接/笔记）的只读查询。
+pub struct CorpusSearchTool;
+
+#[async_trait::async_trait]
+impl AgentTool for CorpusSearchTool {
+    fn name(&self) -> &'static str {
+        "corpus_search"
+    }
+    fn description(&self) -> &'static str {
+        "搜索作者语料库（新闻/故事/概念/灵感/图片/链接），返回标题+摘要+id"
+    }
+    fn args_schema(&self) -> serde_json::Value {
+        serde_json::json!({"query": "关键词（标题/内容/标签）", "limit": "可选，默认 5"})
+    }
+    fn usage_guidance(&self) -> Option<&'static str> {
+        Some("用户引用语料或需要外部素材时先用 corpus_search 找条目，再用 corpus_read 读全文")
+    }
+    async fn execute(
+        &self,
+        ctx: &ToolContext,
+        args: serde_json::Value,
+    ) -> Result<String, AppError> {
+        let query = args
+            .get("query")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let limit = args
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(5)
+            .clamp(1, 20) as i32;
+        let pool = ctx.pool.clone();
+        let story_id = ctx.story_id.clone();
+        let items = tokio::task::spawn_blocking(move || {
+            CorpusRepository::new(pool).list(
+                &story_id,
+                None,
+                None,
+                if query.is_empty() { None } else { Some(&query) },
+                limit,
+                0,
+            )
+        })
+        .await
+        .map_err(|e| AppError::from(format!("corpus_search join error: {e}")))??;
+        if items.is_empty() {
+            return Ok("（无语料）；可建议作者先在语料库导入新闻/概念/灵感/图片".to_string());
+        }
+        let mut out = String::from("语料目录：\n");
+        for c in items {
+            out.push_str(&format!(
+                "- [{}] {} — {} (id={})\n",
+                c.kind,
+                c.title,
+                c.summary.chars().take(80).collect::<String>(),
+                c.id
+            ));
+        }
+        Ok(out)
+    }
+}
+
+/// 语料全文：读取一条语料（只读，story 隔离）。
+pub struct CorpusReadTool;
+
+#[async_trait::async_trait]
+impl AgentTool for CorpusReadTool {
+    fn name(&self) -> &'static str {
+        "corpus_read"
+    }
+    fn description(&self) -> &'static str {
+        "读取一条语料的原文（按 corpus_id；跨故事拒绝）"
+    }
+    fn args_schema(&self) -> serde_json::Value {
+        serde_json::json!({"corpus_id": "语料 id（corpus_search 返回）"})
+    }
+    fn usage_guidance(&self) -> Option<&'static str> {
+        Some("先用 corpus_search 获取 id；原文超过 4000 字会截断")
+    }
+    async fn execute(
+        &self,
+        ctx: &ToolContext,
+        args: serde_json::Value,
+    ) -> Result<String, AppError> {
+        let id = args
+            .get("corpus_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AppError::validation_failed("缺少 corpus_id", Some("corpus_id")))?;
+        let pool = ctx.pool.clone();
+        let id = id.to_string();
+        let id_c = id.clone();
+        let detail = tokio::task::spawn_blocking(move || CorpusRepository::new(pool).get(&id_c))
+            .await
+            .map_err(|e| AppError::from(format!("corpus_read join error: {e}")))??;
+        let detail = detail.ok_or_else(|| AppError::not_found("corpus", &id))?;
+        if detail.story_id != ctx.story_id {
+            return Err(AppError::validation_failed(
+                "语料不属于当前故事，拒绝跨故事读取",
+                Some("story_id"),
+            ));
+        }
+        let content: String = detail.content.chars().take(4000).collect();
+        Ok(format!(
+            "[{}] {}\n摘要：{}\n原文：\n{}",
+            detail.kind, detail.title, detail.summary, content
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -913,6 +1031,62 @@ mod tests {
         AgencyRepository::new(pool.clone())
             .create_run(&AgencyRun::new("r1", "前提"))
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_corpus_tools_search_and_read() {
+        let pool = create_test_pool().unwrap();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO stories (id, title, created_at, updated_at)
+                 VALUES ('s1', '测试故事', 'now', 'now')",
+                [],
+            )
+            .unwrap();
+        }
+        let id = crate::corpus::repository::CorpusRepository::new(pool.clone())
+            .create(
+                "s1",
+                "news",
+                "老街雨夜",
+                "霓虹反光；拆迁围挡",
+                "摘要",
+                None,
+                Some("城市观察"),
+                vec!["社会".into()],
+            )
+            .unwrap();
+        let registry = ToolRegistry::agency_default();
+        for role in AgentRole::all() {
+            assert!(
+                registry.get_for_role(role, "corpus_search").is_some(),
+                "{:?} 应可读 corpus_search",
+                role
+            );
+            assert!(
+                registry.get_for_role(role, "corpus_read").is_some(),
+                "{:?} 应可读 corpus_read",
+                role
+            );
+        }
+        let context = ctx(pool, AgentRole::Producer);
+        let search = registry
+            .get_for_role(AgentRole::Producer, "corpus_search")
+            .unwrap();
+        let out = search
+            .execute(&context, serde_json::json!({"query": "老街", "limit": 5}))
+            .await
+            .unwrap();
+        assert!(out.contains("老街雨夜"));
+        let read = registry
+            .get_for_role(AgentRole::Producer, "corpus_read")
+            .unwrap();
+        let out = read
+            .execute(&context, serde_json::json!({"corpus_id": id}))
+            .await
+            .unwrap();
+        assert!(out.contains("霓虹反光"));
     }
 
     #[tokio::test]

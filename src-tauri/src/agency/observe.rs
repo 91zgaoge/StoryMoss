@@ -217,6 +217,7 @@ fn find_or_create_observe_run(pool: &DbPool, story_id: &str) -> Result<AgencyRun
     run.story_id = Some(story_id.to_string());
     run.status = "idle".into();
     run.phase = "observe".into();
+    run.lane = "inspect".into();
     if let Err(e) = repo.create_run(&run) {
         if let Ok(Some(again)) = repo.find_observe_run(story_id) {
             return Ok(again);

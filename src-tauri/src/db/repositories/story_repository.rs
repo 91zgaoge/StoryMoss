@@ -295,6 +295,29 @@ impl StoryRepository {
             [id],
         );
         let _ = tx.execute("DELETE FROM agency_runs WHERE story_id = ?1", [id]);
+        // v0.74.0：lane/task/lease/chat/corpus 的 story 级清理（FK 级联兜底，
+        // 但显式删除保证 foreign_keys off 的旧库也不会留孤儿）
+        let _ = tx.execute("DELETE FROM agency_agent_tasks WHERE story_id = ?1", [id]);
+        let _ = tx.execute(
+            "DELETE FROM story_resource_leases WHERE story_id = ?1",
+            [id],
+        );
+        let _ = tx.execute(
+            "DELETE FROM agency_chat_messages WHERE session_id IN \
+             (SELECT id FROM agency_chat_sessions WHERE story_id = ?1)",
+            [id],
+        );
+        let _ = tx.execute("DELETE FROM agency_chat_sessions WHERE story_id = ?1", [id]);
+        let _ = tx.execute(
+            "DELETE FROM agency_director_actions WHERE story_id = ?1",
+            [id],
+        );
+        let _ = tx.execute(
+            "DELETE FROM corpus_links WHERE corpus_id IN \
+             (SELECT id FROM corpus_items WHERE story_id = ?1)",
+            [id],
+        );
+        let _ = tx.execute("DELETE FROM corpus_items WHERE story_id = ?1", [id]);
         let _ = tx.execute("DELETE FROM ingest_jobs WHERE story_id = ?1", [id]);
         let _ = tx.execute("DELETE FROM llm_calls WHERE story_id = ?1", [id]);
 
@@ -323,6 +346,11 @@ impl StoryRepository {
                 ("agency_runs", "story_id"),
                 ("agency_board_items", "story_id"),
                 ("agency_checkpoints", "story_id"),
+                ("agency_agent_tasks", "story_id"),
+                ("story_resource_leases", "story_id"),
+                ("agency_chat_sessions", "story_id"),
+                ("agency_director_actions", "story_id"),
+                ("corpus_items", "story_id"),
                 ("ingest_jobs", "story_id"),
                 ("llm_calls", "story_id"),
             ];

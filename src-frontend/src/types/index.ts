@@ -302,6 +302,8 @@ export type ViewType =
   | 'characters'
   | 'world_building'
   | 'scenes'
+  /** v0.74.0 语料资产（新闻/故事/概念/灵感/图片/链接/笔记） */
+  | 'corpus'
   | 'knowledge-graph'
   | 'skills'
   | 'mcp'

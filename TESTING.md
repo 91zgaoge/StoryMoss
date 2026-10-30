@@ -1,8 +1,16 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.73.14)
+# 🧪 StoryMoss 自动化测试环境 (v0.74.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.74.0 变更说明
+
+- **语料 / 导演 / 任务底座（Rust 1874 passed / 10 ignored，+12）**：
+  ①V149 迁移——lane 回填、V109 索引原子替换、新表/索引幂等；②`AgencyRun.lane` 与 per-lane 唯一索引（write/review 并存、同 lane 冲突）；③任务注册表状态机/心跳/stale 回收；④租约 acquire/冲突/过期/回收；⑤Reporter 心跳与结束 await；⑥TaskScheduler 异步派发、依赖等待、取消登记；⑦导演计划解析/确认策略；⑧corpus 仓储 CRUD/link/文件路径；⑨corpus_search/corpus_read 工具；⑩IPC 契约（corpus/director/chat/crew 命令注册、V149 文件存在）。
+- **前端（vitest 644 passed / 3 skipped，+14）**：语料页列表/详情/AI 提炼/交给导演 3 条；AgencyStudio 11 条（四角色、黑板、时间线、run 选择、错误提示、业务键去重、观察、资产跳转、发送消息、审批确认）。
+- **E2E（playwright 45 passed / 5 skipped，+2）**：语料页加载/选中/AI 提炼；代理工作室剧组/对话/现场 + `agency_chat_send`。
+- **未关闭**：真实模型端到端（导演规划、语料提炼/转资产）未跑真机探针；多 write 并行与 pinned 语料进续写上下文属 P1。
 
 ### v0.73.14 变更说明
 

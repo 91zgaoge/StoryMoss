@@ -8,6 +8,7 @@ import { Dashboard } from '@/pages/Dashboard';
 import { Stories } from '@/pages/Stories';
 import { Characters } from '@/pages/Characters';
 import { Scenes } from '@/pages/Scenes';
+import Corpus from '@/pages/Corpus';
 import { WorldBuilding } from '@/pages/WorldBuilding';
 import { KnowledgeGraph } from '@/pages/KnowledgeGraph';
 import { Skills } from '@/pages/Skills';
@@ -66,6 +67,12 @@ function App() {
       queryClient.invalidateQueries({ queryKey: ['story-outline', currentStory.id] });
       queryClient.invalidateQueries({ queryKey: ['knowledge-graph', currentStory.id] });
       queryClient.invalidateQueries({ queryKey: ['character-relationships', currentStory.id] });
+      // v0.74.0: 语料 / 剧组对话 / 任务现场随故事切换
+      queryClient.invalidateQueries({ queryKey: ['corpus', currentStory.id] });
+      queryClient.invalidateQueries({ queryKey: ['corpus-detail'] });
+      queryClient.invalidateQueries({ queryKey: ['agency-chat-sessions', currentStory.id] });
+      queryClient.invalidateQueries({ queryKey: ['agency-chat'] });
+      queryClient.invalidateQueries({ queryKey: ['agency-crew', currentStory.id] });
     }
   }, [currentStory?.id, queryClient]);
 
@@ -288,6 +295,10 @@ function App() {
     let unActivity: (() => void) | undefined;
     let unProgress: (() => void) | undefined;
     let unBoard: (() => void) | undefined;
+    let unChat: (() => void) | undefined;
+    let unCrew: (() => void) | undefined;
+    let unLease: (() => void) | undefined;
+    let unDirector: (() => void) | undefined;
     const setup = async () => {
       try {
         unActivity = await listen<Omit<AgentActivityEvent, 'at'>>('agency-agent-activity', e => {
@@ -300,6 +311,21 @@ function App() {
           useAgencyActivityStore.getState().setActiveRunId(e.payload.run_id);
           queryClient.invalidateQueries({ queryKey: ['agency-board', e.payload.run_id] });
         });
+        // v0.74.0: 导演/剧组事件只做缓存失效；消息与任务本身已落库，轮询兜底。
+        unChat = await listen<{ session_id: string }>('agency-chat-update', () => {
+          queryClient.invalidateQueries({ queryKey: ['agency-chat'] });
+          queryClient.invalidateQueries({ queryKey: ['agency-chat-sessions'] });
+        });
+        unCrew = await listen<{ story_id: string }>('agency-crew-update', () => {
+          queryClient.invalidateQueries({ queryKey: ['agency-crew'] });
+        });
+        unLease = await listen<{ story_id: string }>('agency-lease-update', () => {
+          queryClient.invalidateQueries({ queryKey: ['agency-crew'] });
+        });
+        unDirector = await listen<{ action_id: string }>('agency-director-action', () => {
+          queryClient.invalidateQueries({ queryKey: ['agency-chat'] });
+          queryClient.invalidateQueries({ queryKey: ['agency-crew'] });
+        });
       } catch (e) {
         createLogger('ui:App').error('Failed to setup agency event listeners', { error: e });
       }
@@ -309,6 +335,10 @@ function App() {
       unActivity?.();
       unProgress?.();
       unBoard?.();
+      unChat?.();
+      unCrew?.();
+      unLease?.();
+      unDirector?.();
     };
   }, [queryClient]);
 
@@ -327,6 +357,8 @@ function App() {
         return <WorldBuilding />;
       case 'scenes':
         return <Scenes />;
+      case 'corpus':
+        return <Corpus />;
       case 'knowledge-graph':
         return <KnowledgeGraph />;
       case 'skills':

@@ -22,6 +22,7 @@ import {
   ScrollText,
   Activity,
   Gauge,
+  Library,
   ChevronDown,
   Bot,
   Workflow,
@@ -84,6 +85,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'scenes', label: '场景', icon: Clapperboard, impact: 'hot' },
       { id: 'characters', label: '角色', icon: Users, impact: 'hot' },
+      { id: 'corpus', label: '语料', icon: Library, impact: 'warm' },
       { id: 'world_building', label: '世界构建', icon: Globe, impact: 'hot' },
       { id: 'foreshadowing', label: '伏笔', icon: Eye, impact: 'hot' },
       { id: 'knowledge-graph', label: '知识图谱', icon: Network, impact: 'warm' },

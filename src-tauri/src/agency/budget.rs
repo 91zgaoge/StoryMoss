@@ -16,8 +16,16 @@ pub const DEFAULT_RUN_TOKEN_BUDGET: u64 = 300_000;
 /// agency 全局 LLM 并发闸门（跨 run 总量上限，P2 终审 I3）。
 /// 锁序：先 run 级角色预算（BudgetedLlm），后全局闸门（AgencyLlm）；
 /// 所有路径同序获取，无循环等待。
+/// v0.74.0：3 → 4。子 agent 异步派发需要 Director/Producer/Editor/Writer
+/// 至少各占一槽；P1 进设置页，Director turn 另用 DIRECTOR_LLM_SEM。
 pub static AGENCY_GLOBAL_LLM_SEM: once_cell::sync::Lazy<tokio::sync::Semaphore> =
-    once_cell::sync::Lazy::new(|| tokio::sync::Semaphore::new(3));
+    once_cell::sync::Lazy::new(|| tokio::sync::Semaphore::new(4));
+
+/// 导演回合（inspect→plan→dispatch→follow-up）的独立许可。
+/// 子 agent 跑满时导演仍能拿到模型；`run_role_task(Director)` 另用
+/// `AgencyBudget.director_sem`。
+pub static DIRECTOR_LLM_SEM: once_cell::sync::Lazy<tokio::sync::Semaphore> =
+    once_cell::sync::Lazy::new(|| tokio::sync::Semaphore::new(1));
 
 /// 运行级并发预算：按角色信号量限流 + token 预算硬上限。
 /// 取代对全局单一 BACKGROUND_LLM_SEMAPHORE 的依赖（agency 内部）。
@@ -25,6 +33,8 @@ pub struct AgencyBudget {
     writer_sem: Semaphore,
     producer_sem: Semaphore,
     editor_sem: Semaphore,
+    /// 导演许可：run_role_task(Director) 与其它角色隔离，容量 1。
+    director_sem: Semaphore,
     token_budget: u64,
     tokens_used: AtomicU64,
 }
@@ -44,6 +54,7 @@ impl AgencyBudget {
             writer_sem: Semaphore::new(writer),
             producer_sem: Semaphore::new(producer),
             editor_sem: Semaphore::new(editor),
+            director_sem: Semaphore::new(1),
             token_budget,
             tokens_used: AtomicU64::new(0),
         }
@@ -73,6 +84,7 @@ impl AgencyBudget {
     pub async fn acquire(&self, role: AgentRole) -> Result<SemaphorePermit<'_>, AppError> {
         self.check()?;
         let sem = match role {
+            AgentRole::Director => &self.director_sem,
             AgentRole::LeadWriter | AgentRole::Writer | AgentRole::OutlinePlanner => {
                 &self.writer_sem
             }

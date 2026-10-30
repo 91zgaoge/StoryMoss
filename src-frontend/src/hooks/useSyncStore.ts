@@ -110,6 +110,11 @@ const KEYS = {
   writingStyle: (storyId?: string) => (storyId ? ['writing_style', storyId] : ['writing_style']),
   cascadeImpacts: (storyId?: string) =>
     storyId ? ['cascade_impacts', storyId] : ['cascade_impacts'],
+  // v0.74.0：语料 / 导演剧组对话 / 任务现场
+  corpus: (storyId?: string) => (storyId ? ['corpus', storyId] : ['corpus']),
+  agencyChatSessions: (storyId?: string) =>
+    storyId ? ['agency-chat-sessions', storyId] : ['agency-chat-sessions'],
+  agencyCrew: (storyId?: string) => (storyId ? ['agency-crew', storyId] : ['agency-crew']),
 };
 
 // ==================== Hook ====================
@@ -146,6 +151,10 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
             queryClient.removeQueries({ queryKey: KEYS.scenes(payload.story_id) });
             queryClient.removeQueries({ queryKey: KEYS.characters(payload.story_id) });
             queryClient.removeQueries({ queryKey: KEYS.chapters(payload.story_id) });
+            queryClient.removeQueries({ queryKey: KEYS.corpus(payload.story_id) });
+            queryClient.removeQueries({ queryKey: KEYS.agencyChatSessions(payload.story_id) });
+            queryClient.removeQueries({ queryKey: KEYS.agencyCrew(payload.story_id) });
+            queryClient.removeQueries({ queryKey: ['agency-chat'] });
             optionsRef.current.onStoryDeleted?.(payload.story_id);
             break;
           }
@@ -157,6 +166,9 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
             queryClient.invalidateQueries({ queryKey: KEYS.worldBuilding(payload.story_id) });
             queryClient.invalidateQueries({ queryKey: KEYS.foreshadowings(payload.story_id) });
             queryClient.invalidateQueries({ queryKey: KEYS.storyOutlines(payload.story_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.corpus(payload.story_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.agencyChatSessions(payload.story_id) });
+            queryClient.invalidateQueries({ queryKey: KEYS.agencyCrew(payload.story_id) });
             queryClient.invalidateQueries({ queryKey: KEYS.knowledgeGraph(payload.story_id) });
             queryClient.invalidateQueries({
               queryKey: KEYS.characterRelationships(payload.story_id),

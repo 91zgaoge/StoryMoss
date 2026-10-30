@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.74.0（2026-10-30）
+
+**语料资产 + 导演 Agent + 幕后剧组对话 + lane/task/lease 并发底座。**
+
+- **语料资产**：新增故事级 `corpus_items/corpus_links` 与幕后「语料」页；支持文本/链接/文件/图片导入、AI 提炼（核心事实/冲突/人物原型/世界观钩子/改编建议）、转为角色/世界观/伏笔/场景草稿并建立溯源；删除故事会同步清理 `app_data_dir/corpus/<story_id>/` 物理文件。
+- **导演 Agent**：新增 `AgentRole::Director`、`agency_director_system` 提示词与「导演区」黑板；导演执行 inspect→plan→异步 dispatch→follow-up，不直接写正文/资产；覆盖手写资产、取消、续写/批量需确认。
+- **幕后对话**：代理工作室改为三栏（剧组花名册 / 对话 / 现场），支持 @管理/@编审/@主创 直达、快捷指令、审批卡、任务/告警/租约/黑板/时间线；会话与消息落库，消息 `acting → done` 由事件驱动。
+- **并发底座**：V149 将 V109 的单 story 活跃 run 索引升级为 `(story_id, lane)`；新增 `agency_agent_tasks`（子 agent 异步任务/心跳/状态机）、`story_resource_leases`（提交点租约）、`TaskScheduler`/`TaskReporter`/`LeaseManager`、`DIRECTOR_LLM_SEM` 与可配置全局 4 并发；对话/巡检不建 run，不阻塞创世/续写。
+- **语料工具**：所有 agency 角色获得只读 `corpus_search`/`corpus_read`；导演/管理/编审/主创可在任务中读取作者语料。
+- **验证**：Rust **1874 passed / 10 ignored**；vitest **644 passed / 3 skipped**；playwright **45 passed / 5 skipped**（新增语料页/代理工作室 2 条）；tsc / clippy / fmt / guard / IPC manifest 全绿。
+- **未关闭**：真实模型端到端的导演规划、语料提炼/转资产尚未跑真机探针；多 write 并行（资源租约 + 原子章号）与 pinned 语料进续写上下文属 P1。
+
 ## v0.73.14（2026-10-30）
 
 **修复角色改名生成重复角色、续写人物混淆，以及写作风格弹窗找不到确认/关闭按钮。**

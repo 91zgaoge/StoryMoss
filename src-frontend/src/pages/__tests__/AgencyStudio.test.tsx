@@ -1,13 +1,44 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-const { setCurrentView } = vi.hoisted(() => ({ setCurrentView: vi.fn() }));
+const { setCurrentView, EMPTY_CREW } = vi.hoisted(() => ({
+  setCurrentView: vi.fn(),
+  EMPTY_CREW: {
+    story_id: 's1',
+    story_title: '工作室书',
+    runs: [],
+    tasks: [],
+    leases: [],
+    corpus_count: 0,
+    alerts: [],
+  },
+}));
 
 vi.mock('@/services/api/agency', () => ({
   listBoard: vi.fn().mockResolvedValue([]),
   getRun: vi.fn().mockResolvedValue(null),
   listRuns: vi.fn().mockResolvedValue([]),
+  listActivities: vi.fn().mockResolvedValue([]),
+  listChatSessions: vi.fn().mockResolvedValue([]),
+  listChatMessages: vi.fn().mockResolvedValue([]),
+  crewStatus: vi.fn().mockResolvedValue(EMPTY_CREW),
+  sendChat: vi.fn().mockResolvedValue({ session_id: 's1', message_id: 'm1', turn_task_id: 't1' }),
+  newChatSession: vi.fn().mockResolvedValue({
+    id: 's1',
+    story_id: 's1',
+    title: '新会话',
+    target_role: 'director',
+    archived: false,
+    created_at: '2026-07-29T10:00:00+08:00',
+    updated_at: '2026-07-29T10:00:00+08:00',
+  }),
+  directorExecute: vi.fn().mockResolvedValue([]),
+  directorReject: vi.fn().mockResolvedValue(undefined),
+  directorPatrol: vi.fn().mockResolvedValue(EMPTY_CREW),
+  crewCancelTask: vi.fn().mockResolvedValue(undefined),
+  crewRetryTask: vi.fn().mockResolvedValue('t1'),
+  crewDispatch: vi.fn().mockResolvedValue('t1'),
 }));
 vi.mock('@/stores/appStore', () => ({
   useAppStore: (sel: (s: Record<string, unknown>) => unknown) =>
@@ -18,7 +49,16 @@ vi.mock('@/stores/appStore', () => ({
 }));
 
 import AgencyStudio from '../AgencyStudio';
-import { listBoard, getRun, listRuns } from '@/services/api/agency';
+import {
+  crewStatus,
+  directorExecute,
+  listBoard,
+  listChatMessages,
+  listChatSessions,
+  listRuns,
+  getRun,
+  sendChat,
+} from '@/services/api/agency';
 import { useAgencyActivityStore } from '@/stores/agencyActivityStore';
 
 const RUN_1 = {
@@ -27,6 +67,7 @@ const RUN_1 = {
   premise: '一个故事',
   status: 'completed',
   phase: 'assembly',
+  lane: 'write',
   result_json: null,
   error_message: null,
   created_at: '2026-07-29T10:00:00+08:00',
@@ -60,19 +101,30 @@ function renderStudio() {
 
 describe('AgencyStudio', () => {
   beforeEach(() => {
-    // 重置全局事件 store（真实 store，无 persist/副作用，测试间需清理）
-    useAgencyActivityStore.setState({ activities: [], progress: [], activeRunId: null });
+    useAgencyActivityStore.setState({
+      activities: [],
+      progress: [],
+      activeRunId: null,
+      storyId: null,
+    });
     vi.mocked(listRuns).mockResolvedValue([]);
     vi.mocked(listBoard).mockResolvedValue([]);
     vi.mocked(getRun).mockResolvedValue(null);
+    vi.mocked(listChatSessions).mockResolvedValue([]);
+    vi.mocked(listChatMessages).mockResolvedValue([]);
+    vi.mocked(crewStatus).mockResolvedValue(EMPTY_CREW);
+    vi.mocked(sendChat).mockClear();
+    setCurrentView.mockClear();
   });
 
-  it('渲染三角色状态卡与黑板空态', async () => {
+  it('渲染剧组四角色与对话空态', async () => {
     renderStudio();
-    expect(await screen.findByText('主创')).toBeInTheDocument();
-    expect(await screen.findByText('管理')).toBeInTheDocument();
-    expect(await screen.findByText('编辑审计')).toBeInTheDocument();
-    expect(await screen.findByText(/暂无活动/)).toBeInTheDocument();
+    expect((await screen.findAllByText('导演')).length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByText('管理')).length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByText('编审')).length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByText('主创')).length).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByText(/剧组已就位/)).toBeInTheDocument();
+    expect(await screen.findByText('任务进程')).toBeInTheDocument();
   });
 
   it('有历史 run 时水合 activeRunId 并显示黑板', async () => {
@@ -81,12 +133,8 @@ describe('AgencyStudio', () => {
     vi.mocked(getRun).mockResolvedValue(RUN_1);
 
     renderStudio();
-    // 黑板标题应出现（activeRunId 水合后）
-    expect(await screen.findByText('黑板')).toBeInTheDocument();
-    // 黑板条目应出现
+    fireEvent.click(await screen.findByText('黑板'));
     expect(await screen.findByText('世界观')).toBeInTheDocument();
-    // 不应显示"暂无活动"
-    expect(screen.queryByText(/暂无活动/)).not.toBeInTheDocument();
   });
 
   it('run 选择器渲染多个 option', async () => {
@@ -102,9 +150,8 @@ describe('AgencyStudio', () => {
     vi.mocked(listRuns).mockResolvedValue([RUN_2, RUN_1]);
 
     renderStudio();
-    const select = await screen.findByRole('combobox');
-    expect(select).toBeInTheDocument();
-    const options = screen.getAllByRole('option');
+    const select = await screen.findByLabelText('run 选择');
+    const options = select.querySelectorAll('option');
     expect(options).toHaveLength(2);
   });
 
@@ -114,14 +161,13 @@ describe('AgencyStudio', () => {
     vi.mocked(getRun).mockResolvedValue(RUN_1);
 
     renderStudio();
-    // 时间线应包含 board item 重建的条目
+    fireEvent.click(await screen.findByText('时间线'));
     expect(await screen.findByText(/管理 创建 资产：世界观/)).toBeInTheDocument();
-    // 时间线应包含 run 生命周期条目
     expect(await screen.findByText(/运行启动/)).toBeInTheDocument();
     expect(await screen.findByText(/运行完成/)).toBeInTheDocument();
   });
 
-  it('页面后开（无实时事件）时角色卡从 board items 重建三代理最近动作', async () => {
+  it('角色卡从 board items 重建最近动作与 run 状态', async () => {
     const BOARD_WRITER = {
       ...BOARD_ITEM_1,
       id: 'b2',
@@ -143,12 +189,12 @@ describe('AgencyStudio', () => {
     vi.mocked(getRun).mockResolvedValue(RUN_1);
 
     renderStudio();
-    // 三张角色卡分别显示各自角色的历史最近动作
     expect(await screen.findByText(/最近动作：创建 资产：世界观/)).toBeInTheDocument();
     expect(await screen.findByText(/最近动作：创建 草稿：首章/)).toBeInTheDocument();
     expect(await screen.findByText(/最近动作：创建 审查：质检结论/)).toBeInTheDocument();
-    // run 状态使用本地化文案（completed -> 完成）
-    expect((await screen.findAllByText(/run 状态：assembly · 完成/)).length).toBe(3);
+    expect((await screen.findAllByText(/run 状态：assembly · 完成/)).length).toBeGreaterThanOrEqual(
+      3
+    );
   });
 
   it('listRuns 失败时显示错误提示而非静默空态', async () => {
@@ -159,18 +205,15 @@ describe('AgencyStudio', () => {
     expect(await screen.findByText(/IPC boom/)).toBeInTheDocument();
   });
 
-  it('同一业务事件重复发（时间戳不同）时时间线只显示一次（业务键去重）', async () => {
+  it('同一业务事件重复发时时间线只显示一次（业务键去重）', async () => {
     vi.mocked(listRuns).mockResolvedValue([RUN_1]);
     vi.mocked(getRun).mockResolvedValue(RUN_1);
-    // 快速路径失败回退 legacy 时会重复发同一 done/概念事件：
-    // live 条目的 at 是 Date.now，两次发的 at 必不同，旧 at|text key 去重失效。
     useAgencyActivityStore.setState({
       storyId: 's1',
       activeRunId: 'run-1',
       activities: [
         { run_id: 'run-1', role: 'producer', action: 'done', detail: '概念', at: 1000 },
         { run_id: 'run-1', role: 'producer', action: 'done', detail: '概念', at: 2000 },
-        // 业务键不同（action 不同）的条目应保留
         { run_id: 'run-1', role: 'producer', action: 'start', detail: '概念', at: 1500 },
       ],
       progress: [
@@ -192,6 +235,7 @@ describe('AgencyStudio', () => {
     });
 
     renderStudio();
+    fireEvent.click(await screen.findByText('时间线'));
     expect((await screen.findAllByText('管理 done 概念')).length).toBe(1);
     expect((await screen.findAllByText('管理 start 概念')).length).toBe(1);
     expect((await screen.findAllByText('concept running 正在构思故事概念')).length).toBe(1);
@@ -204,6 +248,7 @@ describe('AgencyStudio', () => {
       premise: '观察',
       status: 'observing',
       phase: 'observe',
+      lane: 'inspect',
     };
     vi.mocked(listRuns).mockResolvedValue([OBSERVE_RUN]);
     vi.mocked(getRun).mockResolvedValue(OBSERVE_RUN);
@@ -232,14 +277,15 @@ describe('AgencyStudio', () => {
 
     renderStudio();
     expect((await screen.findAllByText(/观察中/)).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('当前执行轨迹')).toBeInTheDocument();
+    fireEvent.click(await screen.findByText('时间线'));
+    expect(await screen.findByText('当前执行轨迹')).toBeInTheDocument();
     expect(screen.getByTestId('ai-thinking-spinner')).toBeInTheDocument();
-    expect(screen.getByText('管理 start 资产回流')).toBeInTheDocument();
-    expect(screen.getByText('主创 start 编译节拍')).toBeInTheDocument();
-    expect(screen.getByText('编辑审计 start 后台审查')).toBeInTheDocument();
+    expect(await screen.findByText('管理 start 资产回流')).toBeInTheDocument();
+    expect(await screen.findByText('主创 start 编译节拍')).toBeInTheDocument();
+    expect(await screen.findByText('编审 start 后台审查')).toBeInTheDocument();
   });
 
-  it('点击资产卡跳到对应幕后页', async () => {
+  it('点击黑板资产卡跳到对应幕后页', async () => {
     const CHAR_ITEM = {
       ...BOARD_ITEM_1,
       id: 'b-char',
@@ -250,10 +296,84 @@ describe('AgencyStudio', () => {
     vi.mocked(listRuns).mockResolvedValue([RUN_1]);
     vi.mocked(listBoard).mockResolvedValue([CHAR_ITEM]);
     vi.mocked(getRun).mockResolvedValue(RUN_1);
-    setCurrentView.mockClear();
 
     renderStudio();
+    fireEvent.click(await screen.findByText('黑板'));
     fireEvent.click(await screen.findByText('character:苏会山'));
     expect(setCurrentView).toHaveBeenCalledWith('characters');
+  });
+
+  it('发送消息调用 agency_chat_send 并立即返回', async () => {
+    vi.mocked(listChatSessions).mockResolvedValue([
+      {
+        id: 's1',
+        story_id: 's1',
+        title: '今晚',
+        target_role: 'director',
+        archived: false,
+        created_at: '2026-07-29T10:00:00+08:00',
+        updated_at: '2026-07-29T10:00:00+08:00',
+      },
+    ]);
+    renderStudio();
+    const textarea = await screen.findByLabelText('AI 指令输入');
+    fireEvent.change(textarea, { target: { value: '让管理补齐世界观' } });
+    fireEvent.click(screen.getByLabelText('发送'));
+    await waitFor(() => {
+      expect(sendChat).toHaveBeenCalledWith(
+        expect.objectContaining({
+          story_id: 's1',
+          message: '让管理补齐世界观',
+          target_role: 'director',
+        })
+      );
+    });
+  });
+
+  it('审批卡确认调用 directorExecute', async () => {
+    vi.mocked(listChatSessions).mockResolvedValue([
+      {
+        id: 's1',
+        story_id: 's1',
+        title: '今晚',
+        target_role: 'director',
+        archived: false,
+        created_at: '2026-07-29T10:00:00+08:00',
+        updated_at: '2026-07-29T10:00:00+08:00',
+      },
+    ]);
+    vi.mocked(listChatMessages).mockResolvedValue([
+      {
+        id: 'm1',
+        session_id: 's1',
+        role: 'director',
+        content: '编审发现 3 处视角越界，是否修订？',
+        status: 'done',
+        actions_json: JSON.stringify({
+          confirmation: '确认修订',
+          actions: [
+            {
+              id: 'a1',
+              action_type: 'dispatch',
+              params_json: JSON.stringify({
+                type: 'dispatch',
+                role: 'lead_writer',
+                instruction: '按编审建议修订第 12 章',
+              }),
+            },
+          ],
+        }),
+        created_at: '2026-07-29T10:00:00+08:00',
+      },
+    ]);
+
+    renderStudio();
+    expect(await screen.findByText('需要你确认')).toBeInTheDocument();
+    fireEvent.click(await screen.findByText('确认执行'));
+    await waitFor(() => {
+      expect(directorExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ story_id: 's1', session_id: 's1', action_ids: ['a1'] })
+      );
+    });
   });
 });

@@ -272,6 +272,7 @@ pub(crate) fn derive_model_role_from_label(
     // 编辑后台档
     if let Some(rest) = label.strip_prefix("agency_") {
         return match rest {
+            r if r.starts_with("director") => Some(crate::config::settings::ModelRole::Tool),
             r if r.starts_with("writer") => Some(crate::config::settings::ModelRole::Creative),
             r if r.starts_with("producer") => Some(crate::config::settings::ModelRole::Tool),
             r if r.starts_with("editor") => Some(crate::config::settings::ModelRole::Background),

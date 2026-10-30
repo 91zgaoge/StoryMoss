@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.73.14
+- **版本**: v0.74.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -105,10 +105,10 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1844 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 / 空正文冷却·上下文自动探测 / 续写跨档兜底 / 角色身份·改名去重·实体链接 / IPC 注册表契约 ·共 10 ignored）
+- `cargo test -p storymoss` ✅ 1874 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 / 空正文冷却·上下文自动探测 / 续写跨档兜底 / 角色身份·改名去重·实体链接 / v0.74.0 语料仓储·V149 lane/task/lease·导演角色/分区·异步调度·租约·聊天/动作·IPC 契约 ·共 10 ignored）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 639 passed / 3 skipped（v0.73.14 +5：`StyleDnaModal` 单一风格先选后确认 / 关闭不落库 / 弹窗限高 / 混合面板固定按钮与保存 / 混合配置异步回填；v0.73.13 +7：`useExecutionState` 取数与降级 3、`loggedInvoke` 失败日志 4；v0.73.12 +2：文思活跃火焰/被动静态图标契约；+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
-- `npx playwright test` ✅ 43 passed / 5 skipped（v0.73.9 +1：故事卡片点击同步 `notify_frontstage_story_selected`；v0.73.5 +1：日志页「复制」按钮不被幕前悬浮启动器遮挡（1680px trial click）；v0.73.1 +2：模型页签「超时」子页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃；v0.72.3 修掉一处既有 flake：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version` handler——`useUpdater(true)` 挂载 5s 后自动检查，mock 未实现时慢机/并行负载下页面加载类用例会在「无 console 错误」断言上偶发红；门禁仍非阻塞，见未关闭）
+- `npx vitest run` ✅ 644 passed / 3 skipped（v0.74.0 +3：语料页列表/详情/AI 提炼与交给导演；AgencyStudio +11：四角色/黑板/时间线/run 选择/错误提示/去重/观察/资产跳转/发送消息/审批确认；v0.73.14 +5：`StyleDnaModal` 单一风格先选后确认 / 关闭不落库 / 弹窗限高 / 混合面板固定按钮与保存 / 混合配置异步回填；v0.73.13 +7：`useExecutionState` 取数与降级 3、`loggedInvoke` 失败日志 4；v0.73.12 +2：文思活跃火焰/被动静态图标契约；+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
+- `npx playwright test` ✅ 45 passed / 5 skipped（v0.74.0 +2：语料页加载/选中/AI 提炼；代理工作室剧组/对话/现场与 `agency_chat_send`；v0.73.9 +1：故事卡片点击同步 `notify_frontstage_story_selected`；v0.73.5 +1：日志页「复制」按钮不被幕前悬浮启动器遮挡（1680px trial click）；v0.73.1 +2：模型页签「超时」子页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃；v0.72.3 修掉一处既有 flake：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version` handler——`useUpdater(true)` 挂载 5s 后自动检查，mock 未实现时慢机/并行负载下页面加载类用例会在「无 console 错误」断言上偶发红；门禁仍非阻塞，见未关闭）
 - `cargo +nightly-2026-10-05 fmt` ✅（固定版本，避免 nightly 漂移）
 - `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
 - `npm run format:check` ✅
@@ -118,6 +118,27 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+
+### v0.74.0 - 语料资产 + 导演 Agent + 幕后剧组对话 + lane/task/lease
+
+**为什么**：作者需要把新闻/故事/概念/灵感/图片带进创作流程；幕后代理工作室只有只读观测，
+没有用户 ↔ 管理/编审的对话入口；三个 agent 之上缺少一个统筹、巡检、修复的主 agent。
+同时 V109「每故事一个活跃 run」把写入事务锁做得过粗：模型层已多模型并发，真正的串行点
+应在故事写入提交，而不是把所有进程拉成一条线。
+
+**改动**：①新增故事级 `corpus_items/corpus_links`、语料页、文本/链接/文件/图片导入、
+AI 提炼与转为角色/世界观/伏笔/场景草稿、删除故事清物理文件；②新增 `AgentRole::Director`、
+`agency_director_system` 提示词与「导演区」黑板，导演 inspect→plan→异步 dispatch→follow-up，
+覆盖手写资产/取消/续写需确认；③代理工作室改三栏（花名册/对话/现场），支持 @管理/@编审/
+@主创、审批卡、任务/告警/租约/黑板/时间线，会话与消息落库；④V149 把 V109 索引升级为
+`(story_id, lane)`，新增 `agency_agent_tasks`、`story_resource_leases`、`TaskScheduler`、
+`TaskReporter`、`LeaseManager`；对话/巡检不建 write run；`AGENCY_GLOBAL_LLM_SEM` 3→4、
+新增 `DIRECTOR_LLM_SEM`；⑤所有 agency 角色获得只读 `corpus_search`/`corpus_read`。
+
+- **验证**：Rust **1874 passed / 10 ignored**（+12）；vitest **644 passed / 3 skipped**（+14）；
+  playwright **45 passed / 5 skipped**（+2）；tsc / clippy / fmt / guard / IPC manifest 全绿。
+- **未关闭**：真实模型端到端（导演规划、语料提炼/转资产）尚未跑真机探针；多 write 并行
+  （资源租约 + 原子章号）与 pinned 语料进续写上下文属 P1。
 
 ### v0.73.14 - 角色改名不再生成重复角色 + 风格弹窗可确认
 

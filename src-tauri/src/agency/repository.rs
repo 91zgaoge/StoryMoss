@@ -32,9 +32,9 @@ impl AgencyRepository {
     pub fn create_run(&self, run: &AgencyRun) -> Result<(), rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
         conn.execute(
-            "INSERT INTO agency_runs (id, story_id, premise, status, phase, result_json, error_message, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![run.id, run.story_id, run.premise, run.status, run.phase,
+            "INSERT INTO agency_runs (id, story_id, premise, status, phase, lane, result_json, error_message, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![run.id, run.story_id, run.premise, run.status, run.phase, run.lane,
                     run.result_json, run.error_message, run.created_at, run.updated_at],
         )?;
         Ok(())
@@ -86,7 +86,7 @@ impl AgencyRepository {
     pub fn get_run(&self, run_id: &str) -> Result<Option<AgencyRun>, rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
         conn.query_row(
-            "SELECT id, story_id, premise, status, phase, result_json, error_message, created_at, updated_at
+            "SELECT id, story_id, premise, status, phase, lane, result_json, error_message, created_at, updated_at
              FROM agency_runs WHERE id = ?1",
             params![run_id],
             |row| {
@@ -96,10 +96,11 @@ impl AgencyRepository {
                     premise: row.get(2)?,
                     status: row.get(3)?,
                     phase: row.get(4)?,
-                    result_json: row.get(5)?,
-                    error_message: row.get(6)?,
-                    created_at: row.get(7)?,
-                    updated_at: row.get(8)?,
+                    lane: row.get(5)?,
+                    result_json: row.get(6)?,
+                    error_message: row.get(7)?,
+                    created_at: row.get(8)?,
+                    updated_at: row.get(9)?,
                 })
             },
         ).optional()
@@ -116,7 +117,7 @@ impl AgencyRepository {
     ) -> Result<Vec<AgencyRun>, rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, premise, status, phase, result_json, error_message, created_at, updated_at
+            "SELECT id, story_id, premise, status, phase, lane, result_json, error_message, created_at, updated_at
              FROM agency_runs WHERE story_id = ?1 ORDER BY created_at DESC LIMIT ?2",
         )?;
         let rows = stmt.query_map(params![story_id, limit], |row| {
@@ -126,10 +127,11 @@ impl AgencyRepository {
                 premise: row.get(2)?,
                 status: row.get(3)?,
                 phase: row.get(4)?,
-                result_json: row.get(5)?,
-                error_message: row.get(6)?,
-                created_at: row.get(7)?,
-                updated_at: row.get(8)?,
+                lane: row.get(5)?,
+                result_json: row.get(6)?,
+                error_message: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>()
@@ -139,7 +141,7 @@ impl AgencyRepository {
     pub fn find_observe_run(&self, story_id: &str) -> Result<Option<AgencyRun>, rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
         conn.query_row(
-            "SELECT id, story_id, premise, status, phase, result_json, error_message, created_at, updated_at
+            "SELECT id, story_id, premise, status, phase, lane, result_json, error_message, created_at, updated_at
              FROM agency_runs WHERE story_id = ?1 AND premise = ?2 ORDER BY created_at ASC LIMIT 1",
             params![story_id, crate::agency::models::OBSERVE_PREMISE],
             |row| {
@@ -149,10 +151,11 @@ impl AgencyRepository {
                     premise: row.get(2)?,
                     status: row.get(3)?,
                     phase: row.get(4)?,
-                    result_json: row.get(5)?,
-                    error_message: row.get(6)?,
-                    created_at: row.get(7)?,
-                    updated_at: row.get(8)?,
+                    lane: row.get(5)?,
+                    result_json: row.get(6)?,
+                    error_message: row.get(7)?,
+                    created_at: row.get(8)?,
+                    updated_at: row.get(9)?,
                 })
             },
         )
@@ -163,7 +166,7 @@ impl AgencyRepository {
         let conn = self.pool.get().map_err(pool_err)?;
         let n: i64 = conn.query_row(
             "SELECT COUNT(*) FROM agency_runs
-             WHERE story_id = ?1 AND status IN ('pending', 'running') AND premise != ?2",
+             WHERE story_id = ?1 AND status IN ('pending', 'running') AND lane = 'write' AND premise != ?2",
             params![story_id, crate::agency::models::OBSERVE_PREMISE],
             |row| row.get(0),
         )?;
@@ -277,12 +280,16 @@ impl AgencyRepository {
         )
     }
 
-    /// 并发护栏：同一 story 是否存在 pending/running 的 run。
-    pub fn has_running_run_for_story(&self, story_id: &str) -> Result<bool, rusqlite::Error> {
+    /// 并发护栏：同一 story、同一 lane 是否存在 pending/running 的 run。
+    pub fn has_running_run_for_story(
+        &self,
+        story_id: &str,
+        lane: &str,
+    ) -> Result<bool, rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
         let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM agency_runs WHERE story_id = ?1 AND status IN ('pending', 'running')",
-            params![story_id],
+            "SELECT COUNT(*) FROM agency_runs WHERE story_id = ?1 AND lane = ?2 AND status IN ('pending', 'running')",
+            params![story_id, lane],
             |r| r.get(0),
         )?;
         Ok(count > 0)
@@ -812,10 +819,11 @@ mod tests {
         run.story_id = Some("s1".into());
         repo.create_run(&run).unwrap();
         repo.update_run_phase("r1", "running", "assets").unwrap();
-        assert!(repo.has_running_run_for_story("s1").unwrap());
+        assert!(repo.has_running_run_for_story("s1", "write").unwrap());
+        assert!(!repo.has_running_run_for_story("s1", "review").unwrap());
         repo.finish_run("r1", "completed", None, None).unwrap();
-        assert!(!repo.has_running_run_for_story("s1").unwrap());
-        assert!(!repo.has_running_run_for_story("s2").unwrap());
+        assert!(!repo.has_running_run_for_story("s1", "write").unwrap());
+        assert!(!repo.has_running_run_for_story("s2", "write").unwrap());
     }
 
     #[test]
@@ -868,11 +876,14 @@ mod tests {
         assert_eq!(BoardZone::Draft.owner(), AgentRole::LeadWriter);
         assert_eq!(BoardZone::Review.owner(), AgentRole::EditorAuditor);
         assert_eq!(BoardZone::Schedule.owner(), AgentRole::Producer);
+        assert_eq!(BoardZone::Direction.owner(), AgentRole::Director);
         assert_eq!(
             AgentRole::from_str("lead_writer"),
             Some(AgentRole::LeadWriter)
         );
+        assert_eq!(AgentRole::from_str("director"), Some(AgentRole::Director));
         assert_eq!(BoardZone::from_str("review"), Some(BoardZone::Review));
+        assert_eq!(BoardZone::from_str("direction"), Some(BoardZone::Direction));
         assert_eq!(AgentRole::from_str("nope"), None);
     }
 
@@ -962,37 +973,50 @@ mod tests {
         assert!((diff.gate_weighted_delta - 0.82).abs() < 0.001);
     }
 
-    /// V109 部分唯一索引 idx_agency_runs_one_active_per_story：
-    /// 同 story 仅一个 pending/running run；story_id 为 NULL 的行豁免。
+    /// V149 部分唯一索引 idx_agency_runs_one_active_per_lane：
+    /// 同 story 同 lane 仅一个 pending/running run；不同 lane 可并行；
+    /// story_id 为 NULL 的行豁免。
     #[test]
-    fn test_partial_unique_index_one_active_per_story() {
+    fn test_partial_unique_index_one_active_per_lane() {
         let (repo, _) = repo();
         let mut r1 = AgencyRun::new("u1", "前提");
         r1.story_id = Some("s1".into());
+        r1.lane = "write".into();
         repo.create_run(&r1).unwrap();
         repo.update_run_phase("u1", "running", "assets").unwrap();
-        // 同 story 第二个 run：story_id 先 NULL 写入（豁免），置 story
-        // 时触发冲突 （AgencyRun::new 默认
-        // status=pending，命中索引谓词）
-        let r2 = AgencyRun::new("u2", "前提2");
+
+        // review lane 与 write lane 可并行
+        let mut r2 = AgencyRun::new("u2", "前提2");
+        r2.story_id = Some("s1".into());
+        r2.lane = "review".into();
         repo.create_run(&r2).unwrap();
-        let err = repo.set_run_story("u2", "s1");
-        assert!(err.is_err(), "pending + 同 story_id 应触发部分唯一索引冲突");
+
+        // 同 story 第二个 write run 命中索引
+        let mut r3 = AgencyRun::new("u3", "前提3");
+        r3.story_id = Some("s1".into());
+        assert!(repo.create_run(&r3).is_err(), "同 lane 第二活跃 run 应冲突");
+
+        // story_id 为 NULL 的行豁免；置 story 时按 lane 判定
+        let r4 = AgencyRun::new("u4", "前提4");
+        repo.create_run(&r4).unwrap();
+        let err = repo.set_run_story("u4", "s1");
+        assert!(err.is_err(), "NULL→s1 的 write run 应撞已有 write run");
         assert!(
             err.unwrap_err()
                 .to_string()
                 .contains("UNIQUE constraint failed"),
             "冲突应来自 UNIQUE 约束"
         );
-        // 冲突后 u2 的 story_id 仍为 NULL
-        assert!(repo.get_run("u2").unwrap().unwrap().story_id.is_none());
-        // 旧 run 结束后可再开
+
+        // 旧 run 结束后可再置 story
         repo.finish_run("u1", "failed", None, None).unwrap();
-        repo.set_run_story("u2", "s1").unwrap();
+        repo.set_run_story("u4", "s1").unwrap();
         assert_eq!(
-            repo.get_run("u2").unwrap().unwrap().story_id.as_deref(),
+            repo.get_run("u4").unwrap().unwrap().story_id.as_deref(),
             Some("s1")
         );
+        assert_eq!(repo.get_run("u1").unwrap().unwrap().lane, "write");
+        assert_eq!(repo.get_run("u2").unwrap().unwrap().lane, "review");
     }
 
     #[test]

@@ -190,7 +190,7 @@ export interface BoardItem {
   id: string;
   run_id: string;
   story_id: string;
-  zone: 'asset' | 'draft' | 'review' | 'schedule';
+  zone: 'asset' | 'draft' | 'review' | 'schedule' | 'direction';
   item_type: string;
   key: string;
   content: string;
@@ -208,6 +208,8 @@ export interface AgencyRun {
   premise: string;
   status: string;
   phase: string;
+  /** V149：顶层 run 的并发车道 write | review | inspect | chat */
+  lane?: string;
   result_json: string | null;
   error_message: string | null;
   created_at: string;
@@ -242,4 +244,185 @@ export interface AgencyActivity {
 
 export function listActivities(runId: string) {
   return loggedInvoke<AgencyActivity[]>('agency_list_activities', { run_id: runId });
+}
+
+// ---- v0.74.0 导演 / 剧组对话 / 任务进程 ----
+
+export interface ChatSession {
+  id: string;
+  story_id: string;
+  title: string;
+  target_role: string;
+  summary?: string | null;
+  summary_upto_message_id?: string | null;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  session_id: string;
+  role: string;
+  content: string;
+  status: string;
+  run_key?: string | null;
+  task_id?: string | null;
+  task_ids_json?: string | null;
+  actions_json?: string | null;
+  meta_json?: string | null;
+  error?: string | null;
+  created_at: string;
+}
+
+export interface ChatSendResult {
+  session_id: string;
+  message_id: string;
+  turn_task_id: string;
+}
+
+export interface AgencyAgentTask {
+  id: string;
+  run_id: string;
+  story_id: string;
+  role: string;
+  parent_task_id?: string | null;
+  task: string;
+  status: string;
+  phase?: string | null;
+  turn_count: number;
+  tool_calls: number;
+  last_tool?: string | null;
+  heartbeat_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  error?: string | null;
+  result_summary?: string | null;
+  meta_json: string;
+  created_at: string;
+}
+
+export interface ResourceLease {
+  id: string;
+  story_id: string;
+  resource: string;
+  owner_run_id?: string | null;
+  owner_task_id?: string | null;
+  acquired_at: string;
+  heartbeat_at: string;
+  expires_at: string;
+}
+
+export interface CrewAlert {
+  severity: string;
+  kind: string;
+  message: string;
+  role?: string | null;
+  task_id?: string | null;
+  run_id?: string | null;
+}
+
+export interface CrewSnapshot {
+  story_id: string;
+  story_title: string;
+  runs: AgencyRun[];
+  tasks: AgencyAgentTask[];
+  leases: ResourceLease[];
+  corpus_count: number;
+  alerts: CrewAlert[];
+}
+
+export function listChatSessions(storyId: string) {
+  return loggedInvoke<ChatSession[]>('agency_chat_sessions', { story_id: storyId });
+}
+
+export function listChatMessages(sessionId: string, limit = 200) {
+  return loggedInvoke<ChatMessage[]>('agency_chat_messages', { session_id: sessionId, limit });
+}
+
+export function newChatSession(storyId: string, title?: string) {
+  return loggedInvoke<ChatSession>('agency_chat_new_session', { story_id: storyId, title });
+}
+
+export function deleteChatSession(sessionId: string) {
+  return loggedInvoke<void>('agency_chat_delete_session', { session_id: sessionId });
+}
+
+export function sendChat(params: {
+  story_id: string;
+  session_id?: string | null;
+  message: string;
+  target_role?: string | null;
+  corpus_ids?: string[];
+}) {
+  return loggedInvoke<ChatSendResult>('agency_chat_send', {
+    story_id: params.story_id,
+    session_id: params.session_id ?? null,
+    message: params.message,
+    target_role: params.target_role ?? 'director',
+    corpus_ids: params.corpus_ids ?? null,
+  });
+}
+
+export function crewStatus(storyId: string) {
+  return loggedInvoke<CrewSnapshot>('agency_crew_status', { story_id: storyId });
+}
+
+export function crewDispatch(params: {
+  story_id: string;
+  role: string;
+  instruction: string;
+  premise?: string;
+  run_key?: string;
+  session_id?: string;
+  corpus_ids?: string[];
+}) {
+  return loggedInvoke<string>('agency_crew_dispatch', {
+    story_id: params.story_id,
+    role: params.role,
+    instruction: params.instruction,
+    premise: params.premise ?? null,
+    run_key: params.run_key ?? null,
+    session_id: params.session_id ?? null,
+    corpus_ids: params.corpus_ids ?? null,
+  });
+}
+
+export function crewCancelTask(taskId: string) {
+  return loggedInvoke<void>('agency_crew_cancel_task', { task_id: taskId });
+}
+
+export function crewRetryTask(taskId: string) {
+  return loggedInvoke<string>('agency_crew_retry_task', { task_id: taskId });
+}
+
+export function releaseLease(storyId: string, resource: string) {
+  return loggedInvoke<void>('agency_crew_release_lease', { story_id: storyId, resource });
+}
+
+export function directorExecute(params: {
+  story_id: string;
+  session_id: string;
+  message_id: string;
+  premise?: string;
+  action_ids: string[];
+}) {
+  return loggedInvoke<string[]>('agency_director_execute', {
+    story_id: params.story_id,
+    session_id: params.session_id,
+    message_id: params.message_id,
+    premise: params.premise ?? null,
+    action_ids: params.action_ids,
+  });
+}
+
+export function directorReject(actionIds: string[], messageId?: string) {
+  return loggedInvoke<void>('agency_director_reject', {
+    action_ids: actionIds,
+    message_id: messageId ?? null,
+  });
+}
+
+export function directorPatrol(storyId: string) {
+  return loggedInvoke<CrewSnapshot>('agency_director_patrol', { story_id: storyId });
 }

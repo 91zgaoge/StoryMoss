@@ -11,6 +11,7 @@ pub enum AgentRole {
     Inspector,
     OutlinePlanner,
     StyleMimic,
+    Director,
 }
 
 impl AgentRole {
@@ -23,6 +24,7 @@ impl AgentRole {
             AgentRole::Inspector => "inspector",
             AgentRole::OutlinePlanner => "outline_planner",
             AgentRole::StyleMimic => "style_mimic",
+            AgentRole::Director => "director",
         }
     }
 
@@ -35,11 +37,12 @@ impl AgentRole {
             "inspector" => Some(AgentRole::Inspector),
             "outline_planner" => Some(AgentRole::OutlinePlanner),
             "style_mimic" => Some(AgentRole::StyleMimic),
+            "director" => Some(AgentRole::Director),
             _ => None,
         }
     }
 
-    pub fn all() -> [AgentRole; 7] {
+    pub fn all() -> [AgentRole; 8] {
         [
             AgentRole::LeadWriter,
             AgentRole::Producer,
@@ -48,11 +51,25 @@ impl AgentRole {
             AgentRole::Inspector,
             AgentRole::OutlinePlanner,
             AgentRole::StyleMimic,
+            AgentRole::Director,
         ]
+    }
+
+    /// 角色任务默认 run lane：审读类走 `review`，写入类走 `write`，
+    /// 导演走 `inspect`。
+    pub fn run_lane(&self) -> &'static str {
+        match self {
+            AgentRole::Director => "inspect",
+            AgentRole::EditorAuditor | AgentRole::Inspector | AgentRole::StyleMimic => "review",
+            AgentRole::LeadWriter
+            | AgentRole::Producer
+            | AgentRole::Writer
+            | AgentRole::OutlinePlanner => "write",
+        }
     }
 }
 
-/// 黑板分区：资产 / 草稿 / 审查 / 调度
+/// 黑板分区：资产 / 草稿 / 审查 / 计划 / 导演
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BoardZone {
@@ -60,6 +77,7 @@ pub enum BoardZone {
     Draft,
     Review,
     Schedule,
+    Direction,
 }
 
 impl BoardZone {
@@ -69,6 +87,7 @@ impl BoardZone {
             BoardZone::Draft => "draft",
             BoardZone::Review => "review",
             BoardZone::Schedule => "schedule",
+            BoardZone::Direction => "direction",
         }
     }
 
@@ -78,16 +97,18 @@ impl BoardZone {
             "draft" => Some(BoardZone::Draft),
             "review" => Some(BoardZone::Review),
             "schedule" => Some(BoardZone::Schedule),
+            "direction" => Some(BoardZone::Direction),
             _ => None,
         }
     }
 
-    pub fn all() -> [BoardZone; 4] {
+    pub fn all() -> [BoardZone; 5] {
         [
             BoardZone::Asset,
             BoardZone::Draft,
             BoardZone::Review,
             BoardZone::Schedule,
+            BoardZone::Direction,
         ]
     }
 
@@ -99,6 +120,7 @@ impl BoardZone {
             BoardZone::Draft => AgentRole::LeadWriter,
             BoardZone::Review => AgentRole::EditorAuditor,
             BoardZone::Schedule => AgentRole::Producer,
+            BoardZone::Direction => AgentRole::Director,
         }
     }
 }
@@ -110,6 +132,9 @@ pub struct AgencyRun {
     pub premise: String,
     pub status: String,
     pub phase: String,
+    /// 顶层 run 的并发车道：write | review | inspect | chat。
+    /// V149 的唯一索引按 (story_id, lane) 判定活跃 run。
+    pub lane: String,
     pub result_json: Option<String>,
     pub error_message: Option<String>,
     pub created_at: String,
@@ -127,11 +152,17 @@ impl AgencyRun {
             premise: premise.into(),
             status: "pending".to_string(),
             phase: "concept".to_string(),
+            lane: "write".to_string(),
             result_json: None,
             error_message: None,
             created_at: now.clone(),
             updated_at: now,
         }
+    }
+
+    pub fn with_lane(mut self, lane: impl Into<String>) -> Self {
+        self.lane = lane.into();
+        self
     }
 }
 
@@ -236,4 +267,148 @@ pub struct AgencyActivityLogEntry {
     /// progress 事件的描述文案
     pub message: Option<String>,
     pub created_at: String,
+}
+
+/// 子 agent 任务进程：异步派发的最小可观测单位。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgencyAgentTask {
+    pub id: String,
+    pub run_id: String,
+    pub story_id: String,
+    pub role: AgentRole,
+    pub parent_task_id: Option<String>,
+    pub task: String,
+    pub status: String, /* queued | running | waiting | cancelling | completed | failed |
+                         * cancelled | stale */
+    pub phase: Option<String>,
+    pub turn_count: i32,
+    pub tool_calls: i32,
+    pub last_tool: Option<String>,
+    pub heartbeat_at: Option<String>,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub error: Option<String>,
+    pub result_summary: Option<String>,
+    pub meta_json: String,
+    pub created_at: String,
+}
+
+impl AgencyAgentTask {
+    pub fn new(
+        run_id: impl Into<String>,
+        story_id: impl Into<String>,
+        role: AgentRole,
+        task: impl Into<String>,
+        parent_task_id: Option<String>,
+        meta_json: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            run_id: run_id.into(),
+            story_id: story_id.into(),
+            role,
+            parent_task_id,
+            task: task.into(),
+            status: "queued".to_string(),
+            phase: None,
+            turn_count: 0,
+            tool_calls: 0,
+            last_tool: None,
+            heartbeat_at: None,
+            started_at: None,
+            finished_at: None,
+            error: None,
+            result_summary: None,
+            meta_json: meta_json.into(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+        }
+    }
+}
+
+/// 故事资源租约：写库提交点的互斥锁（章节号/场景/资产/草稿/质量门）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceLease {
+    pub id: String,
+    pub story_id: String,
+    pub resource: String,
+    pub owner_run_id: Option<String>,
+    pub owner_task_id: Option<String>,
+    pub acquired_at: String,
+    pub heartbeat_at: String,
+    pub expires_at: String,
+}
+
+/// 剧组对话会话。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatSession {
+    pub id: String,
+    pub story_id: String,
+    pub title: String,
+    pub target_role: String,
+    pub summary: Option<String>,
+    pub summary_upto_message_id: Option<String>,
+    pub archived: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// 剧组对话消息。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub id: String,
+    pub session_id: String,
+    pub role: String, // user | director | producer | editor_auditor | lead_writer | system
+    pub content: String,
+    pub status: String, /* pending | thinking | acting | waiting | done | failed | cancelled |
+                         * degraded */
+    pub run_key: Option<String>,
+    pub task_id: Option<String>,
+    pub task_ids_json: Option<String>,
+    pub actions_json: Option<String>,
+    pub meta_json: Option<String>,
+    pub error: Option<String>,
+    pub created_at: String,
+}
+
+impl ChatMessage {
+    pub fn new(
+        session_id: impl Into<String>,
+        role: impl Into<String>,
+        content: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            session_id: session_id.into(),
+            role: role.into(),
+            content: content.into(),
+            status: "pending".to_string(),
+            run_key: None,
+            task_id: None,
+            task_ids_json: None,
+            actions_json: None,
+            meta_json: None,
+            error: None,
+            created_at: chrono::Utc::now().to_rfc3339(),
+        }
+    }
+}
+
+/// 导演动作审计记录：调度/修复/确认的完整溯源。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectorAction {
+    pub id: String,
+    pub story_id: String,
+    pub session_id: Option<String>,
+    pub message_id: Option<String>,
+    pub run_id: Option<String>,
+    pub action_type: String,
+    pub target_role: Option<String>,
+    pub target_id: Option<String>,
+    pub params_json: String,
+    pub status: String, // proposed | approved | executing | done | failed | rejected
+    pub reason: Option<String>,
+    pub result_summary: Option<String>,
+    pub error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
 }

@@ -381,6 +381,204 @@ export function getMockTauriInitScript() {
             return [];
           case 'get_agent_mappings':
             return [];
+          // v0.74.0：语料 / 导演剧组对话 / 任务现场最小 mock
+          case 'corpus_list':
+            return [
+              {
+                id: 'corpus-1',
+                story_id: mockStory.id,
+                kind: 'news',
+                title: '老街雨夜',
+                summary: '拆迁公告贴出后，住户与开发商僵持。',
+                tags: ['社会', '冲突'],
+                status: 'distilled',
+                pinned: false,
+                source_name: '城市观察',
+                created_at: '2026-10-30T10:00:00+08:00',
+                updated_at: '2026-10-30T10:00:00+08:00',
+              },
+            ];
+          case 'corpus_get':
+            return {
+              id: 'corpus-1',
+              story_id: mockStory.id,
+              kind: 'news',
+              title: '老街雨夜',
+              summary: '拆迁公告贴出后，住户与开发商僵持。',
+              content: '原文：老街只剩七户。',
+              tags: ['社会'],
+              status: 'distilled',
+              pinned: false,
+              links: [],
+              distilled: {
+                version: 1,
+                model: 'mock',
+                generated_at: '2026-10-30T10:00:00+08:00',
+                facts: ['老街只剩七户'],
+                conflicts: ['拆迁与安置'],
+                archetypes: ['守夜人'],
+                world_hooks: ['潮汐禁令'],
+                adaptation_angles: ['第 13 章开场'],
+                cautions: ['与港务局不冲突'],
+              },
+              created_at: '2026-10-30T10:00:00+08:00',
+              updated_at: '2026-10-30T10:00:00+08:00',
+            };
+          case 'corpus_create':
+          case 'corpus_update':
+            return {
+              id: 'corpus-1',
+              story_id: mockStory.id,
+              kind: 'note',
+              title: '新语料',
+              summary: '摘要',
+              content: '内容',
+              tags: [],
+              status: 'raw',
+              pinned: false,
+              links: [],
+              created_at: '2026-10-30T10:00:00+08:00',
+              updated_at: '2026-10-30T10:00:00+08:00',
+            };
+          case 'corpus_delete':
+          case 'corpus_link':
+          case 'corpus_unlink':
+            return null;
+          case 'corpus_import_file':
+            return {
+              id: 'corpus-2',
+              story_id: mockStory.id,
+              kind: 'image',
+              title: '雨夜图片',
+              summary: '',
+              content: '',
+              tags: [],
+              status: 'raw',
+              pinned: false,
+              links: [],
+              created_at: '2026-10-30T10:00:00+08:00',
+              updated_at: '2026-10-30T10:00:00+08:00',
+            };
+          case 'corpus_read_media':
+            return { mime: 'image/png', data_url: 'data:image/png;base64,AAAA' };
+          case 'corpus_distill':
+            return {
+              version: 1,
+              model: 'mock',
+              generated_at: '2026-10-30T10:00:00+08:00',
+              facts: ['老街只剩七户'],
+              conflicts: ['拆迁与安置'],
+              archetypes: ['守夜人'],
+              world_hooks: ['潮汐禁令'],
+              adaptation_angles: ['第 13 章开场'],
+              cautions: ['与港务局不冲突'],
+            };
+          case 'corpus_promote':
+            return {
+              target_type: args?.target_type ?? 'character',
+              title: '守夜人',
+              fields: { name: '守夜人', background: '守夜' },
+            };
+          case 'create_foreshadowing':
+            return 'foreshadow-1';
+          case 'create_character':
+            return { id: 'character-1', story_id: mockStory.id, name: '守夜人' };
+          case 'create_world_building':
+            return { id: 'world-1', story_id: mockStory.id };
+          case 'agency_list_runs':
+            return [
+              {
+                id: 'run-1',
+                story_id: mockStory.id,
+                premise: '一个故事',
+                status: 'completed',
+                phase: 'assembly',
+                lane: 'write',
+                result_json: null,
+                error_message: null,
+                created_at: '2026-10-30T10:00:00+08:00',
+                updated_at: '2026-10-30T10:05:00+08:00',
+              },
+            ];
+          case 'agency_get_run':
+            return {
+              id: 'run-1',
+              story_id: mockStory.id,
+              premise: '一个故事',
+              status: 'completed',
+              phase: 'assembly',
+              lane: 'write',
+              result_json: null,
+              error_message: null,
+              created_at: '2026-10-30T10:00:00+08:00',
+              updated_at: '2026-10-30T10:05:00+08:00',
+            };
+          case 'agency_list_board':
+            return [
+              {
+                id: 'board-1',
+                run_id: 'run-1',
+                story_id: mockStory.id,
+                zone: 'asset',
+                item_type: 'world',
+                key: '世界观',
+                content: '双星',
+                summary: '双星系统',
+                version: 1,
+                producer: 'producer',
+                status: 'active',
+                created_at: '2026-10-30T10:01:00+08:00',
+                updated_at: '2026-10-30T10:01:00+08:00',
+              },
+            ];
+          case 'agency_list_activities':
+            return [];
+          case 'agency_chat_sessions':
+            return [
+              {
+                id: 'chat-s1',
+                story_id: mockStory.id,
+                title: '今晚的调度',
+                target_role: 'director',
+                archived: false,
+                created_at: '2026-10-30T10:00:00+08:00',
+                updated_at: '2026-10-30T10:00:00+08:00',
+              },
+            ];
+          case 'agency_chat_messages':
+            return [
+              {
+                id: 'chat-m1',
+                session_id: 'chat-s1',
+                role: 'director',
+                content: '剧组已就位。我会先看现场，再决定派谁。',
+                status: 'done',
+                actions_json: null,
+                created_at: '2026-10-30T10:00:00+08:00',
+              },
+            ];
+          case 'agency_crew_status':
+          case 'agency_director_patrol':
+            return {
+              story_id: mockStory.id,
+              story_title: mockStory.title,
+              runs: [],
+              tasks: [],
+              leases: [],
+              corpus_count: 1,
+              alerts: [],
+            };
+          case 'agency_chat_send':
+            return { session_id: 'chat-s1', message_id: 'chat-m2', turn_task_id: 'task-1' };
+          case 'agency_director_execute':
+            return [];
+          case 'agency_director_reject':
+            return null;
+          case 'agency_crew_retry_task':
+            return 'task-2';
+          case 'agency_crew_cancel_task':
+          case 'agency_crew_release_lease':
+            return null;
           case 'health_check':
             return { status: 'ok', timestamp: new Date().toISOString(), version: '0.1.0' };
           case 'get_window_state':

@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.73.14 项目完成状态
+# StoryMoss (草苔) v0.74.0 项目完成状态
 
+> 最后更新: 2026-10-30（**v0.74.0：语料资产 + 导演 Agent + 幕后剧组对话 + lane/task/lease**——新增 `corpus_items/corpus_links` 与幕后语料页（导入/提炼/转资产/交给导演）；新增 `AgentRole::Director`、导演提示词与「导演区」黑板，导演 inspect→plan→异步 dispatch→follow-up；代理工作室改三栏（花名册/对话/现场），支持 @管理/@编审/@主创、审批卡、任务/告警/租约/黑板/时间线；V149 将 V109 索引升级为 `(story_id, lane)`，新增任务注册表、资源租约、TaskScheduler/TaskReporter/LeaseManager；对话/巡检不建 write run。Rust **1874 passed / 10 ignored**（+12）；vitest **644 passed / 3 skipped**（+14）；playwright **45 passed / 5 skipped**（+2）。**未关闭**：真实模型端到端导演规划/语料提炼未跑真机；多 write 并行与 pinned 语料进续写上下文属 P1。）
+>
 > 最后更新: 2026-10-30（**v0.73.14：角色改名去重 + 风格弹窗可确认**——编辑角色后的 ingest 改用 `save_entities_batch`（按链接 id upsert），`CharacterRepository::update` 在 id 未命中时按旧名回退更新 legacy 行，`get_by_story` 按名字排除已由 kg 实体表示的行，改名登记旧名别称并同步场景出场/冲突 token，新增 V148 迁移合并存量同名重复角色；写作风格弹窗限高可滚动、单一风格先选中再确认、右上角可关闭。Rust **1844 passed / 10 ignored**（+6）；vitest **639 passed / 3 skipped**（+5）。）
 >
 > 最后更新: 2026-10-29（**v0.73.13：补回 `get_canonical_state` 命令 + 日志可读性**——该命令在 refactor 回滚（b4448325）后只剩 `handlers.rs` 一行注释，前端执行面板每次挂载打三条失败 IPC 并静默显示「铺垫阶段」；现新增 `canonical_state::commands::get_canonical_state`（`spawn_blocking` 聚合快照）并注册，白名单同步删除。顺带给 `candidate_try` 日志加请求前缀、失败日志行带错误原因。Rust **1838 passed / 10 ignored**（+4）；vitest **634 passed / 3 skipped**（+7）。）

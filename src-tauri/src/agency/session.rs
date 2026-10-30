@@ -49,7 +49,7 @@ impl SessionService {
             "SELECT zone, key, summary, version FROM agency_board_items
              WHERE run_id = ?1 AND status = 'active' ORDER BY zone, created_at, rowid",
         )?;
-        let mut board = serde_json::json!({"asset": [], "draft": [], "review": [], "schedule": []});
+        let mut board = serde_json::json!({"asset": [], "draft": [], "review": [], "schedule": [], "direction": []});
         let rows = stmt.query_map(params![run_id], |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -109,7 +109,7 @@ impl SessionService {
         let json: serde_json::Value =
             serde_json::from_str(&session.snapshot_json).unwrap_or_else(|_| serde_json::json!({}));
         let mut out = format!("阶段: {}\n", session.phase);
-        for zone in ["asset", "draft", "review", "schedule"] {
+        for zone in ["asset", "draft", "review", "schedule", "direction"] {
             if let Some(items) = json["board"][zone].as_array() {
                 if !items.is_empty() {
                     let keys: Vec<String> = items

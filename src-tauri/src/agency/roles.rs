@@ -1,5 +1,6 @@
 use crate::{agency::models::AgentRole, router::TaskType};
 
+pub mod director;
 pub mod inspector;
 pub mod outline_planner;
 pub mod style_mimic;
@@ -50,6 +51,7 @@ pub fn spec_for(role: AgentRole) -> RoleSpec {
         AgentRole::Inspector => inspector::spec(),
         AgentRole::OutlinePlanner => outline_planner::spec(),
         AgentRole::StyleMimic => style_mimic::spec(),
+        AgentRole::Director => director::spec(),
     }
 }
 
@@ -87,6 +89,7 @@ mod tests {
             AgentRole::LeadWriter,
             AgentRole::Producer,
             AgentRole::EditorAuditor,
+            AgentRole::Director,
         ] {
             let id = spec_for(role).prompt_id;
             assert!(
@@ -121,6 +124,12 @@ mod tests {
         assert_eq!(
             spec_for(AgentRole::StyleMimic).task_type,
             TaskType::Analysis
+        );
+        assert_eq!(spec_for(AgentRole::Director).role, AgentRole::Director);
+        assert_eq!(spec_for(AgentRole::Director).task_type, TaskType::Analysis);
+        assert_eq!(
+            spec_for(AgentRole::Director).prompt_id,
+            "agency_director_system"
         );
     }
 }

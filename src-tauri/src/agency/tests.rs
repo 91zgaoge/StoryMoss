@@ -3080,14 +3080,19 @@ fn test_request_guard_unregisters_on_drop() {
 /// 形态）映射为 VALIDATION_FAILED；其他错误（含他表 UNIQUE 冲突）原样透传。
 #[test]
 fn test_map_active_run_conflict_only_matches_agency_runs() {
-    // 形态一：部分唯一索引
+    // 形态一：V149 分 lane 唯一索引
     let err = map_active_run_conflict(AppError::from(
-        "UNIQUE constraint failed: index 'idx_agency_runs_one_active_per_story'",
+        "UNIQUE constraint failed: index 'idx_agency_runs_one_active_per_lane'",
     ));
     assert_eq!(err.code(), "VALIDATION_FAILED");
     assert!(err.to_string().contains("进行中"));
     let json = serde_json::to_value(&err).expect("serialize");
     assert_eq!(json["data"]["field"], "active_run");
+    // 旧 V109 索引名仍兼容
+    let err = map_active_run_conflict(AppError::from(
+        "UNIQUE constraint failed: index 'idx_agency_runs_one_active_per_story'",
+    ));
+    assert_eq!(err.code(), "VALIDATION_FAILED");
     // 形态二：列约束
     let err = map_active_run_conflict(AppError::from(
         "UNIQUE constraint failed: agency_runs.story_id",

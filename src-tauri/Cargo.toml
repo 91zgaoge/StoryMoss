@@ -1,6 +1,6 @@
 [package]
 name = "storymoss"
-version = "0.73.14"
+version = "0.74.0"
 edition = "2021"
 
 [build-dependencies]
@@ -74,6 +74,7 @@ encoding = "0.2"
 # File hashing
 sha2 = "0.10"
 hex = "0.4"
+base64 = "0.22"
 
 # Authentication
 oauth2 = { version = "5.0", features = ["reqwest"] }
