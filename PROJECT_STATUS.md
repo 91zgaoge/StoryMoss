@@ -1,6 +1,8 @@
-# StoryMoss (草苔) v0.74.2 项目完成状态
+# StoryMoss (草苔) v0.74.3 项目完成状态
 
-> 最后更新: 2026-10-31（**v0.74.2：Ds10 首字节超时治理**——①续写主创提示词改为稳定 bundle 在前、每拍变动内容在后，让 Ds10 的 prefix cache 能复用（真机 72.5 万 token 复用 72.2 万仅 6.1s）；②语料提炼对 >12k 字符文档按 12k 分段摘要后再汇总，超过 8 段均匀抽样并保留首尾；③user+system 估算 >1 万 token 即视为大提示词，生成超时下限 900s、首字节 cap 下限 600s（只放大不缩小），进度/心跳文案显式警示；④幕前状态栏新增「大提示词 12.3k」徽章，看门狗延长至 960s。Rust **1885 passed / 10 ignored**（+6）；vitest **646 passed / 3 skipped**（+2）；playwright 45 / 5。**未关闭**：安装包仍为旧版本；真实 Ds10 首字节需安装后复测，Ds10/本地 MLX 端点若仍空正文/连接失败需在设置中处理。）
+> 最后更新: 2026-10-31（**v0.74.3：稳定/变动前缀拆分 + 冷预填充超时校准**——①`render_continue_assets` 拆 stable pack（红线 → 故事大纲 → 世界观 → Logline → 本章大纲）与 dynamic tail（下一节点、角色卡/名册/关系/冲突/目标/进度/前文/伏笔/检索块）；`condense_story_outline_stable` 不注入/不按 next_node 筛选，`condense_world_setting_stable` 保持原文顺序；缓存契约测试断言改变下一节点/地点/在场角色时 `【下一节点】` 之前逐字节相同。②超时豁免改为按 2,500 tok/s 冷预填充估算：1 万 token 仅警示；40 万 → 190s/310s，100 万 → 430s/550s，上限 600s/900s，只放大不缩小。③进度与幕前徽章改为报告冷缓存预估，只有真的放宽才说放宽。④撤回「删除 Ds10」建议：Ds10 是 2×4090 冷预填充算力上限，不是死端点。Rust **1890 passed / 10 ignored**（+5）；vitest **646 passed / 3 skipped**；playwright 45 / 5。**未关闭**：安装包仍为旧版本；真实 Ds10 首字节与缓存命中率需安装后复测。）
+>
+> 最后更新: 2026-10-31（**v0.74.2：Ds10 首字节超时治理**——①续写主创提示词改为稳定 bundle 在前、每拍变动内容在后；②语料提炼对 >12k 字符文档按 12k 分段摘要后再汇总；③大提示词进度/心跳文案显式警示；④幕前状态栏新增「大提示词 12.3k」徽章。Rust **1885 passed / 10 ignored**；vitest **646 passed / 3 skipped**；playwright 45 / 5。**v0.74.3 更正**：Ds10 不是死端点，不应删除；其慢是冷预填充算力上限。）
 >
 > 最后更新: 2026-10-31（**v0.74.1：按本机运行日志修复 v0.74.0 导演/意图图错误**——①导演计划 JSON 被 ToolLoop 当 tool action 解析导致连续 8 轮熔断：TaskScheduler/run_role_task(_reported)/DirectorExecutor 拒绝 `AgentRole::Director`，导演只走 DirectorPlanner；②`retry_task` 缺 `target_id` 令审批确认报错：导演计划先校验 dispatch role/instruction、retry/cancel task_id、cancel_run/resume/materialize/recheck run_id，不合格动作丢弃并在 reply 说明；提示词要求 target_id 来自巡检快照；③网关候选链执行前剔除「连续空正文、10 分钟冷却」模型，全冷却时快速返回可操作错误；④意图图旧 capability id 归一化（agent_writer/agent_rewriter→writer、agent_inspector→inspector、skill_*→builtin.*）；⑤`asset_bridge`/`materialize` 关系名增加 `character_aliases` 回退。Rust **1879 passed / 10 ignored**（+5）；vitest 644 / 3；playwright 45 / 5。**未关闭**：安装包仍为 v0.74.0，需安装 v0.74.1 后复测；Ds10/本地 MLX 端点仍空正文/连接失败，需用户在设置中处理。）
 >
@@ -14,7 +16,7 @@
 >
 > 最后更新: 2026-10-28（**v0.73.11：手法落库竞态修复（发布流水线）**——v0.73.10 tag 构建在 Ubuntu 偶发挂 `test_continue_logs_beat_technique_and_replays_author_verdict`（`beat_technique_log` 读到空表）；`record_beat_technique_log` 改为 await 落库。目标用例连续 5 次通过；Rust **1834 passed / 10 ignored**。v0.73.10 的构建因此未上传官网，以 v0.73.11 为准。）
 >
-> 最后更新: 2026-10-28（**v0.73.10：空正文冷却阈值 2 → 1**——死端点 `Ds10` 单次调用 155 秒才返回 0 字符，连续 2 次才冷却会先烧掉 310 秒；现在一次空正文即进入 10 分钟冷却，不再重复置顶。该模型仍在配置中，需在设置 → 模型 → 管理删除 “Ds10”。Rust **1834 passed / 10 ignored**。）
+> 最后更新: 2026-10-28（**v0.73.10：空正文冷却阈值 2 → 1**——死端点 `Ds10` 单次调用 155 秒才返回 0 字符，连续 2 次才冷却会先烧掉 310 秒；现在一次空正文即进入 10 分钟冷却，不再重复置顶。（v0.74.3 更正：Ds10 是冷预填充算力上限，不是死端点，不需要删除。）Rust **1834 passed / 10 ignored**。）
 >
 > 最后更新: 2026-10-28（**v0.73.9：多部小说切换修复**——故事卡片点击此前只更新幕后状态，从未通知幕前；只有卡片上的「打开」会发 `storySelected`。新增 `notify_frontstage_story_selected`（只广播不弹窗），卡片点击、Stories/Sidebar 的「开幕前」、全局启动器均携带当前故事；生成中收到切换改为 toast 提示。playwright **43 passed / 5 skipped**（+1）。）
 >

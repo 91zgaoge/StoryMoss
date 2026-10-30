@@ -429,8 +429,10 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
                 <span
                   data-testid="large-prompt-warning"
                   className="inline-flex items-center gap-1 text-[11px] font-semibold text-status-warning bg-status-warning/10 border border-status-warning/40 px-2 py-0.5 rounded-full flex-shrink-0"
-                  title={`提示词约 ${largePromptTokens} tokens（超过 1 万），首字可能较慢；本次超时已放宽至 900 秒`}
-                  aria-label={`大提示词警示：约 ${largePromptTokens} tokens，首字可能较慢`}
+                  title={`提示词约 ${largePromptTokens} tokens（超过 1 万）。按 2,500 tok/s 冷缓存估算，预填充约 ${Math.ceil(
+                    largePromptTokens / 2500
+                  )} 秒；前缀命中时会快得多，超时仅在预算不足时自动放宽`}
+                  aria-label={`大提示词警示：约 ${largePromptTokens} tokens，冷缓存首字可能较慢`}
                 >
                   <AlertTriangle className="w-3 h-3" strokeWidth={2} />
                   大提示词 {(largePromptTokens / 1000).toFixed(1)}k

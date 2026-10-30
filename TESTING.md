@@ -1,8 +1,16 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.74.2)
+# 🧪 StoryMoss 自动化测试环境 (v0.74.3)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.74.3 变更说明
+
+- **稳定前缀与超时校准（Rust 1890 passed / 10 ignored，+5）**：
+  ①`render_continue_assets` 稳定区顺序与缓存契约——改变 next_node/地点/在场角色时 `【下一节点】` 之前逐字节相同；②`condense_story_outline_stable` 不注入下一节点；③`condense_world_setting_stable` 不按本拍重排规则；④`large_prompt_limits` 按 2,500 tok/s 冷预填充触发（1 万仅警示、40 万 → 190s/310s、100 万 → 430s/550s），只放大不缩小。
+- **前端（vitest 646 passed / 3 skipped，数量不变）**：徽章 aria-label 改为「冷缓存首字可能较慢」，title 断言包含「预填充约 5 秒」。
+- **E2E 无改动**：playwright 45 / 5。
+- **未关闭**：安装包仍为旧版本；真实 Ds10 首字节与缓存命中率需安装后复测。
 
 ### v0.74.2 变更说明
 
@@ -75,7 +83,7 @@
 
 - **空正文冷却阈值 2 → 1（无新增用例，1834 passed / 10 ignored）**：
   `empty_content_demotes_after_first_failure_and_clears_on_real_success`——单次真实调用空正文即降权；
-  探测成功不清零、真实非空生成才清零的语义不变。原因：死端点单次调用可达 155 秒，等 2 次会吃掉 310 秒。
+  探测成功不清零、真实非空生成才清零的语义不变。原因：空正文模型单次调用可达 155 秒，等 2 次会吃掉 310 秒。（v0.74.3 更正：这不代表模型已死；Ds10 是冷预填充算力上限。）
 - **未改动**：前端零改动；vitest 625 / playwright 43 passed / 5 skipped。
 
 ### v0.73.9 变更说明

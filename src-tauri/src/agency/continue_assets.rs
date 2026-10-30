@@ -373,6 +373,17 @@ pub fn strip_outline_planning(raw: &str) -> String {
 }
 
 pub fn condense_story_outline(raw: &str, next_node: &str) -> String {
+    condense_story_outline_impl(raw, next_node)
+}
+
+/// 稳定前缀版：不注入、也不按 `next_node` 筛选转折点。
+/// `next_node` 每拍都会变，必须移到 prompt 的变动区，否则前缀缓存在大纲块
+/// 就被打断（见 `render_continue_assets` 的 stable/dynamic 排序）。
+pub fn condense_story_outline_stable(raw: &str) -> String {
+    condense_story_outline_impl(raw, "")
+}
+
+fn condense_story_outline_impl(raw: &str, next_node: &str) -> String {
     let raw = strip_outline_planning(raw.trim());
     let mut blocks: Vec<String> = Vec::new();
     if !raw.is_empty() {
@@ -597,6 +608,16 @@ pub(crate) fn render_one_card(c: &CoreCharacter) -> String {
 }
 
 pub fn condense_world_setting(raw: &str, location: Option<&str>, admitted: &[String]) -> String {
+    condense_world_setting_impl(raw, location, admitted)
+}
+
+/// 稳定前缀版：概念 + 核心规则按原文顺序，不按当前地点/在场角色重排。
+/// 变动的“本拍相关规则”不再插入稳定区，避免每拍改写前缀。
+pub fn condense_world_setting_stable(raw: &str) -> String {
+    condense_world_setting_impl(raw, None, &[])
+}
+
+fn condense_world_setting_impl(raw: &str, location: Option<&str>, admitted: &[String]) -> String {
     if raw.trim().is_empty() {
         return String::new();
     }
@@ -786,7 +807,8 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         .unwrap_or_default();
 
     let outline_raw = input.bundle.story_outline.as_deref().unwrap_or("");
-    let condensed = condense_story_outline(outline_raw, input.next_node);
+    // 稳定区：大纲不注入下一节点，也不按下一节点筛选转折点。
+    let condensed = condense_story_outline_stable(outline_raw);
     let outline = if condensed.is_empty() {
         String::new()
     } else {
@@ -801,7 +823,7 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         .world_setting
         .as_deref()
         .map(|w| {
-            let c = condense_world_setting(w, input.location, input.admitted);
+            let c = condense_world_setting_stable(w);
             if c.is_empty() {
                 String::new()
             } else {
@@ -809,6 +831,16 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
             }
         })
         .unwrap_or_default();
+
+    // 变动区从这里开始：下一节点每拍都变，必须排在稳定文档之后。
+    let next_node = {
+        let n = input.next_node.trim();
+        if n.is_empty() {
+            String::new()
+        } else {
+            format!("【下一节点】{}", truncate_chars(n, 300))
+        }
+    };
 
     let cards = render_layered_admitted_cards(
         &input.bundle.core_characters,
@@ -951,21 +983,25 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         ));
     }
 
+    // 前缀缓存契约：稳定区（红线/故事大纲/世界观/Logline/本章大纲）必须在
+    // 最前且逐字节稳定；下一节点之后的角色卡/名册/关系/进度/前文等每拍
+    // 变动内容全部靠后。不要把 next_node 或按本拍筛选的块移回稳定区。
     let parts = [
         (redline, true),
-        (outline, false),
-        (world, false),
+        (outline, true),
+        (world, true),
+        (logline, true),
+        (chapter, true),
+        (next_node, true),
         (cards, true),
         (roster, true),
         (relationships, false),
         (conflicts, false),
         (goals, false),
-        (chapter, false),
         (progress, false),
         (prior, false),
         (tensions, false),
         (arcs, false),
-        (logline, false),
         (foreshadow, false),
     ];
     let mut parts: Vec<(String, bool)> = parts.into_iter().collect();
@@ -1345,6 +1381,97 @@ mod tests {
         let out = render_continue_assets(&input);
         assert!(out.contains("本拍信息差"), "{out}");
         assert!(out.contains("这封信是哥哥寄的"), "{out}");
+    }
+
+    #[test]
+    fn render_continue_assets_keeps_stable_docs_before_per_beat_blocks() {
+        let mut bundle = empty_bundle();
+        bundle.core_characters = vec![core("甲"), core("乙")];
+        bundle.story_outline = Some("【核心冲突】皇权裂痕\n【转折点】密诏".into());
+        bundle.world_setting = Some(
+            "世界概念：阴阳两界。\n核心规则：\n- 夜行：入夜后阳气不可过界\n- 血契：以血换名".into(),
+        );
+        let admitted_a = vec!["甲".into()];
+        let admitted_b = vec!["乙".into()];
+        let roster_a = vec!["乙".into()];
+        let roster_b = vec!["甲".into()];
+        let progress_a = vec!["进度甲".to_string()];
+        let progress_b = vec!["进度乙".to_string()];
+        let input_a = ContinueAssetsInput {
+            bundle: &bundle,
+            admitted: &admitted_a,
+            roster: &roster_a,
+            location: Some("雨巷"),
+            next_node: "推进密诏败露",
+            chapter_outline: "本章：甲对质",
+            progress_lines: &progress_a,
+            prior_prose: "前文甲。",
+            tension_lines: &[],
+            arc_lines: &[],
+            logline: Some("一句话"),
+            full_card_names: &[],
+            continuity_blocks: &[],
+        };
+        let input_b = ContinueAssetsInput {
+            bundle: &bundle,
+            admitted: &admitted_b,
+            roster: &roster_b,
+            location: Some("钟楼"),
+            next_node: "转往钟楼",
+            chapter_outline: "本章：甲对质",
+            progress_lines: &progress_b,
+            prior_prose: "前文乙。",
+            tension_lines: &[],
+            arc_lines: &[],
+            logline: Some("一句话"),
+            full_card_names: &[],
+            continuity_blocks: &[],
+        };
+        let out_a = render_continue_assets(&input_a);
+        let out_b = render_continue_assets(&input_b);
+        let marker = "【下一节点】";
+        let prefix_a = &out_a[..out_a.find(marker).expect("应有下一节点")];
+        let prefix_b = &out_b[..out_b.find(marker).expect("应有下一节点")];
+        assert_eq!(
+            prefix_a, prefix_b,
+            "稳定前缀不得随下一节点/地点/在场角色变化"
+        );
+
+        let idx = |needle: &str| out_a.find(needle).expect(needle);
+        let i_redline = idx("【⚠️ 世界观红线");
+        let i_outline = idx("【故事大纲");
+        let i_world = idx("【世界观设定");
+        let i_logline = idx("【故事Logline】");
+        let i_chapter = idx("【本章大纲");
+        let i_next = idx(marker);
+        let i_cards = idx("【本拍角色");
+        assert!(i_redline < i_outline);
+        assert!(i_outline < i_world);
+        assert!(i_world < i_logline);
+        assert!(i_logline < i_chapter);
+        assert!(i_chapter < i_next);
+        assert!(i_next < i_cards);
+    }
+
+    #[test]
+    fn condense_outline_stable_never_injects_next_node() {
+        let raw = "【核心冲突】皇权裂痕\n【转折点】密诏";
+        let unstable = condense_story_outline(raw, "推进密诏败露");
+        let stable = condense_story_outline_stable(raw);
+        assert!(unstable.contains("密诏败露"));
+        assert!(!stable.contains("下一节点"));
+        assert!(!stable.contains("密诏败露"));
+        assert!(stable.contains("【核心冲突】皇权裂痕"));
+    }
+
+    #[test]
+    fn condense_world_stable_keeps_prompt_order() {
+        let raw = "世界概念：阴阳两界。\n核心规则：\n- 夜行：入夜后阳气不可过界\n- 血契：以血换名";
+        let stable = condense_world_setting_stable(raw);
+        assert!(
+            stable.find("夜行").unwrap() < stable.find("血契").unwrap(),
+            "稳定版不得按本拍地点重排规则：{stable}"
+        );
     }
 
     #[test]

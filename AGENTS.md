@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.74.2
+- **版本**: v0.74.3
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -30,10 +30,11 @@
 - 上传前 `node .github/scripts/upload-releases-ftp.mjs <dir> --check-only`、上传后 `--verify-mirror`（Node 内置 Ed25519+BLAKE2b 做真实 minisign 校验）；只检查 HTTP 200/文件大小无法发现此类损坏。
 - 镜像救火用 `Sync Release to Website` workflow（`workflow_dispatch`，拒绝 prerelease 与版本降级）。
 
-**大提示词首字节超时与前缀缓存（v0.74.2，Ds10 真机 155s 空正文）**：
+**大提示词首字节超时与前缀缓存（v0.74.3，Ds10 是算力上限不是死端点）**：
 
-- **稳定文档必须在前，变动内容必须在后**。Ds10 的 prefix cache 只有前半段完全不变才命中（真机 72.5 万 token 复用 72.2 万、6.1 秒）；续写主创提示词不要把节拍卡/状态等每拍变化内容放在 bundle 之前。
-- **大提示词要显式豁免超时**：按 user+system 的 `chars/2` 估算，>1 万 token 时生成超时下限 900s、首字节 cap 下限 600s，只放大不缩小；适配器缓存键必须包含首字节 cap。幕前状态栏显示「大提示词 xx.xk」徽章，前端看门狗同步延长。
+- **稳定文档必须在前，变动内容必须在后，而且要拆到块级**。只把 `bundle` 放到节拍卡之前不够：`condense_story_outline` 曾把每拍的 `【下一节点】` 注入大纲块、`condense_world_setting` 会按当前地点/在场角色重排规则，前缀在开头几百 token 就断了。稳定区固定为「红线 → 故事大纲（不注入 next_node）→ 世界观（原文顺序）→ Logline → 本章大纲」，之后才是下一节点/角色卡/名册/进度/前文/伏笔/检索/节拍卡。
+- **Ds10 不是死端点，不要建议删除**。2×4090 跑 27B 激活 MoE 的冷预填充约 2,200–2,900 tok/s：1 万 token ≈4s、10 万 ≈40s、100 万 ≈6–8 分钟；生产前缀复用率 98.7% 时，复用部分接近零成本。
+- **超时按冷预填充预算触发，不按总 token**：`tokens / 2,500` 估算；只有预计首字节或总超时会撞线才放大（40 万 → 190s/310s，100 万 → 430s/550s），上限 600s/900s，只放大不缩小。>1 万只做警示；适配器缓存键必须包含首字节 cap。幕前状态栏显示「大提示词 xx.xk」徽章与冷缓存预估。
 - **超大文档先分段**：语料提炼 >12k 字符按 12k 分段摘要再汇总（最多 8 段、均匀抽样保留首尾），不要一次把几十万 token 的全新内容塞给模型。
 
 ## 编码风格
@@ -111,9 +112,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1885 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 / 空正文冷却·上下文自动探测 / 续写跨档兜底 / 角色身份·改名去重·实体链接 / v0.74 语料仓储·V149 lane/task/lease·导演角色/分区·异步调度·租约·聊天/动作·IPC 契约 / v0.74.1 导演 ToolLoop 拒绝·动作校验·空正文候选剔除·capability 归一化·关系别名 / v0.74.2 大提示词超时豁免·稳定前缀排序·语料分段摘要 ·共 10 ignored）
+- `cargo test -p storymoss` ✅ 1890 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 / 空正文冷却·上下文自动探测 / 续写跨档兜底 / 角色身份·改名去重·实体链接 / v0.74 语料仓储·V149 lane/task/lease·导演角色/分区·异步调度·租约·聊天/动作·IPC 契约 / v0.74.1 导演 ToolLoop 拒绝·动作校验·空正文候选剔除·capability 归一化·关系别名 / v0.74.2 大提示词超时豁免·稳定前缀排序·语料分段摘要 / v0.74.3 stable/dynamic 前缀拆分·冷预填充超时校准 ·共 10 ignored）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 646 passed / 3 skipped（v0.74.2 +2：大提示词徽章显示/阈值以下不显示；v0.74.0 +3：语料页列表/详情/AI 提炼与交给导演；AgencyStudio +11：四角色/黑板/时间线/run 选择/错误提示/去重/观察/资产跳转/发送消息/审批确认；v0.73.14 +5：`StyleDnaModal` 单一风格先选后确认 / 关闭不落库 / 弹窗限高 / 混合面板固定按钮与保存 / 混合配置异步回填；v0.73.13 +7：`useExecutionState` 取数与降级 3、`loggedInvoke` 失败日志 4；v0.73.12 +2：文思活跃火焰/被动静态图标契约；+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
+- `npx vitest run` ✅ 646 passed / 3 skipped（v0.74.3 徽章文案改为冷缓存预估（断言更新，数量不变）；v0.74.2 +2：大提示词徽章显示/阈值以下不显示；v0.74.0 +3：语料页列表/详情/AI 提炼与交给导演；AgencyStudio +11：四角色/黑板/时间线/run 选择/错误提示/去重/观察/资产跳转/发送消息/审批确认；v0.73.14 +5：`StyleDnaModal` 单一风格先选后确认 / 关闭不落库 / 弹窗限高 / 混合面板固定按钮与保存 / 混合配置异步回填；v0.73.13 +7：`useExecutionState` 取数与降级 3、`loggedInvoke` 失败日志 4；v0.73.12 +2：文思活跃火焰/被动静态图标契约；+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
 - `npx playwright test` ✅ 45 passed / 5 skipped（v0.74.0 +2：语料页加载/选中/AI 提炼；代理工作室剧组/对话/现场与 `agency_chat_send`；v0.73.9 +1：故事卡片点击同步 `notify_frontstage_story_selected`；v0.73.5 +1：日志页「复制」按钮不被幕前悬浮启动器遮挡（1680px trial click）；v0.73.1 +2：模型页签「超时」子页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃；v0.72.3 修掉一处既有 flake：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version` handler——`useUpdater(true)` 挂载 5s 后自动检查，mock 未实现时慢机/并行负载下页面加载类用例会在「无 console 错误」断言上偶发红；门禁仍非阻塞，见未关闭）
 - `cargo +nightly-2026-10-05 fmt` ✅（固定版本，避免 nightly 漂移）
 - `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
@@ -123,7 +124,30 @@ type:
 
 ## 最近完成的功能
 
-> v0.30.26–v0.73.10 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 起瘦身，v0.74.2 归档 v0.73.12–v0.73.10；根文件只保留最近 5 个版本与关键教训）。
+> v0.30.26–v0.73.13 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 起瘦身，v0.74.3 归档 v0.73.13；根文件只保留最近 5 个版本与关键教训）。
+
+### v0.74.3 - 稳定/变动前缀拆分 + 冷预填充超时校准
+
+**为什么**：v0.74.2 只把 bundle 放到节拍卡之前，但 `condense_story_outline` 仍把每拍变化的
+`【下一节点】` 注入大纲块，`condense_world_setting` 仍按当前地点/在场角色重排规则，
+角色卡/名册紧随其后——前缀在开头几百 token 内就断了。用户给出 2×4090 跑 27B MoE 的实测：
+冷预填充 2,200–2,900 tok/s，1 万 token ≈ 4s、100 万 ≈ 6–8 分钟，生产前缀复用率 98.7%。
+因此「总 token >1 万就放宽到 900s」也是错配：缓存命中时大 prompt 几乎零成本。
+
+**改动**：①`render_continue_assets` 拆 stable pack（红线 → 故事大纲 → 世界观 → Logline →
+本章大纲）与 dynamic tail（下一节点、角色卡/名册/关系/冲突/目标、进度、前文、张力、伏笔、
+检索块）；新增 `condense_story_outline_stable`（不注入/不按 next_node 筛选）与
+`condense_world_setting_stable`（原文顺序，不按本拍重排）；稳定区标记 protected，预算收缩
+只切变动区；缓存契约测试断言改变 next_node/地点/在场角色时 `【下一节点】` 之前逐字节相同。
+②`large_prompt_limits` 改为按 `tokens / 2,500` 估算冷预填充：只有预计首字节或总超时会撞线
+才放大（40 万 → 190s/310s；100 万 → 430s/550s），上限 600s/900s，只放大不缩小；1 万 token
+只警示、不放宽。③进度文案与幕前徽章改为「冷缓存预计预填充约 N 秒」，只有真的放宽才说放宽。
+④撤回「删除 Ds10」建议：Ds10 是算力上限，不是死端点。
+
+- **验证**：Rust **1890 passed / 10 ignored**（+5）；vitest **646 passed / 3 skipped**；
+  playwright 45 / 5；tsc / clippy / fmt / guard 全绿。
+- **未关闭**：安装包仍为旧版本；真实 Ds10 首字节与缓存命中率需安装后复测。若 OpenAI 兼容
+  响应暴露 `cached_tokens`，下一版用真实命中率替代 2,500 tok/s 估计。
 
 ### v0.74.2 - Ds10 首字节超时：稳定前缀 + 大提示词豁免
 
@@ -140,8 +164,7 @@ type:
 
 - **验证**：Rust **1885 passed / 10 ignored**（+6）；vitest **646 passed / 3 skipped**（+2）；
   playwright 45 / 5；tsc / clippy / fmt / guard 全绿。
-- **未关闭**：安装包仍为旧版本；真实 Ds10 首字节需安装后复测。Ds10/本地 MLX 端点若仍空正文/
-  连接失败，请在设置中删除 Ds10 或启动本地服务。
+- **未关闭**：安装包仍为旧版本；真实 Ds10 首字节需安装后复测。**v0.74.3 更正：Ds10 不是死端点，不应删除**；其慢是 2×4090 冷预填充的算力上限。
 
 ### v0.74.1 - 按本机日志修复导演/意图图错误
 
@@ -162,7 +185,7 @@ target_id 来自巡检快照 tasks/runs；③网关执行候选链前剔除「�
 - **验证**：Rust **1879 passed / 10 ignored**（+5）；vitest 644 / 3；playwright 45 / 5；
   tsc / clippy / fmt / guard / IPC manifest 全绿。
 - **未关闭**：安装包仍为 v0.74.0，运行中的二进制不会热更新；v0.74.1 安装后再复测日志。
-  模型配置仍需处理：删除 Ds10（Qwen3.5）或启动本地 MLX `127.0.0.1:11234`。
+  **v0.74.3 更正**：Ds10（Qwen3.5）不是死端点，不要删除；首字慢是 2×4090 冷预填充算力上限。
 
 ### v0.74.0 - 语料资产 + 导演 Agent + 幕后剧组对话 + lane/task/lease
 
@@ -202,30 +225,6 @@ ID、逐条 `create_entity` 重新生成 UUID；自动识别角色在 `character
 - **验证**：Rust **1844 passed / 10 ignored**（+6）；vitest **639 passed / 3 skipped**（+5）；
   tsc / clippy / fmt / guard / IPC manifest 全绿。
 - **未关闭**：真机双窗口未复测；关系表对 ingest 建角色的 id 映射（legacy vs kg）是既有问题，本版未动。
-
-### v0.73.13 - 补回 get_canonical_state 命令 + 日志可读性
-
-**为什么**：日志持续出现 `✗ get_canonical_state failed (1–44ms)`，每次进幕后「场景」页连打三条
-（React Query `retry: 2` 的 1s/2s 退避）。面板不崩但静默降级——叙事阶段恒为「铺垫阶段」，
-逾期伏笔数退化成「状态为 setup 的伏笔条数」。根因是 `get_canonical_state` 在 refactor 回滚
-（b4448325）后只剩 `handlers.rs` 里一行 `// Canonical state commands` 注释，命令本体与注册
-一并丢失；`verify-ipc-manifest.py` 把它列进白名单，IPC 一致性检查因此一直绿。
-
-**改动**：①新增 `canonical_state::commands::get_canonical_state`（`spawn_blocking` 调
-`CanonicalStateManager::get_snapshot_sync`，同步 DB 查询不得占 tokio worker），注册进
-`generate_handler![]`，并从 `FRONTEND_ORPHAN_ALLOWLIST` 删除；②`verify-ipc-manifest.py` 跳过
-`__tests__` 与 `*.test|spec.*`（测试里的假命令名不构成运行时契约，否则新测试会让守卫误红）；
-③`gateway.generate.candidate_try` 可见消息加 `req=<前 8 位>`，并发 generate 的候选链可对齐；
-④`loggedInvoke` 失败行带错误原因（字符串/`Error.message`/结构化 JSON，超 300 字符截断）。
-
-- **验证**：`cargo test --lib` **1838 passed / 10 ignored**（+4：命令注册契约 2、载荷契约与
-  未知故事报错 2）；vitest **634 passed / 3 skipped**（+7）；tsc / clippy 0 error / fmt / guard /
-  IPC manifest 全绿；playwright 基线不变。
-- **契约**：`tests/ipc_registry_contract_test.rs` 断言 `handlers.rs` 里必须真有
-  `canonical_state::commands::get_canonical_state`，且「Canonical state」段落不能只有注释；
-  `test_load_canonical_state_command_payload_shape` 钉住前端只读的两个字段
-  （`narrative_phase`、`story_context.overdue_payoffs`）。
-- **未关闭**：真机未复跑（需在幕后场景页确认阶段徽章随故事推进变化，而非恒为「铺垫阶段」）。
 
 ## Always Do
 

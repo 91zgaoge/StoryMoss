@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.74.2-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.74.3-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -138,9 +138,9 @@ npm run build
 
 ### v0.73.10 · 空正文模型一次就降权，不再反复空转
 
-死端点一次调用可能拖 155 秒才返回空正文；旧规则要连续两次才降权，等于先白烧 310 秒。现在一次
-空正文就进入 10 分钟冷却，后续轮次直接跳过。若你配置里还有已下线的「Ds10」模型，请在
-**设置 → 模型 → 管理** 删除它，工具档会自动回退到可用模型。
+空正文模型一次调用可能拖 155 秒才返回；旧规则要连续两次才降权，等于先白烧 310 秒。现在一次
+空正文就进入 10 分钟冷却，后续轮次直接跳过。（v0.74.3 更正：当时的「Ds10 已下线/建议删除」
+结论有误——Ds10 是 2×4090 冷预填充的算力上限，不是死端点，不需要删除。）
 
 ### v0.73.9 · 多部小说时，点哪部就切到哪部
 

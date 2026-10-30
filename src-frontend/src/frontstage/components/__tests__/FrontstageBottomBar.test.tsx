@@ -84,7 +84,11 @@ describe('FrontstageBottomBar', () => {
     const warning = screen.getByTestId('large-prompt-warning');
     expect(warning).toBeInTheDocument();
     expect(warning).toHaveTextContent('大提示词 12.3k');
-    expect(warning).toHaveAttribute('aria-label', '大提示词警示：约 12300 tokens，首字可能较慢');
+    expect(warning).toHaveAttribute(
+      'aria-label',
+      '大提示词警示：约 12300 tokens，冷缓存首字可能较慢'
+    );
+    expect(warning).toHaveAttribute('title', expect.stringContaining('预填充约 5 秒'));
   });
 
   it('提示词未超过 1 万 token 时不显示大提示词警示', () => {

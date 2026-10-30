@@ -17,46 +17,85 @@ use tokio::sync::Semaphore;
 /// 确保心跳任务在 panic、early return 或任何错误路径下都能可靠终止。
 struct AbortOnDrop(tokio::task::AbortHandle);
 
-/// 大提示词阈值（估算 token）。超过后首字节可能远慢于常规请求，
-/// 需要在进度提示中显式警示并放宽超时；按字符估算沿用 status 栏的
-/// `chars / 2` 口径，中文场景偏保守。
+/// 大提示词“警示”阈值（估算 token）。超过它就在进度里提示，但不等于
+/// 一定要豁免超时：2×4090 跑 27B MoE 的冷预填充约 2,200–2,900 tok/s，
+/// 1 万 token 全新内容只需约 4 秒；98.7% 前缀命中时更接近零成本。
+/// 按字符估算沿用 status 栏的 `chars / 2` 口径。
 const LARGE_PROMPT_TOKEN_THRESHOLD: usize = 10_000;
-/// 大提示词的最小生成超时。Ds10 等本地模型在数十万 token 的新前缀上
-/// 预填充可能超过 10 分钟，常规 300s/profile 值会把仍在计算的请求砍掉。
-const LARGE_PROMPT_TIMEOUT_SECS: u64 = 900;
-/// 大提示词的最小首字节超时（生成超时内的 cap）。
-const LARGE_PROMPT_FIRST_CHUNK_TIMEOUT_SECS: u64 = 600;
+/// 冷预填充吞吐的保守估计（tok/s），用于把提示词规模换算成首字节预算。
+const COLD_PREFILL_TOKENS_PER_SEC: u64 = 2_500;
+/// 预填充完成后的余量：让服务端把首字节推回来。
+const PREFILL_TIMEOUT_MARGIN_SECS: u64 = 30;
+/// 生成总超时里给正文输出预留的时间。
+const GENERATION_OUTPUT_RESERVE_SECS: u64 = 120;
+/// 大提示词放宽后的总超时上限，避免错误配置导致无限等待。
+const LARGE_PROMPT_TIMEOUT_CEILING_SECS: u64 = 900;
+/// 大提示词首字节 cap 上限；1M 新 token 在 2,200 tok/s 下约 455 秒，
+/// 600 秒足够覆盖，同时保留可操作的失败时间。
+const LARGE_PROMPT_FIRST_CHUNK_CEILING_SECS: u64 = 600;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct LargePromptLimits {
+    /// 超过警示阈值（>1 万），用于进度文案；不直接决定是否放宽超时。
     is_large: bool,
+    /// 本次是否真的放大了超时。
+    timeout_extended: bool,
+    /// 按 2,500 tok/s 估算的冷缓存预填充秒数。
+    expected_prefill_seconds: u64,
     timeout_seconds: u64,
     first_chunk_timeout_seconds: u64,
 }
 
+fn expected_prefill_seconds(prompt_tokens_est: usize) -> u64 {
+    (prompt_tokens_est as u64).div_ceil(COLD_PREFILL_TOKENS_PER_SEC)
+}
+
 /// 只放大、不缩小调用方/配置的超时；短提示词保持原有行为。
+///
+/// 豁免条件不是“总 token >1 万”，而是“按冷缓存吞吐估算，预填充会撞上
+/// 当前首字节 cap 或总超时”。这样 1M token 但前缀命中 98.7% 的请求
+/// 仍走原超时，不会被无谓地拖到 10 分钟。
 fn large_prompt_limits(
     prompt_tokens_est: usize,
     timeout_seconds: u64,
     first_chunk_timeout_seconds: u64,
 ) -> LargePromptLimits {
     let is_large = prompt_tokens_est > LARGE_PROMPT_TOKEN_THRESHOLD;
-    let effective_timeout = if is_large {
-        timeout_seconds.max(LARGE_PROMPT_TIMEOUT_SECS)
-    } else {
-        timeout_seconds
-    };
+    let expected_prefill = expected_prefill_seconds(prompt_tokens_est);
+    let mut effective_timeout = timeout_seconds;
+    let mut effective_first_chunk = first_chunk_timeout_seconds;
+
+    if is_large {
+        let needed_first = expected_prefill.saturating_add(PREFILL_TIMEOUT_MARGIN_SECS);
+        let needed_total = expected_prefill.saturating_add(GENERATION_OUTPUT_RESERVE_SECS);
+        let first_chunk_would_timeout =
+            first_chunk_timeout_seconds > 0 && needed_first > first_chunk_timeout_seconds;
+        let generation_would_timeout = needed_total > timeout_seconds;
+
+        if first_chunk_would_timeout || generation_would_timeout {
+            let extended_first = if first_chunk_timeout_seconds == 0 {
+                // 0 = adapter 不设 cap，直接用生成超时。
+                timeout_seconds.max(needed_first)
+            } else {
+                first_chunk_timeout_seconds
+                    .max(needed_first.min(LARGE_PROMPT_FIRST_CHUNK_CEILING_SECS))
+            };
+            let extended_total = timeout_seconds
+                .max(needed_total)
+                .max(extended_first.saturating_add(GENERATION_OUTPUT_RESERVE_SECS))
+                .min(LARGE_PROMPT_TIMEOUT_CEILING_SECS);
+            effective_timeout = timeout_seconds.max(extended_total);
+            effective_first_chunk = extended_first;
+        }
+    }
+
     LargePromptLimits {
         is_large,
+        timeout_extended: effective_timeout != timeout_seconds
+            || effective_first_chunk != first_chunk_timeout_seconds,
+        expected_prefill_seconds: expected_prefill,
         timeout_seconds: effective_timeout,
-        first_chunk_timeout_seconds: if !is_large {
-            first_chunk_timeout_seconds
-        } else if first_chunk_timeout_seconds == 0 {
-            // 0 = adapter 不设 cap，直接用生成超时；不要用 600 反而收紧。
-            effective_timeout
-        } else {
-            first_chunk_timeout_seconds.max(LARGE_PROMPT_FIRST_CHUNK_TIMEOUT_SECS)
-        },
+        first_chunk_timeout_seconds: effective_first_chunk,
     }
 }
 
@@ -1557,17 +1596,19 @@ impl<R: Runtime> LlmService<R> {
 
         // v0.11.8: 让 adapter 内部超时使用 override 值，这样移除外层
         // tokio::time::timeout 后仍然能保证单候选/整体超时策略生效。
-        // 大提示词在这里一并放大：调用方（如 TriShot Call 3）给的短
-        // timeout 会先于模型预填充结束，必须豁免。
+        // 冷缓存预填充超预算时在这里一并放大：调用方（如 TriShot Call 3）
+        // 给的短 timeout 会先于模型预填充结束，必须豁免。
         let mut profile_for_adapter = profile.clone();
         profile_for_adapter.timeout_seconds = effective_timeout;
 
         if limits.is_large {
             log::warn!(
-                "[LLM] large prompt detected: model={}, prompt_chars={}, prompt_tokens_est={}, timeout_seconds={} (configured {}), first_chunk_timeout_seconds={} (configured {})",
+                "[LLM] large prompt detected: model={}, prompt_chars={}, prompt_tokens_est={}, expected_prefill_seconds={}, timeout_extended={}, timeout_seconds={} (configured {}), first_chunk_timeout_seconds={} (configured {})",
                 model_name,
                 prompt_chars,
                 prompt_tokens_est,
+                limits.expected_prefill_seconds,
+                limits.timeout_extended,
                 effective_timeout,
                 configured_timeout,
                 limits.first_chunk_timeout_seconds,
@@ -1584,7 +1625,7 @@ impl<R: Runtime> LlmService<R> {
         );
         let adapter = match self.create_adapter_with_first_chunk_timeout(
             &profile_for_adapter,
-            if limits.is_large {
+            if limits.timeout_extended {
                 Some(limits.first_chunk_timeout_seconds)
             } else {
                 None
@@ -1676,13 +1717,21 @@ impl<R: Runtime> LlmService<R> {
                 step_prefix, model_name, provider_str, label
             )
         };
-        let large_prompt_notice = if limits.is_large {
+        let large_prompt_notice = if !limits.is_large {
+            String::new()
+        } else if limits.timeout_extended {
             format!(
-                "⚠️ 大提示词警示：约 {} tokens（超过 1 万），首字可能较慢；本次超时已放宽至 {} 秒、首字节 {} 秒。",
-                prompt_tokens_est, effective_timeout, limits.first_chunk_timeout_seconds
+                "⚠️ 大提示词警示：约 {} tokens（超过 1 万），冷缓存预计预填充约 {} 秒；本次超时已放宽至 {} 秒、首字节 {} 秒。",
+                prompt_tokens_est,
+                limits.expected_prefill_seconds,
+                effective_timeout,
+                limits.first_chunk_timeout_seconds
             )
         } else {
-            String::new()
+            format!(
+                "⚠️ 大提示词警示：约 {} tokens（超过 1 万），冷缓存预计预填充约 {} 秒；前缀命中时几乎无额外成本，仍按原超时等待。",
+                prompt_tokens_est, limits.expected_prefill_seconds
+            )
         };
         let sent_msg =
             if label.is_empty() {
@@ -1859,6 +1908,8 @@ impl<R: Runtime> LlmService<R> {
                     "first_chunk_timeout_seconds": first_chunk_timeout_seconds,
                     "connect_timeout_seconds": connect_timeout_seconds,
                     "large_prompt": limits.is_large,
+                    "timeout_extended": limits.timeout_extended,
+                    "expected_prefill_seconds": limits.expected_prefill_seconds,
                     "max_retries": max_retries,
                     "is_silent_background": is_silent_background,
                 })),
@@ -1917,9 +1968,9 @@ impl<R: Runtime> LlmService<R> {
                     let can_retry = if is_connection_timeout {
                         // 连接超时重试 1 次（attempt 0 -> attempt 1）
                         attempt == 0
-                    } else if is_response_timeout && limits.is_large {
-                        // 大提示词的首字节 cap 已放宽到 600s；再重试一次等于
-                        // 让用户再等 10 分钟，直接返回可操作错误。
+                    } else if is_response_timeout && limits.timeout_extended {
+                        // 首字节 cap 已按冷预填充放宽；再重试一次等于让用户
+                        // 再等一个完整预填充窗口，直接返回可操作错误。
                         log::warn!(
                             "[LLM] large prompt first-byte timeout after {}s, skip retry: model={}",
                             first_chunk_timeout_seconds,
@@ -2897,18 +2948,46 @@ mod tests {
     }
 
     #[test]
-    fn large_prompt_limits_extend_timeouts_and_never_shrink() {
-        let limits = large_prompt_limits(10_001, 60, 60);
+    fn large_prompt_limits_warn_without_extending_cheap_cold_prefill() {
+        // 1 万 token 全新内容约 4 秒；默认 180s/300s 足够，不应仅因
+        // 超过警示阈值就放宽到 10 分钟。
+        let limits = large_prompt_limits(10_001, 300, 180);
         assert!(limits.is_large);
-        assert_eq!(limits.timeout_seconds, LARGE_PROMPT_TIMEOUT_SECS);
-        assert_eq!(
-            limits.first_chunk_timeout_seconds,
-            LARGE_PROMPT_FIRST_CHUNK_TIMEOUT_SECS
-        );
+        assert!(!limits.timeout_extended);
+        assert_eq!(limits.expected_prefill_seconds, 5);
+        assert_eq!(limits.timeout_seconds, 300);
+        assert_eq!(limits.first_chunk_timeout_seconds, 180);
+    }
 
+    #[test]
+    fn large_prompt_limits_extend_by_cold_prefill_estimate() {
+        // 40 万 token 冷预填充约 160 秒，超过默认 180s 首字节 cap 的
+        // 安全余量，才放宽。
+        let limits = large_prompt_limits(400_000, 300, 180);
+        assert!(limits.is_large);
+        assert!(limits.timeout_extended);
+        assert_eq!(limits.expected_prefill_seconds, 160);
+        assert_eq!(limits.first_chunk_timeout_seconds, 190);
+        assert_eq!(limits.timeout_seconds, 310);
+
+        // 100 万 token 冷预填充约 400 秒：首字节 430s，总超时 550s。
+        let million = large_prompt_limits(1_000_000, 300, 180);
+        assert_eq!(million.expected_prefill_seconds, 400);
+        assert_eq!(million.first_chunk_timeout_seconds, 430);
+        assert_eq!(million.timeout_seconds, 550);
+    }
+
+    #[test]
+    fn large_prompt_limits_never_shrink_configured_timeouts() {
         let already_long = large_prompt_limits(20_000, 1_200, 800);
+        assert!(!already_long.timeout_extended);
         assert_eq!(already_long.timeout_seconds, 1_200);
         assert_eq!(already_long.first_chunk_timeout_seconds, 800);
+
+        let huge = large_prompt_limits(2_000_000, 1_200, 800);
+        assert_eq!(huge.timeout_seconds, 1_200);
+        assert_eq!(huge.first_chunk_timeout_seconds, 800);
+        assert!(!huge.timeout_extended);
     }
 
     #[test]

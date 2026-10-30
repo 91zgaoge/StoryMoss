@@ -2595,3 +2595,30 @@ Append 与 NextChapter 两条路径同步 `.await`。
   clippy 0 error；fmt / guard 全绿；前端零改动。
 - **清理提醒**：用户配置中该模型仍在（`is_default=true` + `tool_model_id`），需在
   设置 → 模型 → 管理删除 “Ds10”（`deepseek-v4.1-flash` / `10.62.239.13:17098`）。
+  **v0.74.3 更正**：Ds10 并非死端点；上述删除建议基于错误的「死端点」假设，已撤回。
+
+*归档于 2026-10-31（v0.74.3）：v0.73.13 摘要（根文件只保留最近 5 个版本）。*
+
+### v0.73.13 - 补回 get_canonical_state 命令 + 日志可读性
+
+**为什么**：日志持续出现 `✗ get_canonical_state failed (1–44ms)`，每次进幕后「场景」页连打三条
+（React Query `retry: 2` 的 1s/2s 退避）。面板不崩但静默降级——叙事阶段恒为「铺垫阶段」，
+逾期伏笔数退化成「状态为 setup 的伏笔条数」。根因是 `get_canonical_state` 在 refactor 回滚
+（b4448325）后只剩 `handlers.rs` 里一行 `// Canonical state commands` 注释，命令本体与注册
+一并丢失；`verify-ipc-manifest.py` 把它列进白名单，IPC 一致性检查因此一直绿。
+
+**改动**：①新增 `canonical_state::commands::get_canonical_state`（`spawn_blocking` 调
+`CanonicalStateManager::get_snapshot_sync`，同步 DB 查询不得占 tokio worker），注册进
+`generate_handler![]`，并从 `FRONTEND_ORPHAN_ALLOWLIST` 删除；②`verify-ipc-manifest.py` 跳过
+`__tests__` 与 `*.test|spec.*`（测试里的假命令名不构成运行时契约，否则新测试会让守卫误红）；
+③`gateway.generate.candidate_try` 可见消息加 `req=<前 8 位>`，并发 generate 的候选链可对齐；
+④`loggedInvoke` 失败行带错误原因（字符串/`Error.message`/结构化 JSON，超 300 字符截断）。
+
+- **验证**：`cargo test --lib` **1838 passed / 10 ignored**（+4：命令注册契约 2、载荷契约与
+  未知故事报错 2）；vitest **634 passed / 3 skipped**（+7）；tsc / clippy 0 error / fmt / guard /
+  IPC manifest 全绿；playwright 基线不变。
+- **契约**：`tests/ipc_registry_contract_test.rs` 断言 `handlers.rs` 里必须真有
+  `canonical_state::commands::get_canonical_state`，且「Canonical state」段落不能只有注释；
+  `test_load_canonical_state_command_payload_shape` 钉住前端只读的两个字段
+  （`narrative_phase`、`story_context.overdue_payoffs`）。
+- **未关闭**：真机未复跑（需在幕后场景页确认阶段徽章随故事推进变化，而非恒为「铺垫阶段」）。
