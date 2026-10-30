@@ -21,10 +21,16 @@ use crate::{
 const TEXT_MAX_BYTES: u64 = 20 * 1024 * 1024;
 const IMAGE_MAX_BYTES: u64 = 10 * 1024 * 1024;
 const DISTILL_CONTENT_CHARS: usize = 12_000;
+const DISTILL_CHUNK_CHARS: usize = 12_000;
+/// 单次提炼最多喂给模型的分段数；更长的文档均匀抽样，覆盖首尾。
+const DISTILL_MAX_CHUNKS: usize = 8;
+const DISTILL_CHUNK_FALLBACK_CHARS: usize = 2_000;
 const STORY_BRIEF_CHARS: usize = 2_000;
 
 const DISTILL_SYSTEM: &str =
     "你是小说创作的素材编辑。把作者提供的语料拆成可用的创作原料。只输出严格 JSON，不要解释。";
+const DISTILL_CHUNK_SYSTEM: &str =
+    "你是资料摘要员。只提炼这段语料里可核实的事实、冲突、人物原型、世界观钩子与改编线索，不要评论，不要输出 JSON。";
 const DISTILL_SCHEMA: &str = r#"输出 JSON：
 {"facts":["可核实事实"],"conflicts":["可用冲突"],"archetypes":["人物原型"],"world_hooks":["世界观钩子"],"adaptation_angles":["改编建议"],"cautions":["与现有设定可能冲突处"]}"#;
 const PROMOTE_SYSTEM: &str =
@@ -250,7 +256,7 @@ impl CorpusService {
     pub async fn distill(&self, id: &str, app: &AppHandle) -> Result<CorpusDistillation, AppError> {
         let detail = self.get(id)?;
         let brief = self.story_brief(&detail.story_id)?;
-        let content: String = detail.content.chars().take(DISTILL_CONTENT_CHARS).collect();
+        let content = self.prepare_distill_source(app, &detail.content).await;
         let user = format!(
             "故事上下文：\n{}\n\n语料标题：{}\n语料原文：\n{}\n\n{}",
             brief,
@@ -342,6 +348,73 @@ impl CorpusService {
         })
     }
 
+    /// 超大文档先分段摘要再提炼，避免单次喂几十万 token 的全新前缀导致
+    /// 首字节超时。短文本原样返回，保持原有单次调用行为。
+    async fn prepare_distill_source(&self, app: &AppHandle, content: &str) -> String {
+        let original_chars = content.chars().count();
+        let chunks = chunk_text(content, DISTILL_CHUNK_CHARS, DISTILL_MAX_CHUNKS);
+        if chunks.len() <= 1 {
+            return content.chars().take(DISTILL_CONTENT_CHARS).collect();
+        }
+
+        log::info!(
+            "corpus distill: 长文档分段预处理 chars={} chunks={}",
+            original_chars,
+            chunks.len()
+        );
+        let llm = LlmService::new(app.clone());
+        let total = chunks.len();
+        let mut summaries = Vec::with_capacity(total);
+        for (index, chunk) in chunks.iter().enumerate() {
+            let prompt = format!(
+                "这是长文档第 {}/{} 段。请提炼本段要点，300 字以内：\n\n{}",
+                index + 1,
+                total,
+                chunk
+            );
+            let (_rid, result) = llm
+                .generate_for_task_with_system_prompt(
+                    TaskType::Summarization,
+                    prompt,
+                    Some(600),
+                    Some(0.2),
+                    Some("corpus_chunk_summary"),
+                    Some(DISTILL_CHUNK_SYSTEM.to_string()),
+                    None,
+                )
+                .await;
+            match result {
+                Ok(response) if !response.content.trim().is_empty() => {
+                    summaries.push(format!(
+                        "【第 {}/{} 段要点】\n{}",
+                        index + 1,
+                        total,
+                        response.content.trim()
+                    ));
+                }
+                Ok(_) => {
+                    log::warn!("corpus distill: 第 {}/{} 段摘要为空", index + 1, total);
+                    summaries.push(chunk_fallback(chunk, index, total));
+                }
+                Err(e) => {
+                    log::warn!(
+                        "corpus distill: 第 {}/{} 段摘要失败，回退原文节选: {}",
+                        index + 1,
+                        total,
+                        e
+                    );
+                    summaries.push(chunk_fallback(chunk, index, total));
+                }
+            }
+        }
+        format!(
+            "（原文约 {} 字符，超过单次提炼上限，已按 {} 段分段摘要；以下为各段要点）\n\n{}",
+            original_chars,
+            total,
+            summaries.join("\n\n")
+        )
+    }
+
     pub fn list_file_paths(&self, story_id: &str) -> Result<Vec<String>, AppError> {
         CorpusRepository::new(self.pool.clone()).list_file_paths_for_story(story_id)
     }
@@ -381,6 +454,49 @@ impl CorpusService {
             .map(|s| s.chars().take(STORY_BRIEF_CHARS).collect())
             .unwrap_or_default())
     }
+}
+
+/// 按字符切分长文档；超过 max_chunks 段时均匀抽样窗口，保留开头与结尾。
+fn chunk_text(content: &str, chunk_chars: usize, max_chunks: usize) -> Vec<String> {
+    if chunk_chars == 0 || max_chunks == 0 {
+        return vec![content.to_string()];
+    }
+    let chars: Vec<char> = content.chars().collect();
+    if chars.len() <= chunk_chars {
+        return vec![content.to_string()];
+    }
+
+    let total_chunks = chars.len().div_ceil(chunk_chars);
+    if total_chunks <= max_chunks {
+        return chars
+            .chunks(chunk_chars)
+            .map(|c| c.iter().collect())
+            .collect();
+    }
+
+    if max_chunks == 1 {
+        return vec![chars[..chunk_chars].iter().collect()];
+    }
+    let max_start = chars.len() - chunk_chars;
+    (0..max_chunks)
+        .map(|i| {
+            let start = i * max_start / (max_chunks - 1);
+            let end = (start + chunk_chars).min(chars.len());
+            chars[start..end].iter().collect()
+        })
+        .collect()
+}
+
+fn chunk_fallback(chunk: &str, index: usize, total: usize) -> String {
+    format!(
+        "【第 {}/{} 段要点（摘要失败，原文节选）】\n{}",
+        index + 1,
+        total,
+        chunk
+            .chars()
+            .take(DISTILL_CHUNK_FALLBACK_CHARS)
+            .collect::<String>()
+    )
 }
 
 fn make_summary(content: &str) -> String {
@@ -481,6 +597,41 @@ mod tests {
     fn test_mime_and_summary() {
         assert_eq!(mime_for("png"), "image/png");
         assert_eq!(make_summary("  你好世界  "), "你好世界");
+    }
+
+    #[test]
+    fn chunk_text_keeps_short_document_whole() {
+        let chunks = chunk_text("老街雨夜。", 12, 8);
+        assert_eq!(chunks, vec!["老街雨夜。".to_string()]);
+    }
+
+    #[test]
+    fn chunk_text_splits_contiguous_when_under_cap() {
+        let chunks = chunk_text("abcdefghij", 4, 8);
+        assert_eq!(chunks, vec!["abcd", "efgh", "ij"]);
+    }
+
+    #[test]
+    fn chunk_text_samples_long_document_and_keeps_edges() {
+        let content: String = (0..100)
+            .map(|i| char::from(b'a' + (i % 26) as u8))
+            .collect();
+        let chunks = chunk_text(&content, 10, 4);
+        assert_eq!(chunks.len(), 4);
+        assert!(chunks.iter().all(|c| c.chars().count() == 10));
+        assert!(chunks[0].starts_with('a'));
+        assert!(chunks
+            .last()
+            .unwrap()
+            .ends_with(content.chars().last().unwrap()));
+    }
+
+    #[test]
+    fn chunk_text_never_returns_empty_windows() {
+        let content: String = "文".repeat(96);
+        let chunks = chunk_text(&content, 12, 8);
+        assert_eq!(chunks.len(), 8);
+        assert!(chunks.iter().all(|c| c.chars().count() == 12));
     }
 
     #[test]

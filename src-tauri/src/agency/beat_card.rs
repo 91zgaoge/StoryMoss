@@ -935,8 +935,11 @@ pub fn render_writer_user_prompt_with_technique(
         current_content.chars().count(),
         technique_index,
     );
+    // 前缀缓存契约：稳定资产/文档（bundle）放最前，节拍卡/状态/指令/锚点等
+    // 每拍变动内容依次靠后。Ds10 等模型的 prefix cache 只有在前半段完全不变
+    // 时才能复用；不要改回「card_full 在前」。
     format!(
-        "{card_full}{lock_block}{state_full}\n\n{bundle}\n\n【本次创作指令】\n{instruction}\n\n\
+        "{bundle}\n\n{card_full}{lock_block}{state_full}\n\n【本次创作指令】\n{instruction}\n\n\
          须在节拍任务硬约束内落实指令核心意图。\n\n{card_tail}{state_tail}\n\n{voice}\n\n{ending}{facts}",
         card_full = card.render_full(),
         bundle = bundle_prompt,
@@ -1121,7 +1124,7 @@ mod tests {
     }
 
     #[test]
-    fn writer_prompt_order_is_card_then_body_then_summary_then_ending() {
+    fn writer_prompt_keeps_stable_bundle_before_per_beat_content() {
         let card = SceneBeatCard {
             cast: vec![CastMember {
                 name: "林雪".into(),
@@ -1151,12 +1154,19 @@ mod tests {
             None,
             None,
         );
+        let i_bundle = prompt.find("【红线】不可飞天").unwrap();
         let i_card = prompt.find("【本章节拍任务】").unwrap();
+        let i_instr = prompt.find("【本次创作指令】").unwrap();
         let i_sum = prompt.find("【节拍摘要】").unwrap();
         let i_end = prompt
             .find("必须从上述末句")
             .unwrap_or_else(|| prompt.find("末句").unwrap());
-        assert!(i_card < i_sum);
+        assert!(
+            i_bundle < i_card,
+            "稳定文档须在最前以复用模型前缀缓存：bundle={i_bundle} card={i_card}"
+        );
+        assert!(i_card < i_instr);
+        assert!(i_instr < i_sum);
         assert!(i_sum < i_end);
         assert!(prompt.contains("林雪"));
         assert!(!prompt.contains("最高优先级"));

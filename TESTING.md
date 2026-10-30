@@ -1,8 +1,16 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.74.1)
+# 🧪 StoryMoss 自动化测试环境 (v0.74.2)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.74.2 变更说明
+
+- **大提示词与前缀缓存（Rust 1885 passed / 10 ignored，+6）**：
+  ①`large_prompt_limits` 阈值 10k、只放大不缩小、首字节 cap=0 不反向收紧；②`render_writer_user_prompt_with_technique` 稳定 bundle 早于节拍卡/指令/摘要/末句锚点；③`chunk_text` 短文档不切、连续分段、超 8 段均匀抽样保留首尾、窗口不为空。
+- **前端（vitest 646 passed / 3 skipped，+2）**：`FrontstageBottomBar` 大提示词徽章显示（12.3k）与阈值以下不显示。
+- **E2E 无改动**：playwright 45 / 5。
+- **未关闭**：安装包仍为旧版本；真实 Ds10 首字节需安装后复测；Ds10/本地 MLX 端点仍需用户在设置中处理。
 
 ### v0.74.1 变更说明
 

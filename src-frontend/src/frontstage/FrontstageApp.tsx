@@ -240,6 +240,11 @@ const saveInputHistory = (storyId: string, history: string[]): void => {
   }
 };
 
+/** 与后端 llm::service::LARGE_PROMPT_TOKEN_THRESHOLD 对齐。 */
+const LARGE_PROMPT_TOKEN_THRESHOLD = 10_000;
+/** 大提示词时前端最长等待（后端放宽到 900s，前端再留 60s 缓冲）。 */
+const LARGE_PROMPT_FRONTEND_TIMEOUT_SECS = 960;
+
 const FrontstageApp: React.FC = () => {
   const [stories, setStories] = useState<Story[]>([]);
   const [currentStory, setCurrentStory] = useState<Story | null>(null);
@@ -881,6 +886,12 @@ const FrontstageApp: React.FC = () => {
   const isGeneratingRef = useRef(isGenerating);
   useEffect(() => {
     isGeneratingRef.current = isGenerating;
+  }, [isGenerating]);
+
+  // v0.74.2: >1 万 token 的提示词在状态栏显式警示，并给前端看门狗留足时间。
+  const [largePromptTokens, setLargePromptTokens] = useState(0);
+  useEffect(() => {
+    if (!isGenerating) setLargePromptTokens(0);
   }, [isGenerating]);
 
   // v0.23.54: 安全网已在 ChapterSwitch 处理器中清空 generatedText（正文加载到
@@ -1781,11 +1792,15 @@ const FrontstageApp: React.FC = () => {
     // v0.30.4: 创世路径前端 = 后端 + 30s 缓冲，与 handleSmartGeneration 主超时一致。
     // genesisDeliveryRef 三态（idle/generating/delivered）在创世窗口内 !== 'idle' 为 true。
     const isBootstrapInProgress = genesisDeliveryRef.current !== 'idle';
-    const timeoutSecs = watchdogTimeoutSeconds(
+    const baseTimeoutSecs = watchdogTimeoutSeconds(
       settings?.smart_execute_total_timeout_secs,
       settings?.frontend_timeout_secs,
       isBootstrapInProgress
     );
+    const timeoutSecs =
+      largePromptTokens > LARGE_PROMPT_TOKEN_THRESHOLD
+        ? Math.max(baseTimeoutSecs, LARGE_PROMPT_FRONTEND_TIMEOUT_SECS)
+        : baseTimeoutSecs;
     const timeoutMs = Math.max(timeoutSecs, 60) * 1000;
     const startedAt = diagnosticStartTimeRef.current || Date.now();
     const remaining = Math.max(1000, timeoutMs - (Date.now() - startedAt));
@@ -1815,6 +1830,7 @@ const FrontstageApp: React.FC = () => {
     return () => clearTimeout(timer);
   }, [
     isGenerating,
+    largePromptTokens,
     settings?.frontend_timeout_secs,
     settings?.smart_execute_total_timeout_secs,
     captureDiagnosticInfo,
@@ -2577,6 +2593,7 @@ const FrontstageApp: React.FC = () => {
         message: string;
         elapsed_seconds: number;
         model: string;
+        prompt_tokens?: number;
         pipeline_context?: {
           step_name: string;
           step_number: number;
@@ -2588,6 +2605,12 @@ const FrontstageApp: React.FC = () => {
         // v0.14.4: 心跳事件必须依赖 isGenerating，避免后台静默调用误触发状态栏
         if (!isGenerating && !smartExecuteInFlightRef.current) {
           return;
+        }
+        // v0.74.2: 大提示词警示按事件里的估算 token 设置/清除。
+        if (typeof p.prompt_tokens === 'number') {
+          setLargePromptTokens(
+            p.prompt_tokens > LARGE_PROMPT_TOKEN_THRESHOLD ? p.prompt_tokens : 0
+          );
         }
         updateLastEventTime();
         lastProgressEventRef.current = {
@@ -5537,6 +5560,7 @@ const FrontstageApp: React.FC = () => {
               isZenMode={isZenMode}
               isGenerating={isGenerating}
               generationStatus={generationStatus}
+              largePromptTokens={largePromptTokens}
               isGenesis={!currentStory}
               inputValue={inputValue}
               ghostHint={ghostHint}

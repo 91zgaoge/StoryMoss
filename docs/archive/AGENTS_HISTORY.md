@@ -2551,3 +2551,47 @@ V134 给 `story_outlines` 加 `source`（存量 unknown，保持「机器仍可�
   `test_continue_writer_falls_back_to_background_role_on_empty`；既有「不得进 tool_loop」用例的
   调用次数断言更新为 5）；clippy 0 error；fmt / guard 全绿；前端零改动。
 - **未关闭**：真机续写未复跑（需用同一台机器上「只输出思考」的创作档验证兜底实际产出）。
+
+*归档于 2026-10-31（v0.74.2）：v0.73.12–v0.73.10 摘要（根文件只保留最近 5 个版本）。*
+
+### v0.73.12 - 文思活跃改用动态火焰图标
+
+**为什么**：幕前文思三态按钮在活跃模式已是火焰，但为静态图标，与被动模式的星星区分度不足，
+用户不易一眼判断当前是否在主动续写。
+
+**改动**：活跃态 Flame 加 `wensi-flame` 类，`frontstage.css` 新增 `wensi-flame-flicker`
+动画（缩放 + 轻微旋转 + 陶土色 drop-shadow 暖光）；被动/关闭态保持静态；
+`prefers-reduced-motion: reduce` 下停用动画与光晕。
+
+- **验证**：vitest **627 passed / 3 skipped**（+2：活跃态带 `.wensi-flame` 而被动态无；
+  CSS 含关键帧与 reduced-motion 契约）；tsc / playwright 43 passed / 5 skipped；Rust 零改动。
+- **未关闭**：无。
+
+### v0.73.11 - 手法落库竞态修复（v0.73.10 发布构建失败）
+
+**为什么**：v0.73.10 的 tag 构建在 Ubuntu `rust-check` 挂
+`test_continue_logs_beat_technique_and_replays_author_verdict`（`beat_technique_log` 应有 1 行、
+实际 0 行）；同一提交 master 构建通过，属竞态。根因是 `record_beat_technique_log` 用
+fire-and-forget `spawn_blocking` 写库，测试在续写返回后立即查询，慢机/并行负载下读到空表；
+真实链路进程随即退出时也可能丢归因。
+
+**改动**：`record_beat_technique_log` 改为 `async fn` 并 await 落库（单行 INSERT，开销可忽略），
+Append 与 NextChapter 两条路径同步 `.await`。
+
+- **验证**：目标用例连续 5 次通过；`cargo test --lib` **1834 passed / 10 ignored**；clippy / fmt / guard 全绿。
+- **发布**：v0.73.10 tag 构建因此未上传官网（latest.json 仍为 0.73.9）；以 v0.73.11 为准。
+
+### v0.73.10 - 空正文冷却阈值 2 → 1（死端点单次 155s 即降权）
+
+**为什么**：v0.73.8 创世仍 600s 超时。日志显示工具档 `Ds10`
+（`Qwen3.5-27B-Uncensored-Q4_K_M`，`10.62.239.13:17098`）单次调用等 **155 秒**才返回 0 字符，
+下一轮仍被排第一；连续 2 次才冷却等于先烧掉 310 秒。
+
+**改动**：`HealthRegistry::empty_content_demoted` 阈值 2 → 1——真实调用一次空正文即进入
+10 分钟冷却（探测成功不清零、真实非空生成才清零的语义不变）。配合 v0.73.7 的
+`resolve_role_model` 跳过与候选 -1000，后续轮次不再重复等待死端点。
+
+- **验证**：`cargo test --lib` **1834 passed / 10 ignored**（用例改为「首次空正文即降权」）；
+  clippy 0 error；fmt / guard 全绿；前端零改动。
+- **清理提醒**：用户配置中该模型仍在（`is_default=true` + `tool_model_id`），需在
+  设置 → 模型 → 管理删除 “Ds10”（`deepseek-v4.1-flash` / `10.62.239.13:17098`）。

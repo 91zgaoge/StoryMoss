@@ -11,6 +11,7 @@ import {
   Wrench,
   Bot,
   ClipboardCheck,
+  AlertTriangle,
 } from 'lucide-react';
 import { StatusIcon } from './StatusIcon';
 import { AiPromptBar } from '@/components/ui/ai/AiPromptBar';
@@ -23,6 +24,8 @@ interface FrontstageBottomBarProps {
   isGenerating: boolean;
   isGenesis: boolean;
   generationStatus: string;
+  /** 估算 token 数 >1 万时，在状态栏显式警示首字可能较慢。 */
+  largePromptTokens?: number;
   inputValue: string;
   ghostHint: string;
   hintSource: 'llm' | 'history';
@@ -80,6 +83,7 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
   isGenerating,
   isGenesis,
   generationStatus,
+  largePromptTokens = 0,
   inputValue,
   ghostHint,
   hintSource,
@@ -418,6 +422,20 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
                   </span>
                 )}
               </span>
+
+              {/* v0.74.2: 大提示词显式警示——后端已放宽首字节/生成超时，
+                  但用户需要知道首字慢不是卡死。 */}
+              {largePromptTokens > 10_000 && (
+                <span
+                  data-testid="large-prompt-warning"
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-status-warning bg-status-warning/10 border border-status-warning/40 px-2 py-0.5 rounded-full flex-shrink-0"
+                  title={`提示词约 ${largePromptTokens} tokens（超过 1 万），首字可能较慢；本次超时已放宽至 900 秒`}
+                  aria-label={`大提示词警示：约 ${largePromptTokens} tokens，首字可能较慢`}
+                >
+                  <AlertTriangle className="w-3 h-3" strokeWidth={2} />
+                  大提示词 {(largePromptTokens / 1000).toFixed(1)}k
+                </span>
+              )}
 
               {/* 进度条：有具体进度则显示；运行中但无具体进度时显示不确定动画 */}
               {displayProgress != null && displayProgress > 0 ? (

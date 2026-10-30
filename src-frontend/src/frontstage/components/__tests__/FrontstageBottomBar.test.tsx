@@ -72,6 +72,33 @@ describe('FrontstageBottomBar', () => {
     expect(screen.getByTitle('正在思考…')).toBeInTheDocument();
   });
 
+  it('大提示词生成时应在状态栏显式警示', () => {
+    render(
+      <FrontstageBottomBar
+        {...defaultProps}
+        isGenerating={true}
+        generationStatus="等待模型回应中…"
+        largePromptTokens={12_300}
+      />
+    );
+    const warning = screen.getByTestId('large-prompt-warning');
+    expect(warning).toBeInTheDocument();
+    expect(warning).toHaveTextContent('大提示词 12.3k');
+    expect(warning).toHaveAttribute('aria-label', '大提示词警示：约 12300 tokens，首字可能较慢');
+  });
+
+  it('提示词未超过 1 万 token 时不显示大提示词警示', () => {
+    render(
+      <FrontstageBottomBar
+        {...defaultProps}
+        isGenerating={true}
+        generationStatus="等待模型回应中…"
+        largePromptTokens={9_800}
+      />
+    );
+    expect(screen.queryByTestId('large-prompt-warning')).not.toBeInTheDocument();
+  });
+
   it('应该显示 ghost hint 当输入为空时', () => {
     render(<FrontstageBottomBar {...defaultProps} ghostHint="试试输入情节建议" />);
     expect(screen.getByText('试试输入情节建议')).toBeInTheDocument();

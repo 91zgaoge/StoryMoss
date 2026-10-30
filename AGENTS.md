@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.74.1
+- **版本**: v0.74.2
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -29,6 +29,12 @@
 - macOS 更新包在镜像侧必须用版本化文件名（`StoryMoss_<version>_aarch64.app.tar.gz`），任何发布路径都不得让多个 run 共享可变文件名；镜像上传 job 用 `concurrency: storymoss-release-upload` 串行。
 - 上传前 `node .github/scripts/upload-releases-ftp.mjs <dir> --check-only`、上传后 `--verify-mirror`（Node 内置 Ed25519+BLAKE2b 做真实 minisign 校验）；只检查 HTTP 200/文件大小无法发现此类损坏。
 - 镜像救火用 `Sync Release to Website` workflow（`workflow_dispatch`，拒绝 prerelease 与版本降级）。
+
+**大提示词首字节超时与前缀缓存（v0.74.2，Ds10 真机 155s 空正文）**：
+
+- **稳定文档必须在前，变动内容必须在后**。Ds10 的 prefix cache 只有前半段完全不变才命中（真机 72.5 万 token 复用 72.2 万、6.1 秒）；续写主创提示词不要把节拍卡/状态等每拍变化内容放在 bundle 之前。
+- **大提示词要显式豁免超时**：按 user+system 的 `chars/2` 估算，>1 万 token 时生成超时下限 900s、首字节 cap 下限 600s，只放大不缩小；适配器缓存键必须包含首字节 cap。幕前状态栏显示「大提示词 xx.xk」徽章，前端看门狗同步延长。
+- **超大文档先分段**：语料提炼 >12k 字符按 12k 分段摘要再汇总（最多 8 段、均匀抽样保留首尾），不要一次把几十万 token 的全新内容塞给模型。
 
 ## 编码风格
 
@@ -105,9 +111,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1879 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 / 空正文冷却·上下文自动探测 / 续写跨档兜底 / 角色身份·改名去重·实体链接 / v0.74 语料仓储·V149 lane/task/lease·导演角色/分区·异步调度·租约·聊天/动作·IPC 契约 / v0.74.1 导演 ToolLoop 拒绝·动作校验·空正文候选剔除·capability 归一化·关系别名 ·共 10 ignored）
+- `cargo test -p storymoss` ✅ 1885 passed / 10 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 / 空正文冷却·上下文自动探测 / 续写跨档兜底 / 角色身份·改名去重·实体链接 / v0.74 语料仓储·V149 lane/task/lease·导演角色/分区·异步调度·租约·聊天/动作·IPC 契约 / v0.74.1 导演 ToolLoop 拒绝·动作校验·空正文候选剔除·capability 归一化·关系别名 / v0.74.2 大提示词超时豁免·稳定前缀排序·语料分段摘要 ·共 10 ignored）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 644 passed / 3 skipped（v0.74.0 +3：语料页列表/详情/AI 提炼与交给导演；AgencyStudio +11：四角色/黑板/时间线/run 选择/错误提示/去重/观察/资产跳转/发送消息/审批确认；v0.73.14 +5：`StyleDnaModal` 单一风格先选后确认 / 关闭不落库 / 弹窗限高 / 混合面板固定按钮与保存 / 混合配置异步回填；v0.73.13 +7：`useExecutionState` 取数与降级 3、`loggedInvoke` 失败日志 4；v0.73.12 +2：文思活跃火焰/被动静态图标契约；+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
+- `npx vitest run` ✅ 646 passed / 3 skipped（v0.74.2 +2：大提示词徽章显示/阈值以下不显示；v0.74.0 +3：语料页列表/详情/AI 提炼与交给导演；AgencyStudio +11：四角色/黑板/时间线/run 选择/错误提示/去重/观察/资产跳转/发送消息/审批确认；v0.73.14 +5：`StyleDnaModal` 单一风格先选后确认 / 关闭不落库 / 弹窗限高 / 混合面板固定按钮与保存 / 混合配置异步回填；v0.73.13 +7：`useExecutionState` 取数与降级 3、`loggedInvoke` 失败日志 4；v0.73.12 +2：文思活跃火焰/被动静态图标契约；+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
 - `npx playwright test` ✅ 45 passed / 5 skipped（v0.74.0 +2：语料页加载/选中/AI 提炼；代理工作室剧组/对话/现场与 `agency_chat_send`；v0.73.9 +1：故事卡片点击同步 `notify_frontstage_story_selected`；v0.73.5 +1：日志页「复制」按钮不被幕前悬浮启动器遮挡（1680px trial click）；v0.73.1 +2：模型页签「超时」子页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃；v0.72.3 修掉一处既有 flake：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version` handler——`useUpdater(true)` 挂载 5s 后自动检查，mock 未实现时慢机/并行负载下页面加载类用例会在「无 console 错误」断言上偶发红；门禁仍非阻塞，见未关闭）
 - `cargo +nightly-2026-10-05 fmt` ✅（固定版本，避免 nightly 漂移）
 - `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
@@ -117,7 +123,25 @@ type:
 
 ## 最近完成的功能
 
-> v0.30.26–v0.54.0 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 瘦身：根文件只保留最近 5 个版本与关键教训）。
+> v0.30.26–v0.73.10 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 起瘦身，v0.74.2 归档 v0.73.12–v0.73.10；根文件只保留最近 5 个版本与关键教训）。
+
+### v0.74.2 - Ds10 首字节超时：稳定前缀 + 大提示词豁免
+
+**为什么**：本机日志里 Ds10 单次调用等 155 秒才返回空正文；同时续写主创提示词把每拍变动的
+节拍卡放在最前，模型前缀缓存无法复用（真机曾用 72.5 万 token 的 prompt 复用 72.2 万、仅 6.1 秒）。
+超大语料提炼还会一次喂给模型十几万字符的新内容。
+
+**改动**：①`render_writer_user_prompt_with_technique` 改为稳定 bundle 在前、节拍卡/状态/指令/
+锚点在后，并加排序契约测试；②`CorpusService::distill` 对 >12k 字符文档按 12k 分段、逐段用
+`Summarization` 档提炼要点再汇总，超过 8 段均匀抽样并保留首尾，单段失败回退 2k 字符原文；
+③`llm::service` 按 user+system 估算 token，>1 万视为大提示词：生成超时下限 900s、首字节 cap
+下限 600s（只放大不缩小），`sent`/心跳文案追加警示，适配器缓存键包含首字节 cap；④幕前底部
+状态栏新增「大提示词 12.3k」徽章，前端看门狗检测到后延长至 960s。
+
+- **验证**：Rust **1885 passed / 10 ignored**（+6）；vitest **646 passed / 3 skipped**（+2）；
+  playwright 45 / 5；tsc / clippy / fmt / guard 全绿。
+- **未关闭**：安装包仍为旧版本；真实 Ds10 首字节需安装后复测。Ds10/本地 MLX 端点若仍空正文/
+  连接失败，请在设置中删除 Ds10 或启动本地服务。
 
 ### v0.74.1 - 按本机日志修复导演/意图图错误
 
@@ -202,48 +226,6 @@ ID、逐条 `create_entity` 重新生成 UUID；自动识别角色在 `character
   `test_load_canonical_state_command_payload_shape` 钉住前端只读的两个字段
   （`narrative_phase`、`story_context.overdue_payoffs`）。
 - **未关闭**：真机未复跑（需在幕后场景页确认阶段徽章随故事推进变化，而非恒为「铺垫阶段」）。
-
-### v0.73.12 - 文思活跃改用动态火焰图标
-
-**为什么**：幕前文思三态按钮在活跃模式已是火焰，但为静态图标，与被动模式的星星区分度不足，
-用户不易一眼判断当前是否在主动续写。
-
-**改动**：活跃态 Flame 加 `wensi-flame` 类，`frontstage.css` 新增 `wensi-flame-flicker`
-动画（缩放 + 轻微旋转 + 陶土色 drop-shadow 暖光）；被动/关闭态保持静态；
-`prefers-reduced-motion: reduce` 下停用动画与光晕。
-
-- **验证**：vitest **627 passed / 3 skipped**（+2：活跃态带 `.wensi-flame` 而被动态无；
-  CSS 含关键帧与 reduced-motion 契约）；tsc / playwright 43 passed / 5 skipped；Rust 零改动。
-- **未关闭**：无。
-
-### v0.73.11 - 手法落库竞态修复（v0.73.10 发布构建失败）
-
-**为什么**：v0.73.10 的 tag 构建在 Ubuntu `rust-check` 挂
-`test_continue_logs_beat_technique_and_replays_author_verdict`（`beat_technique_log` 应有 1 行、
-实际 0 行）；同一提交 master 构建通过，属竞态。根因是 `record_beat_technique_log` 用
-fire-and-forget `spawn_blocking` 写库，测试在续写返回后立即查询，慢机/并行负载下读到空表；
-真实链路进程随即退出时也可能丢归因。
-
-**改动**：`record_beat_technique_log` 改为 `async fn` 并 await 落库（单行 INSERT，开销可忽略），
-Append 与 NextChapter 两条路径同步 `.await`。
-
-- **验证**：目标用例连续 5 次通过；`cargo test --lib` **1834 passed / 10 ignored**；clippy / fmt / guard 全绿。
-- **发布**：v0.73.10 tag 构建因此未上传官网（latest.json 仍为 0.73.9）；以 v0.73.11 为准。
-
-### v0.73.10 - 空正文冷却阈值 2 → 1（死端点单次 155s 即降权）
-
-**为什么**：v0.73.8 创世仍 600s 超时。日志显示工具档 `Ds10`
-（`Qwen3.5-27B-Uncensored-Q4_K_M`，`10.62.239.13:17098`）单次调用等 **155 秒**才返回 0 字符，
-下一轮仍被排第一；连续 2 次才冷却等于先烧掉 310 秒。
-
-**改动**：`HealthRegistry::empty_content_demoted` 阈值 2 → 1——真实调用一次空正文即进入
-10 分钟冷却（探测成功不清零、真实非空生成才清零的语义不变）。配合 v0.73.7 的
-`resolve_role_model` 跳过与候选 -1000，后续轮次不再重复等待死端点。
-
-- **验证**：`cargo test --lib` **1834 passed / 10 ignored**（用例改为「首次空正文即降权」）；
-  clippy 0 error；fmt / guard 全绿；前端零改动。
-- **清理提醒**：用户配置中该模型仍在（`is_default=true` + `tool_model_id`），需在
-  设置 → 模型 → 管理删除 “Ds10”（`deepseek-v4.1-flash` / `10.62.239.13:17098`）。
 
 ## Always Do
 

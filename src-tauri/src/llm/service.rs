@@ -17,6 +17,49 @@ use tokio::sync::Semaphore;
 /// 确保心跳任务在 panic、early return 或任何错误路径下都能可靠终止。
 struct AbortOnDrop(tokio::task::AbortHandle);
 
+/// 大提示词阈值（估算 token）。超过后首字节可能远慢于常规请求，
+/// 需要在进度提示中显式警示并放宽超时；按字符估算沿用 status 栏的
+/// `chars / 2` 口径，中文场景偏保守。
+const LARGE_PROMPT_TOKEN_THRESHOLD: usize = 10_000;
+/// 大提示词的最小生成超时。Ds10 等本地模型在数十万 token 的新前缀上
+/// 预填充可能超过 10 分钟，常规 300s/profile 值会把仍在计算的请求砍掉。
+const LARGE_PROMPT_TIMEOUT_SECS: u64 = 900;
+/// 大提示词的最小首字节超时（生成超时内的 cap）。
+const LARGE_PROMPT_FIRST_CHUNK_TIMEOUT_SECS: u64 = 600;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LargePromptLimits {
+    is_large: bool,
+    timeout_seconds: u64,
+    first_chunk_timeout_seconds: u64,
+}
+
+/// 只放大、不缩小调用方/配置的超时；短提示词保持原有行为。
+fn large_prompt_limits(
+    prompt_tokens_est: usize,
+    timeout_seconds: u64,
+    first_chunk_timeout_seconds: u64,
+) -> LargePromptLimits {
+    let is_large = prompt_tokens_est > LARGE_PROMPT_TOKEN_THRESHOLD;
+    let effective_timeout = if is_large {
+        timeout_seconds.max(LARGE_PROMPT_TIMEOUT_SECS)
+    } else {
+        timeout_seconds
+    };
+    LargePromptLimits {
+        is_large,
+        timeout_seconds: effective_timeout,
+        first_chunk_timeout_seconds: if !is_large {
+            first_chunk_timeout_seconds
+        } else if first_chunk_timeout_seconds == 0 {
+            // 0 = adapter 不设 cap，直接用生成超时；不要用 600 反而收紧。
+            effective_timeout
+        } else {
+            first_chunk_timeout_seconds.max(LARGE_PROMPT_FIRST_CHUNK_TIMEOUT_SECS)
+        },
+    }
+}
+
 impl Drop for AbortOnDrop {
     fn drop(&mut self) {
         self.0.abort();
@@ -1217,6 +1260,16 @@ impl<R: Runtime> LlmService<R> {
 
     /// 创建适配器（优先从缓存获取）
     fn create_adapter(&self, profile: &LlmProfile) -> Result<Box<dyn super::LlmAdapter>, AppError> {
+        self.create_adapter_with_first_chunk_timeout(profile, None)
+    }
+
+    /// 与大提示词豁免配套：允许调用方用更长的首字节 cap 创建/复用适配器。
+    /// 缓存键包含该值，避免短提示词命中大提示词的长超时适配器。
+    fn create_adapter_with_first_chunk_timeout(
+        &self,
+        profile: &LlmProfile,
+        first_chunk_timeout_override: Option<u64>,
+    ) -> Result<Box<dyn super::LlmAdapter>, AppError> {
         let timeout_seconds = Self::effective_timeout_seconds(profile);
         // v0.73.6: 与 AppConfig/前端默认值对齐（连接 60s / 首字节 180s）。
         let connect_timeout_seconds = self
@@ -1225,12 +1278,13 @@ impl<R: Runtime> LlmService<R> {
             .ok()
             .map(|c| c.llm_connect_timeout_secs)
             .unwrap_or(60u64);
-        let first_chunk_timeout_seconds = self
-            .config
-            .lock()
-            .ok()
-            .map(|c| c.llm_first_chunk_timeout_secs)
-            .unwrap_or(180u64);
+        let first_chunk_timeout_seconds = first_chunk_timeout_override.unwrap_or_else(|| {
+            self.config
+                .lock()
+                .ok()
+                .map(|c| c.llm_first_chunk_timeout_secs)
+                .unwrap_or(180u64)
+        });
 
         let key = Self::adapter_cache_key(
             profile,
@@ -1446,36 +1500,7 @@ impl<R: Runtime> LlmService<R> {
         let provider = profile.provider.clone();
         let model_id = profile.id.clone();
         let pipeline_ref = pipeline_ctx.as_ref();
-        let effective_timeout =
-            timeout_seconds_override.unwrap_or_else(|| Self::effective_timeout_seconds(&profile));
         let effective_retries = max_retries_override.unwrap_or(2u32);
-
-        // v0.11.8: 让 adapter 内部超时使用 override 值，这样移除外层
-        // tokio::time::timeout 后仍然能保证单候选/整体超时策略生效。
-        let mut profile_for_adapter = profile.clone();
-        if let Some(t) = timeout_seconds_override {
-            profile_for_adapter.timeout_seconds = t;
-        }
-
-        log::info!(
-            target: "llm_metrics",
-            "[LLM] execute_generation start: model={}, provider={:?}, timeout_seconds={}, max_retries={}",
-            model_name,
-            provider,
-            effective_timeout,
-            effective_retries
-        );
-        let adapter = match self.create_adapter(&profile_for_adapter) {
-            Ok(a) => a,
-            Err(e) => {
-                log::error!(
-                    "[LLM] Failed to create adapter for provider {:?}: {}",
-                    provider,
-                    e
-                );
-                return (request_id.unwrap_or_default(), Err(e));
-            }
-        };
 
         // v0.23.65: 解析系统提示词覆盖（三级优先级）。
         //
@@ -1507,6 +1532,75 @@ impl<R: Runtime> LlmService<R> {
             .or(request_system_prompt); // 3) 请求级（registry writer_system
                                         //    渲染产物）
 
+        // 大提示词判定必须包含 system：稳定文档通常放在 system 前缀里，
+        // 只统计 user prompt 会漏掉几十万 token 的预填充。
+        let system_chars = system_prompt
+            .as_deref()
+            .map(|s| s.chars().count())
+            .unwrap_or(0);
+        let prompt_chars = prompt.chars().count() + system_chars;
+        let prompt_tokens_est = prompt_chars / 2;
+        let configured_timeout =
+            timeout_seconds_override.unwrap_or_else(|| Self::effective_timeout_seconds(&profile));
+        let configured_first_chunk = self
+            .config
+            .lock()
+            .ok()
+            .map(|c| c.llm_first_chunk_timeout_secs)
+            .unwrap_or(180u64);
+        let limits = large_prompt_limits(
+            prompt_tokens_est,
+            configured_timeout,
+            configured_first_chunk,
+        );
+        let effective_timeout = limits.timeout_seconds;
+
+        // v0.11.8: 让 adapter 内部超时使用 override 值，这样移除外层
+        // tokio::time::timeout 后仍然能保证单候选/整体超时策略生效。
+        // 大提示词在这里一并放大：调用方（如 TriShot Call 3）给的短
+        // timeout 会先于模型预填充结束，必须豁免。
+        let mut profile_for_adapter = profile.clone();
+        profile_for_adapter.timeout_seconds = effective_timeout;
+
+        if limits.is_large {
+            log::warn!(
+                "[LLM] large prompt detected: model={}, prompt_chars={}, prompt_tokens_est={}, timeout_seconds={} (configured {}), first_chunk_timeout_seconds={} (configured {})",
+                model_name,
+                prompt_chars,
+                prompt_tokens_est,
+                effective_timeout,
+                configured_timeout,
+                limits.first_chunk_timeout_seconds,
+                configured_first_chunk
+            );
+        }
+        log::info!(
+            target: "llm_metrics",
+            "[LLM] execute_generation start: model={}, provider={:?}, timeout_seconds={}, max_retries={}",
+            model_name,
+            provider,
+            effective_timeout,
+            effective_retries
+        );
+        let adapter = match self.create_adapter_with_first_chunk_timeout(
+            &profile_for_adapter,
+            if limits.is_large {
+                Some(limits.first_chunk_timeout_seconds)
+            } else {
+                None
+            },
+        ) {
+            Ok(a) => a,
+            Err(e) => {
+                log::error!(
+                    "[LLM] Failed to create adapter for provider {:?}: {}",
+                    provider,
+                    e
+                );
+                return (request_id.unwrap_or_default(), Err(e));
+            }
+        };
+
         let req = GenerateRequest {
             prompt,
             max_tokens,
@@ -1521,8 +1615,6 @@ impl<R: Runtime> LlmService<R> {
         };
 
         let label = context_label.unwrap_or("");
-        let prompt_chars = req.prompt.chars().count();
-        let prompt_tokens_est = prompt_chars / 2;
 
         // v0.14.4: 识别后台静默调用（如模型健康探测），跳过心跳发射避免误导前端
         // 模型探测在应用启动时自动触发，不应让前端误以为用户的生成任务正在进行
@@ -1584,17 +1676,26 @@ impl<R: Runtime> LlmService<R> {
                 step_prefix, model_name, provider_str, label
             )
         };
-        let sent_msg = if label.is_empty() {
+        let large_prompt_notice = if limits.is_large {
             format!(
-                "{}已连接 {}，组合提示词约 {} 字符（估算 {} tokens），正在发送请求...",
-                step_prefix, model_name, prompt_chars, prompt_tokens_est
+                "⚠️ 大提示词警示：约 {} tokens（超过 1 万），首字可能较慢；本次超时已放宽至 {} 秒、首字节 {} 秒。",
+                prompt_tokens_est, effective_timeout, limits.first_chunk_timeout_seconds
             )
         } else {
-            format!(
-                "{}已连接 {} 用于 [{}]，组合提示词约 {} 字符（估算 {} tokens），正在发送请求...",
-                step_prefix, model_name, label, prompt_chars, prompt_tokens_est
-            )
+            String::new()
         };
+        let sent_msg =
+            if label.is_empty() {
+                format!(
+                    "{}已连接 {}，组合提示词约 {} 字符（估算 {} tokens），正在发送请求...{}",
+                    step_prefix, model_name, prompt_chars, prompt_tokens_est, large_prompt_notice
+                )
+            } else {
+                format!(
+                "{}已连接 {} 用于 [{}]，组合提示词约 {} 字符（估算 {} tokens），正在发送请求...{}",
+                step_prefix, model_name, label, prompt_chars, prompt_tokens_est, large_prompt_notice
+            )
+            };
         let completed_msg = if label.is_empty() {
             format!(
                 "{}模型 {} 回应完成，正在解析结果...",
@@ -1635,6 +1736,7 @@ impl<R: Runtime> LlmService<R> {
         let pipeline_ctx_for_heartbeat = pipeline_ctx.clone();
         let prompt_chars_hb = prompt_chars;
         let prompt_tokens_hb = prompt_tokens_est;
+        let large_prompt_notice_hb = large_prompt_notice.clone();
         let trace_id_for_hb = request_id
             .as_ref()
             .and_then(|req_id| {
@@ -1660,13 +1762,13 @@ impl<R: Runtime> LlmService<R> {
                         .unwrap_or_default();
                     let message = if label_owned.is_empty() {
                         format!(
-                            "{}等待模型 {}（{}）回应中，提示词约 {} 字符（估算 {} tokens），已等待 {} 秒",
-                            step_prefix_hb, model_hb, provider_hb, prompt_chars_hb, prompt_tokens_hb, elapsed
+                            "{}等待模型 {}（{}）回应中，提示词约 {} 字符（估算 {} tokens），已等待 {} 秒{}",
+                            step_prefix_hb, model_hb, provider_hb, prompt_chars_hb, prompt_tokens_hb, elapsed, large_prompt_notice_hb
                         )
                     } else {
                         format!(
-                            "{}等待模型 {}（{}）的 [{}] 回应中，提示词约 {} 字符（估算 {} tokens），已等待 {} 秒",
-                            step_prefix_hb, model_hb, provider_hb, label_owned, prompt_chars_hb, prompt_tokens_hb, elapsed
+                            "{}等待模型 {}（{}）的 [{}] 回应中，提示词约 {} 字符（估算 {} tokens），已等待 {} 秒{}",
+                            step_prefix_hb, model_hb, provider_hb, label_owned, prompt_chars_hb, prompt_tokens_hb, elapsed, large_prompt_notice_hb
                         )
                     };
                     let emit_result = app_handle.emit(
@@ -1730,9 +1832,8 @@ impl<R: Runtime> LlmService<R> {
         }
 
         let start_time = std::time::Instant::now();
-        let timeout_seconds =
-            timeout_seconds_override.unwrap_or_else(|| Self::effective_timeout_seconds(&profile));
-        let max_retries = max_retries_override.unwrap_or(2u32);
+        let timeout_seconds = effective_timeout;
+        let max_retries = effective_retries;
         // v0.73.6: 与 AppConfig/前端默认值对齐（连接 60s / 首字节 180s）。
         let connect_timeout_seconds = self
             .config
@@ -1740,12 +1841,7 @@ impl<R: Runtime> LlmService<R> {
             .ok()
             .map(|c| c.llm_connect_timeout_secs)
             .unwrap_or(60u64);
-        let first_chunk_timeout_seconds = self
-            .config
-            .lock()
-            .ok()
-            .map(|c| c.llm_first_chunk_timeout_secs)
-            .unwrap_or(180u64);
+        let first_chunk_timeout_seconds = limits.first_chunk_timeout_seconds;
 
         if !is_silent_background {
             self.workflow_log(
@@ -1760,7 +1856,9 @@ impl<R: Runtime> LlmService<R> {
                     "prompt_chars": prompt_chars,
                     "prompt_tokens_est": prompt_tokens_est,
                     "timeout_seconds": timeout_seconds,
+                    "first_chunk_timeout_seconds": first_chunk_timeout_seconds,
                     "connect_timeout_seconds": connect_timeout_seconds,
+                    "large_prompt": limits.is_large,
                     "max_retries": max_retries,
                     "is_silent_background": is_silent_background,
                 })),
@@ -1816,9 +1914,19 @@ impl<R: Runtime> LlmService<R> {
                     result = Err(e.clone());
                     let is_connection_timeout = matches!(e, AppError::LlmConnectionTimeout { .. });
                     let is_response_timeout = matches!(e, AppError::LlmResponseTimeout { .. });
-                    let can_retry = if is_connection_timeout || is_response_timeout {
-                        // 连接/首字节超时仅额外重试 1 次（attempt 0 -> attempt
-                        // 1）
+                    let can_retry = if is_connection_timeout {
+                        // 连接超时重试 1 次（attempt 0 -> attempt 1）
+                        attempt == 0
+                    } else if is_response_timeout && limits.is_large {
+                        // 大提示词的首字节 cap 已放宽到 600s；再重试一次等于
+                        // 让用户再等 10 分钟，直接返回可操作错误。
+                        log::warn!(
+                            "[LLM] large prompt first-byte timeout after {}s, skip retry: model={}",
+                            first_chunk_timeout_seconds,
+                            model_name
+                        );
+                        false
+                    } else if is_response_timeout {
                         attempt == 0
                     } else {
                         Self::is_retriable_error(&e) && attempt < max_retries
@@ -2778,6 +2886,29 @@ mod tests {
     fn observe_editor_label_is_silent_background() {
         assert!(is_silent_background_label("bg-observe-editor"));
         assert!(!is_silent_background_label("smart_execute"));
+    }
+
+    #[test]
+    fn large_prompt_limits_leave_short_prompts_untouched() {
+        let limits = large_prompt_limits(9_999, 120, 60);
+        assert!(!limits.is_large);
+        assert_eq!(limits.timeout_seconds, 120);
+        assert_eq!(limits.first_chunk_timeout_seconds, 60);
+    }
+
+    #[test]
+    fn large_prompt_limits_extend_timeouts_and_never_shrink() {
+        let limits = large_prompt_limits(10_001, 60, 60);
+        assert!(limits.is_large);
+        assert_eq!(limits.timeout_seconds, LARGE_PROMPT_TIMEOUT_SECS);
+        assert_eq!(
+            limits.first_chunk_timeout_seconds,
+            LARGE_PROMPT_FIRST_CHUNK_TIMEOUT_SECS
+        );
+
+        let already_long = large_prompt_limits(20_000, 1_200, 800);
+        assert_eq!(already_long.timeout_seconds, 1_200);
+        assert_eq!(already_long.first_chunk_timeout_seconds, 800);
     }
 
     #[test]
