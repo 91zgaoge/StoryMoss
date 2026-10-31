@@ -258,6 +258,13 @@ tauri::generate_handler! {
     agency::commands::agency_reset_technique_stats,
     agency::commands::agency_list_activities,
     agency::commands::confirm_asset_refresh,
+    // Emotion circuit commands (v0.75.0)
+    agency::emotion_commands::agency_get_story_emotion_contract,
+    agency::emotion_commands::agency_suggest_emotion_contract,
+    agency::emotion_commands::agency_update_story_emotion_contract,
+    agency::emotion_commands::agency_get_emotion_circuit_snapshot,
+    agency::emotion_commands::agency_resolve_emotion_debt,
+    agency::emotion_commands::agency_run_reader_panel,
     // Corpus commands (v0.74.0)
     corpus::commands::corpus_list, corpus::commands::corpus_get,
     corpus::commands::corpus_create, corpus::commands::corpus_update,

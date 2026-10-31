@@ -125,6 +125,7 @@ pub fn create_character(
     Ok(character)
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command(rename_all = "snake_case")]
 pub fn update_character(
     id: String,
@@ -135,6 +136,10 @@ pub fn update_character(
     appearance: Option<String>,
     gender: Option<String>,
     age: Option<i32>,
+    emotional_core: Option<String>,
+    emotional_trigger: Option<String>,
+    emotional_wound: Option<String>,
+    emotional_need: Option<String>,
     app: AppHandle,
     pool: State<'_, DbPool>,
 ) -> Result<(), AppError> {
@@ -161,6 +166,20 @@ pub fn update_character(
         age,
     )
     .map_err(AppError::from)?;
+    if emotional_core.is_some()
+        || emotional_trigger.is_some()
+        || emotional_wound.is_some()
+        || emotional_need.is_some()
+    {
+        repo.update_emotional(
+            &id,
+            emotional_core,
+            emotional_trigger,
+            emotional_wound,
+            emotional_need,
+        )
+        .map_err(AppError::from)?;
+    }
     if let Some(story_id) = story_id_opt.clone() {
         let _ = crate::state_sync::StateSync::emit_character_updated(
             &app,

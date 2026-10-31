@@ -533,6 +533,48 @@ export function getMockTauriInitScript() {
             ];
           case 'agency_list_activities':
             return [];
+          case 'agency_get_story_emotion_contract':
+            return null;
+          case 'agency_suggest_emotion_contract':
+            return {
+              story_id: mockStory.id,
+              core_question: '一个人能否在不失去自我的情况下被爱？',
+              reader_promise: '看两个人如何学会靠近',
+              palette: ['隐忍的渴望'],
+              ending_residue: '苦尽甘来',
+              forbidden: ['失忆'],
+              peak_budget: 1,
+              version: 1,
+            };
+          case 'agency_update_story_emotion_contract':
+          case 'agency_resolve_emotion_debt':
+            return null;
+          case 'agency_get_emotion_circuit_snapshot':
+            return {
+              contract: null,
+              states: [],
+              tensions: [],
+              debts: [],
+              beats: [],
+              probes: [],
+              reader_reviews: [],
+            };
+          case 'agency_run_reader_panel':
+            return {
+              reviews: 0,
+              scores: {
+                identification: 0,
+                sympathy: 0,
+                investment: 0,
+                tension: 0,
+                curiosity: 0,
+                trust: 0,
+                moved: 0,
+              },
+              verdict: 'flat',
+              moved_moments: [],
+              flat_moments: [],
+            };
           case 'agency_chat_sessions':
             return [
               {

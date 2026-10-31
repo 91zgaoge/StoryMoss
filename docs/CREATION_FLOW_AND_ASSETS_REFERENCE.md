@@ -57,6 +57,38 @@
 
 ---
 
+## v0.75.0 增补：情感回路资产（2026-10-31）
+
+> 设计：`docs/plans/2026-10-31-story-emotion-circuit-design.md`。情感回路是**叙事可观测层**，不是远程模型的激活级干预。
+
+### 新增数据表（V150）
+
+| 表 | 用途 |
+|---|---|
+| `story_emotion_contracts` | 故事情感契约：核心问题 / 读者承诺 / 情绪调色板 / 结局余味 / 禁止捷径 / 每章峰值 |
+| `character_emotion_states` | 角色 12 维动态情绪状态（按场景/拍追加；`source=ingest/commit/author`） |
+| `scene_emotion_beats` | 每拍情感因果链：from/to、触发事件、评估、行动倾向、台词策略、代价、载体配比、读者目标、强度 |
+| `emotion_tensions` | 关系张力账本：双向 bond、压力、积压拍数、due_chapter、状态 |
+| `emotion_debts` | 情感债务：承诺/裂痕/牺牲/秘密/未还人情；可兑现/延期/忽略 |
+| `reader_resonance_reviews` | 四类读者人格的共鸣评审结果 |
+| `emotion_probe_log` | 确定性探针结果（因果/目标/位移/声音/张力/过载/克制/稀疏） |
+
+### 续写注入
+
+- `write_beat_once` 在章纲生成后加载契约/张力/债务/状态，`select_next_beat` 选最高压组合；最高压关系对已在本拍阵容时替换按敌意关键词选的冲突（保留 `ConflictStage` 阶梯）。
+- writer prompt 动态区新增【本拍情感回路】（事件→评估→情绪→行动倾向→台词目标/潜台词/禁忌→代价→新状态→2–3 个载体→读者目标）；稳定 bundle 仍在最前。无契约的旧故事不注入，提示词逐字不变。
+- 章纲 `scene_outline.md` 新增条件块 `emotion_circuit` 与输出要求 6–8（情感转折/读者目标/情感债务）；无情感资产时不出现。
+- ingest 把 `attributes.mood` 折成 12 维状态写入 `character_emotion_states`；提交后 `persist_after_beat` 写场景情感链/角色状态/张力累积。
+- 编辑审查新增第 9 维 `emotion`；rule grader 规则分 = 合同 0.4 + 追读 0.3 + 情感 0.3（无计划节拍时情感 0.5）；Gate 顶层权重不变。
+
+### 资产边界
+
+- 情感回路只在作者设置契约后启用；首次启用从既有情感关系播种张力（只播一次）。
+- 探针 P0/P1 只记录、不阻断；失败进质量债。
+- 读者面板是代理指标，不是人类读者实测；不进续写热路径。
+
+---
+
 ## 目录
 
 1. [全局架构总览](#1-全局架构总览)

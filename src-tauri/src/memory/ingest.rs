@@ -1742,6 +1742,43 @@ impl IngestPipeline {
                     now,
                 ],
             )?;
+            // P1：把本段抽到的 mood 折成 12 维情绪状态，写入情感回路表，
+            // 供下一拍压力场读取。用同一连接，避免嵌套 pool.get
+            // 造成测试池死锁。
+            if let Some(ref emo_text) = emotion {
+                let vector = crate::emotion_circuit::EmotionVector::from_text(emo_text);
+                if !vector.is_zero() {
+                    let chapter_number: Option<i32> = content.scene_id.as_deref().and_then(|sid| {
+                        conn.query_row(
+                            "SELECT sequence_number FROM scenes WHERE id = ?1",
+                            [sid],
+                            |row| row.get(0),
+                        )
+                        .ok()
+                    });
+                    let cause_event: String = content.text.chars().take(80).collect();
+                    let vector_json =
+                        serde_json::to_string(&vector).unwrap_or_else(|_| "{}".to_string());
+                    let _ = conn.execute(
+                        "INSERT INTO character_emotion_states \
+                         (id, story_id, character_id, scene_id, chapter_number, beat_index, \
+                          vector_json, intensity, active_goal, defense, cause_event, source, created_at) \
+                         VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, NULL, ?9, 'ingest', ?10)",
+                        params![
+                            uuid::Uuid::new_v4().to_string(),
+                            &content.story_id,
+                            &character_id,
+                            content.scene_id,
+                            chapter_number,
+                            vector_json,
+                            vector.dominant().1,
+                            goal,
+                            cause_event,
+                            now,
+                        ],
+                    );
+                }
+            }
             updated += 1;
         }
 

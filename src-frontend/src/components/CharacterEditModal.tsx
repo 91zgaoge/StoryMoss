@@ -25,6 +25,10 @@ export function CharacterEditModal({ character, isOpen, onClose }: CharacterEdit
         appearance: character.appearance,
         gender: character.gender,
         age: character.age,
+        emotional_core: character.emotional_core,
+        emotional_trigger: character.emotional_trigger,
+        emotional_wound: character.emotional_wound,
+        emotional_need: character.emotional_need,
       });
     }
   }, [character]);
@@ -143,6 +147,46 @@ export function CharacterEditModal({ character, isOpen, onClose }: CharacterEdit
                 className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
                 placeholder="角色的背景故事..."
               />
+            </div>
+
+            <div className="rounded-xl border border-cinema-700 p-3 space-y-3">
+              <div className="text-sm font-medium text-cinema-gold">情感回路</div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">情感内核</label>
+                <input
+                  value={formData.emotional_core || ''}
+                  onChange={e => handleChange('emotional_core', e.target.value)}
+                  className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white focus:border-cinema-gold focus:outline-none"
+                  placeholder="主导情感倾向，如：表面冷漠、压抑的愤怒"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">情感触发</label>
+                <input
+                  value={formData.emotional_trigger || ''}
+                  onChange={e => handleChange('emotional_trigger', e.target.value)}
+                  className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white focus:border-cinema-gold focus:outline-none"
+                  placeholder="什么会绕过理性直接点燃他，如：被当众否定"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">情感创伤</label>
+                <input
+                  value={formData.emotional_wound || ''}
+                  onChange={e => handleChange('emotional_wound', e.target.value)}
+                  className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white focus:border-cinema-gold focus:outline-none"
+                  placeholder="驱动行为的过往创伤，如：童年被父亲当众否认"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">情感需求</label>
+                <input
+                  value={formData.emotional_need || ''}
+                  onChange={e => handleChange('emotional_need', e.target.value)}
+                  className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white focus:border-cinema-gold focus:outline-none"
+                  placeholder="内心真正渴望什么，如：被看见但不被可怜"
+                />
+              </div>
             </div>
 
             <div className="flex gap-3 pt-4 border-t border-cinema-700">

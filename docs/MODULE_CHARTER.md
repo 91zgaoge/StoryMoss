@@ -59,7 +59,7 @@ Infrastructure (db / llm / vector / embeddings / model_gateway / config / router
 
 ---
 
-## 关键子模块登记（v0.60.0–v0.72.0 新增）
+## 关键子模块登记（v0.60.0–v0.75.0 新增）
 
 > 顶层模块内部的子模块只登记「跨模块被依赖 / 承载关键不变量」者，其余以源码文档为准。
 
@@ -73,6 +73,8 @@ Infrastructure (db / llm / vector / embeddings / model_gateway / config / router
 | `agency::editor_agreement` | 判官一致率：gate 裁决落库（V146）+ 引用幸存判定 + 每章采纳率与修改率对照 | v0.68.0 |
 | `agency::technique_feedback` | 手法回灌：每拍手法落库（V147）+ 反馈按时间窗归因 + 统计/重置 | v0.69.0 |
 | `agency::serial_harness` | 长篇稳定性回归门（`#[cfg(test)]`）：四拍串联跨状态约束，随 `cargo test` 进 CI；守卫 `tests/serial_harness_guard.rs` | v0.71.0 |
+| `emotion_circuit` | 情感回路领域层：12 维情绪向量 / OCC 评估 / 8 类载体 / 压力场选拍 / 调制器 / 确定性探针 / 读者面板 / 题材契约建议 / 白盒端口；V150 七张表 | v0.75.0 |
+| `agency::emotion_commands` | 情感回路 IPC：契约读取/保存/按题材建议、快照、债务结算、读者面板 | v0.75.0 |
 
 ---
 

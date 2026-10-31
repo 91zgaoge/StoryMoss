@@ -81,6 +81,11 @@ export interface Character {
   appearance?: string;
   gender?: string;
   age?: number;
+  // v0.75.0: 情感四元组（身份级静态属性；续写情感回路的输入）
+  emotional_core?: string;
+  emotional_trigger?: string;
+  emotional_wound?: string;
+  emotional_need?: string;
   // v7.0.0: 动态状态字段
   cs_location?: string;
   cs_power_level?: string;

@@ -28,6 +28,7 @@ mod creative_engine;
 mod db;
 mod diagnostics;
 pub(crate) mod embeddings;
+mod emotion_circuit;
 mod error;
 mod error_recovery;
 mod events;

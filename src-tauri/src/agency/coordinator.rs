@@ -3693,7 +3693,7 @@ impl AgencyCoordinator {
             PersistMode::Append { scene_id } => Some(scene_id.as_str()),
             PersistMode::NextChapter { .. } => None,
         };
-        let (draft, card, technique_index) = self
+        let (draft, card, technique_index, emotion_outcome) = self
             .write_beat_once(
                 budget,
                 run_id,
@@ -3756,6 +3756,13 @@ impl AgencyCoordinator {
                 technique_index,
             )
             .await;
+            self.persist_emotion_beat(
+                story_id,
+                &outcome.scene_id,
+                outcome.chapter_number,
+                emotion_outcome.as_ref(),
+            )
+            .await;
             // 资产回流（best-effort 后台）与章里程碑检查点，与 handle_gate 对齐
             self.spawn_asset_ingest(run_id, story_id, &outcome.scene_id, &outcome.full_content);
             self.checkpoint_auto(
@@ -3811,6 +3818,13 @@ impl AgencyCoordinator {
             Some(&result.scene_id),
             result.chapter_number,
             technique_index,
+        )
+        .await;
+        self.persist_emotion_beat(
+            story_id,
+            &result.scene_id,
+            result.chapter_number,
+            emotion_outcome.as_ref(),
         )
         .await;
         self.spawn_editor_qc(
@@ -4784,6 +4798,23 @@ impl AgencyCoordinator {
                 )
                 .unwrap_or_default(),
             );
+            // P1：章纲先定情感转折，再定什么事件能制造这个转折。无情感资产时
+            // 该变量为空，scene_outline 的 mustache 条件块不出现（旧故事逐字不变）。
+            let emotion_circuit = {
+                let repo = crate::emotion_circuit::EmotionCircuitRepository::new(pool.clone());
+                let contract = repo.get_contract(&sid).ok().flatten();
+                let states = repo.latest_states(&sid).unwrap_or_default();
+                let tensions = repo.list_tensions(&sid).unwrap_or_default();
+                let debts = repo.list_debts(&sid).unwrap_or_default();
+                crate::emotion_circuit::render_chapter_emotion_plan(
+                    contract.as_ref(),
+                    &states,
+                    &tensions,
+                    &debts,
+                    chapter_for_outline,
+                )
+            };
+            vars.insert("emotion_circuit".to_string(), emotion_circuit);
             crate::prompts::registry::resolve_prompt_with_vars(&pool, "scene_outline", &vars)
                 .unwrap_or_else(|_| {
                     format!(
@@ -4916,7 +4947,15 @@ impl AgencyCoordinator {
         instruction: &str,
         current_content: Option<&str>,
         scene_id: Option<&str>,
-    ) -> Result<(BoardItem, crate::agency::beat_card::SceneBeatCard, usize), AppError> {
+    ) -> Result<
+        (
+            BoardItem,
+            crate::agency::beat_card::SceneBeatCard,
+            usize,
+            Option<EmotionBeatOutcome>,
+        ),
+        AppError,
+    > {
         let key = format!("第{}章", chapter_number);
         let _ = premise;
         let pool = self.pool.clone();
@@ -5037,6 +5076,35 @@ impl AgencyCoordinator {
         } else {
             instruction
         };
+        // P0/P1：情感回路。先选最高压的「角色-关系-债务」组合，再让这个组合
+        // 决定本拍的情感读法；只在关系对已在本拍阵容时替换冲突，避免传送。
+        let emotion_ctx = {
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            let cast_profiles = build_cast_profiles(&card, parts.as_ref());
+            let candidates = candidates_for_emotion(&chapter_outline, &card.next_outline_node);
+            let location = card.setting_location.clone();
+            if cast_profiles.is_empty() {
+                None
+            } else {
+                self.db(move || {
+                    Ok(load_emotion_plan(
+                        &pool,
+                        &sid,
+                        chapter_number,
+                        &cast_profiles,
+                        &candidates,
+                        location.as_deref(),
+                    ))
+                })
+                .await
+                .ok()
+                .flatten()
+            }
+        };
+        if let Some((plan, _)) = emotion_ctx.as_ref() {
+            override_conflict_from_emotion(&mut card, plan);
+        }
         // 关系不变量拦下的行（锁 + 关系表两条注入路径共用一份报告）。
         let mut relation_alerts: Vec<String> = Vec::new();
         // P1-5（v0.69.0）：作者裁决回灌——读手法统计与最近用过的手法，在基准轮换
@@ -5153,7 +5221,9 @@ impl AgencyCoordinator {
                 &continuity_blocks,
             );
             let state = compile_continue_beat_state(&card, Some(p), current_content.unwrap_or(""));
-            let user = crate::agency::beat_card::render_writer_user_prompt_with_technique(
+            let emotion_beat = emotion_ctx.as_ref().map(|(plan, _)| &plan.beat);
+            let emotion_contract = emotion_ctx.as_ref().and_then(|(_, c)| c.as_ref());
+            let user = crate::agency::beat_card::render_writer_user_prompt_with_emotion(
                 &assets,
                 &card,
                 instr,
@@ -5161,6 +5231,8 @@ impl AgencyCoordinator {
                 Some(&state),
                 Some(&lock),
                 Some(technique_index),
+                emotion_beat,
+                emotion_contract,
             );
             (user, admitted, l2, lock)
         } else {
@@ -5184,7 +5256,9 @@ impl AgencyCoordinator {
                 .await;
             crate::agency::continue_director::rewrite_card_cast(&mut card, &lock);
             let state = compile_continue_beat_state(&card, None, current_content.unwrap_or(""));
-            let user = crate::agency::beat_card::render_writer_user_prompt_with_technique(
+            let emotion_beat = emotion_ctx.as_ref().map(|(plan, _)| &plan.beat);
+            let emotion_contract = emotion_ctx.as_ref().and_then(|(_, c)| c.as_ref());
+            let user = crate::agency::beat_card::render_writer_user_prompt_with_emotion(
                 "",
                 &card,
                 instr,
@@ -5192,6 +5266,8 @@ impl AgencyCoordinator {
                 Some(&state),
                 Some(&lock),
                 Some(technique_index),
+                emotion_beat,
+                emotion_contract,
             );
             (user, admitted, l2, lock)
         };
@@ -5509,6 +5585,23 @@ impl AgencyCoordinator {
                 }
             }
         }
+        // P0/P1：情感探针只记录、不阻塞（P2 才评估阻断）。探针必须能引用
+        // 原文证据，失败进质量债时由调用方带 scene_id 落库。
+        let emotion_probes = emotion_ctx
+            .as_ref()
+            .map(|(plan, _)| crate::emotion_circuit::run_emotion_probes(&text, &plan.beat))
+            .unwrap_or_default();
+        for probe in &emotion_probes {
+            if !probe.passed {
+                log::warn!(
+                    "agency: 情感探针未过 run={} probe={} severity={} detail={}",
+                    run_id,
+                    probe.code,
+                    probe.severity.id(),
+                    probe.detail
+                );
+            }
+        }
         let summary: String = text.chars().take(60).collect();
         let board = self.board();
         let rid = run_id.to_string();
@@ -5528,7 +5621,63 @@ impl AgencyCoordinator {
                 )
             })
             .await?;
-        Ok((item, card, technique_index))
+        let emotion_outcome = emotion_ctx.map(|(plan, _)| EmotionBeatOutcome {
+            plan,
+            probes: emotion_probes,
+        });
+        Ok((item, card, technique_index, emotion_outcome))
+    }
+
+    /// 本拍情感回路落库：场景情感链 + 主角情绪状态 + 张力累积 + 探针日志。
+    /// 失败只告警，绝不影响正文落库。
+    async fn persist_emotion_beat(
+        &self,
+        story_id: &str,
+        scene_id: &str,
+        chapter_number: i32,
+        outcome: Option<&EmotionBeatOutcome>,
+    ) {
+        let Some(outcome) = outcome else {
+            return;
+        };
+        let plan = outcome.plan.clone();
+        let probes = outcome.probes.clone();
+        let pool = self.pool.clone();
+        let sid = story_id.to_string();
+        let scene = scene_id.to_string();
+        let ch = chapter_number;
+        let joined = tokio::task::spawn_blocking(move || {
+            let repo = crate::emotion_circuit::EmotionCircuitRepository::new(pool.clone());
+            if let Err(e) = repo.persist_after_beat(&sid, &scene, ch, &plan.beat) {
+                log::warn!("[emotion] 情感回路落库失败（非阻塞）: {e}");
+            }
+            if let Err(e) = repo.insert_probe_logs(&sid, Some(&scene), None, &probes) {
+                log::warn!("[emotion] 探针日志落库失败（非阻塞）: {e}");
+            }
+            let failed: Vec<String> = probes
+                .iter()
+                .filter(|p| !p.passed)
+                .map(|p| format!("{}：{}", p.code, p.detail))
+                .collect();
+            if !failed.is_empty() {
+                let detail = format!("情感探针：{}", failed.join("；"));
+                if let Err(e) = crate::story_system::quality_debt::record_debt(
+                    &pool,
+                    &sid,
+                    None,
+                    Some(ch),
+                    "continue_emotion",
+                    "warning",
+                    &detail,
+                ) {
+                    log::warn!("[emotion] 质量债记录失败（非阻塞）: {e}");
+                }
+            }
+        })
+        .await;
+        if let Err(e) = joined {
+            log::warn!("[emotion] 落库任务 join 失败: {e}");
+        }
     }
 
     /// P1-5：把本拍用的手法落库（归因基底；失败只告警）。
@@ -7410,6 +7559,169 @@ pub(crate) fn load_continue_context_parts(
         arcs,
         logline,
     })
+}
+
+/// 本拍情感回路运行结果：计划 + 确定性探针。
+#[derive(Debug, Clone)]
+pub(crate) struct EmotionBeatOutcome {
+    pub plan: crate::emotion_circuit::EmotionPlan,
+    pub probes: Vec<crate::emotion_circuit::EmotionProbe>,
+}
+
+fn build_cast_profiles(
+    card: &crate::agency::beat_card::SceneBeatCard,
+    parts: Option<&ContinueContextParts>,
+) -> Vec<crate::emotion_circuit::CastEmotionProfile> {
+    let mut out: Vec<crate::emotion_circuit::CastEmotionProfile> = Vec::new();
+    for member in &card.cast {
+        if out.iter().any(|p| p.name == member.name) {
+            continue;
+        }
+        if let Some(parts) = parts {
+            if let Some(core) = parts
+                .bundle
+                .core_characters
+                .iter()
+                .find(|c| c.name == member.name)
+            {
+                out.push(crate::emotion_circuit::CastEmotionProfile::from_parts(
+                    &member.name,
+                    core.emotional_wound.as_deref(),
+                    core.emotional_need.as_deref(),
+                    core.emotional_core.as_deref(),
+                ));
+                continue;
+            }
+        }
+        out.push(crate::emotion_circuit::CastEmotionProfile::from_parts(
+            &member.name,
+            None,
+            None,
+            None,
+        ));
+    }
+    out
+}
+
+fn candidates_for_emotion(chapter_outline: &str, next_node: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let node = next_node.trim();
+    if !node.is_empty() {
+        out.push(node.chars().take(200).collect());
+    }
+    for line in chapter_outline.lines() {
+        let t = line.trim().trim_start_matches(|c: char| {
+            c.is_ascii_digit() || matches!(c, '.' | '、' | '*' | '-' | '#' | '）' | ')')
+        });
+        let t = t.trim();
+        if t.chars().count() >= 8 && !out.iter().any(|x| x == t) {
+            out.push(t.chars().take(160).collect());
+        }
+        if out.len() >= 5 {
+            break;
+        }
+    }
+    out
+}
+
+/// 读取情感契约/张力/债务/状态，选本拍回路。纯同步，调用方 spawn_blocking。
+fn load_emotion_plan(
+    pool: &DbPool,
+    story_id: &str,
+    chapter_number: i32,
+    cast: &[crate::emotion_circuit::CastEmotionProfile],
+    candidates: &[String],
+    location: Option<&str>,
+) -> Option<(
+    crate::emotion_circuit::EmotionPlan,
+    Option<crate::emotion_circuit::EmotionContract>,
+)> {
+    use crate::emotion_circuit::EmotionCircuitRepository;
+    let repo = EmotionCircuitRepository::new(pool.clone());
+    let contract = repo.get_contract(story_id).ok().flatten();
+    // 只有作者设置了情感契约才启用回路（旧故事提示词逐字不变）。首次启用时
+    // 从既有情感关系播种张力；失败静默，不阻塞续写。
+    if contract.is_some() {
+        let _ = repo.seed_tensions_from_relationships(story_id, chapter_number);
+    }
+    let cast_names: std::collections::HashSet<&str> =
+        cast.iter().map(|c| c.name.as_str()).collect();
+    let tensions: Vec<_> = repo
+        .list_tensions(story_id)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|t| {
+            cast_names.contains(t.source_name.as_str())
+                && (t.target_name.is_empty() || cast_names.contains(t.target_name.as_str()))
+        })
+        .collect();
+    let debts = repo.list_debts(story_id).unwrap_or_default();
+    let states: Vec<_> = repo
+        .latest_states(story_id)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| cast_names.contains(s.character_name.as_str()))
+        .collect();
+    // 旧故事零资产时不注入情感块：作者设置契约/产生张力/回流状态后才启用。
+    if contract.is_none() && tensions.is_empty() && debts.is_empty() && states.is_empty() {
+        return None;
+    }
+    let peak_used = repo.peak_used(story_id, chapter_number).unwrap_or(0);
+    let input = crate::emotion_circuit::BeatSelectionInput {
+        chapter_number,
+        contract: contract.as_ref(),
+        cast,
+        tensions: &tensions,
+        debts: &debts,
+        states: &states,
+        candidates,
+        location,
+        peak_used,
+    };
+    Some((crate::emotion_circuit::select_next_beat(&input), contract))
+}
+
+/// 情感压力优先：若最高压关系对已在本拍阵容里，替换掉按敌意关键词选的冲突。
+/// 同一对已在对峙阶梯上时保留原阶梯，避免打断「加压→升级→结账→余波」。
+fn override_conflict_from_emotion(
+    card: &mut crate::agency::beat_card::SceneBeatCard,
+    plan: &crate::emotion_circuit::EmotionPlan,
+) {
+    if plan.pressure < 0.45 {
+        return;
+    }
+    let Some(t) = plan.tension.as_ref() else {
+        return;
+    };
+    let src = t.source_name.trim();
+    let tgt = t.target_name.trim();
+    if src.is_empty() || tgt.is_empty() {
+        return;
+    }
+    let in_cast = |name: &str| card.cast.iter().any(|c| c.name == name);
+    if !in_cast(src) || !in_cast(tgt) {
+        return;
+    }
+    let already = card.conflict_move.parties.iter().any(|p| p == src)
+        && card.conflict_move.parties.iter().any(|p| p == tgt);
+    if already {
+        return;
+    }
+    card.conflict_move = crate::agency::beat_card::ConflictMove {
+        action: crate::agency::beat_card::conflict_line(
+            crate::agency::beat_card::ConflictStage::Press,
+            src,
+            Some(tgt),
+            "",
+        ),
+        parties: vec![src.to_string(), tgt.to_string()],
+        stage: crate::agency::beat_card::ConflictStage::Press,
+    };
+    card.change_delta = crate::agency::beat_card::compile_change_delta(
+        &card.conflict_move,
+        &card.next_outline_node,
+        &card.emotion_beat,
+    );
 }
 
 fn evidence_blob(parts: &ContinueContextParts) -> String {

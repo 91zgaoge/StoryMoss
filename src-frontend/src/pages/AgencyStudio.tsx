@@ -4,6 +4,7 @@ import {
   Activity,
   Bot,
   Clapperboard,
+  Heart,
   Layers,
   ListChecks,
   MessageSquare,
@@ -34,6 +35,7 @@ import {
   directorExecute,
   directorPatrol,
   directorReject,
+  getEmotionCircuitSnapshot,
   getRun,
   listActivities,
   listBoard,
@@ -41,12 +43,19 @@ import {
   listChatSessions,
   listRuns,
   newChatSession,
+  resolveEmotionDebt,
+  runReaderPanel,
   sendChat,
+  suggestStoryEmotionContract,
+  updateStoryEmotionContract,
   type AgencyRun,
   type ChatMessage,
   type ChatSession,
   type CrewAlert,
   type CrewSnapshot,
+  type EmotionCircuitSnapshot,
+  type EmotionContract,
+  type EmotionVector,
 } from '@/services/api/agency';
 import type { BoardItem } from '@/services/api/agency';
 import type { ViewType } from '@/types';
@@ -106,6 +115,30 @@ function hhmmss(at: number) {
 
 function roleName(key: string) {
   return ROLE_NAMES[key] ?? key;
+}
+
+const EMOTION_LABELS: [keyof EmotionVector, string][] = [
+  ['joy', '喜悦'],
+  ['sadness', '悲伤'],
+  ['fear', '恐惧'],
+  ['anger', '愤怒'],
+  ['disgust', '厌恶'],
+  ['surprise', '惊讶'],
+  ['love', '爱'],
+  ['trust', '信任'],
+  ['guilt', '愧疚'],
+  ['shame', '羞耻'],
+  ['pride', '自尊'],
+  ['hope', '希望'],
+];
+
+function vectorLabel(v: EmotionVector | undefined | null) {
+  if (!v) return '平静';
+  const top = EMOTION_LABELS.map(([key, label]) => [label, v[key]] as const)
+    .filter(([, value]) => value > 0.02)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
+  return top.length ? top.map(([label, value]) => `${label}${value.toFixed(2)}`).join('/') : '平静';
 }
 
 function isRunActive(status: string) {
@@ -199,7 +232,9 @@ export default function AgencyStudio() {
   const [targetRole, setTargetRole] = useState('director');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState('');
-  const [liveTab, setLiveTab] = useState<'now' | 'board' | 'timeline'>('now');
+  const [liveTab, setLiveTab] = useState<'now' | 'board' | 'timeline' | 'emotion'>('now');
+  const [contractDraft, setContractDraft] = useState<EmotionContract | null>(null);
+  const [editingContract, setEditingContract] = useState(false);
   const [focus, setFocus] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -250,6 +285,13 @@ export default function AgencyStudio() {
     refetchInterval: 3_000,
   });
   const crew: CrewSnapshot | undefined = crewQuery.data;
+  const emotionQuery = useQuery({
+    queryKey: ['agency-emotion', storyId],
+    queryFn: () => getEmotionCircuitSnapshot(storyId!),
+    enabled: !!storyId,
+    refetchInterval: 15_000,
+  });
+  const emotion: EmotionCircuitSnapshot | undefined = emotionQuery.data;
   const messagesQuery = useQuery({
     queryKey: ['agency-chat', sessionId],
     queryFn: () => listChatMessages(sessionId!, 200),
@@ -277,7 +319,12 @@ export default function AgencyStudio() {
   }, []);
 
   const queryError =
-    runsQuery.error ?? boardQuery.error ?? runQuery.error ?? crewQuery.error ?? messagesQuery.error;
+    runsQuery.error ??
+    boardQuery.error ??
+    runQuery.error ??
+    crewQuery.error ??
+    emotionQuery.error ??
+    messagesQuery.error;
 
   if (!currentStory) return <p className="p-6 text-ai-ink-3">请先选择一个故事</p>;
 
@@ -400,6 +447,7 @@ export default function AgencyStudio() {
     queryClient.invalidateQueries({ queryKey: ['agency-chat-sessions', storyId] });
     queryClient.invalidateQueries({ queryKey: ['agency-board', activeRunId] });
     queryClient.invalidateQueries({ queryKey: ['agency-activities', activeRunId] });
+    queryClient.invalidateQueries({ queryKey: ['agency-emotion', storyId] });
   };
 
   const handleSend = async (text = input) => {
@@ -508,6 +556,77 @@ export default function AgencyStudio() {
     }
   };
 
+  const handleRunReaderPanel = async () => {
+    if (!currentStory || busy) return;
+    setBusy('reader-panel');
+    try {
+      const agg = await runReaderPanel(currentStory.id);
+      toast.success(
+        `读者面板：${agg.verdict} · 共鸣 ${agg.scores.moved.toFixed(2)}（${agg.reviews} 人）`
+      );
+      refreshStudio();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleResolveDebt = async (debtId: string, status: string) => {
+    if (!currentStory) return;
+    try {
+      await resolveEmotionDebt(currentStory.id, debtId, status);
+      refreshStudio();
+      toast.success(status === 'paid' ? '已标记兑现' : status === 'ignored' ? '已忽略' : '已延期');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const startEditContract = () => {
+    setContractDraft(
+      emotion?.contract ?? {
+        story_id: currentStory?.id ?? '',
+        core_question: '',
+        reader_promise: '',
+        palette: [],
+        ending_residue: '',
+        forbidden: [],
+        peak_budget: 1,
+        version: 1,
+      }
+    );
+    setEditingContract(true);
+  };
+
+  const handleSuggestContract = async () => {
+    if (!currentStory) return;
+    try {
+      const suggested = await suggestStoryEmotionContract(currentStory.id);
+      setContractDraft(suggested);
+      setEditingContract(true);
+      toast.success('已按题材生成建议，确认后保存');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const handleSaveContract = async () => {
+    if (!contractDraft || !currentStory) return;
+    try {
+      await updateStoryEmotionContract({
+        ...contractDraft,
+        story_id: currentStory.id,
+        version: (contractDraft.version || 0) + 1,
+      });
+      setEditingContract(false);
+      refreshStudio();
+      toast.success('情感契约已保存');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const handleAlertDirector = (alert: CrewAlert) => {
     setTargetRole('director');
     setInput(`@导演 ${alert.kind}：${alert.message}。帮我判断重试、停止还是交给我处理。`);
@@ -517,6 +636,8 @@ export default function AgencyStudio() {
   const crewAlerts = crew?.alerts ?? [];
   const leases = crew?.leases ?? [];
   const activeCount = crewTasks.filter(t => t.status === 'running').length;
+  const lastEmotionBeat = emotion?.beats?.[emotion.beats.length - 1];
+  const failedEmotionProbes = (emotion?.probes ?? []).filter(p => !p.passed);
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-4">
@@ -813,7 +934,7 @@ export default function AgencyStudio() {
         {!focus && (
           <aside className="flex min-w-0 flex-col rounded border border-ai-line bg-ai-surface">
             <div className="flex gap-1 border-b border-ai-line px-2 py-1.5">
-              {(['now', 'board', 'timeline'] as const).map(tab => (
+              {(['now', 'board', 'timeline', 'emotion'] as const).map(tab => (
                 <button
                   key={tab}
                   type="button"
@@ -825,7 +946,13 @@ export default function AgencyStudio() {
                       : 'text-ai-ink-3'
                   )}
                 >
-                  {tab === 'now' ? '现场' : tab === 'board' ? '黑板' : '时间线'}
+                  {tab === 'now'
+                    ? '现场'
+                    : tab === 'board'
+                      ? '黑板'
+                      : tab === 'timeline'
+                        ? '时间线'
+                        : '情感'}
                 </button>
               ))}
             </div>
@@ -1013,6 +1140,285 @@ export default function AgencyStudio() {
                       </div>
                     ))
                   )}
+                </div>
+              )}
+
+              {liveTab === 'emotion' && (
+                <div className="flex flex-col gap-2 text-[10px]">
+                  <div className="rounded border border-ai-line p-2">
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="flex items-center gap-1 font-semibold text-ai-ink-2">
+                        <Heart className="h-3 w-3" />
+                        情感契约
+                      </span>
+                      <div className="flex gap-1">
+                        {!editingContract && (
+                          <button
+                            type="button"
+                            onClick={handleSuggestContract}
+                            className="rounded border border-ai-line px-1 py-0.5 text-[9px] text-ai-ink-3"
+                          >
+                            按题材建议
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            editingContract ? setEditingContract(false) : startEditContract()
+                          }
+                          className="rounded border border-ai-line px-1 py-0.5 text-[9px] text-ai-ink-2"
+                        >
+                          {editingContract ? '取消' : '编辑'}
+                        </button>
+                      </div>
+                    </div>
+                    {editingContract && contractDraft ? (
+                      <div className="flex flex-col gap-1">
+                        <input
+                          value={contractDraft.core_question}
+                          onChange={e =>
+                            setContractDraft({ ...contractDraft, core_question: e.target.value })
+                          }
+                          placeholder="核心情感问题（全书要回答什么）"
+                          className="w-full rounded border border-ai-line bg-ai-surface px-2 py-1 text-[10px] text-ai-ink"
+                        />
+                        <input
+                          value={contractDraft.reader_promise}
+                          onChange={e =>
+                            setContractDraft({ ...contractDraft, reader_promise: e.target.value })
+                          }
+                          placeholder="读者承诺（读者最初为什么在乎）"
+                          className="w-full rounded border border-ai-line bg-ai-surface px-2 py-1 text-[10px] text-ai-ink"
+                        />
+                        <input
+                          value={contractDraft.ending_residue}
+                          onChange={e =>
+                            setContractDraft({ ...contractDraft, ending_residue: e.target.value })
+                          }
+                          placeholder="结局余味"
+                          className="w-full rounded border border-ai-line bg-ai-surface px-2 py-1 text-[10px] text-ai-ink"
+                        />
+                        <input
+                          value={contractDraft.palette.join('、')}
+                          onChange={e =>
+                            setContractDraft({
+                              ...contractDraft,
+                              palette: e.target.value
+                                .split(/[、,，]/)
+                                .map(s => s.trim())
+                                .filter(Boolean),
+                            })
+                          }
+                          placeholder="情绪调色板（顿号分隔）"
+                          className="w-full rounded border border-ai-line bg-ai-surface px-2 py-1 text-[10px] text-ai-ink"
+                        />
+                        <input
+                          value={contractDraft.forbidden.join('、')}
+                          onChange={e =>
+                            setContractDraft({
+                              ...contractDraft,
+                              forbidden: e.target.value
+                                .split(/[、,，]/)
+                                .map(s => s.trim())
+                                .filter(Boolean),
+                            })
+                          }
+                          placeholder="禁止的情感捷径（顿号分隔）"
+                          className="w-full rounded border border-ai-line bg-ai-surface px-2 py-1 text-[10px] text-ai-ink"
+                        />
+                        <div className="flex items-center gap-1">
+                          <span className="text-ai-ink-3">每章峰值</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={3}
+                            value={contractDraft.peak_budget}
+                            onChange={e =>
+                              setContractDraft({
+                                ...contractDraft,
+                                peak_budget: Math.max(0, Math.min(3, Number(e.target.value) || 0)),
+                              })
+                            }
+                            className="w-14 rounded border border-ai-line bg-ai-surface px-1 py-0.5 text-[10px] text-ai-ink"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleSaveContract}
+                            className="ml-auto rounded border border-ai-accent px-2 py-0.5 text-[9px] text-ai-accent-ink"
+                          >
+                            保存契约
+                          </button>
+                        </div>
+                      </div>
+                    ) : emotion?.contract ? (
+                      <div className="space-y-0.5 text-ai-ink-2">
+                        <div>{emotion.contract.core_question || '（未设置核心情感问题）'}</div>
+                        <div className="text-ai-ink-3">
+                          读者承诺：{emotion.contract.reader_promise || '—'}
+                        </div>
+                        <div className="text-ai-ink-3">
+                          结局余味：{emotion.contract.ending_residue || '—'} · 峰值预算{' '}
+                          {emotion.contract.peak_budget}
+                        </div>
+                        {emotion.contract.forbidden.length > 0 && (
+                          <div className="text-ai-red">
+                            禁止：{emotion.contract.forbidden.join('、')}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-ai-ink-3">
+                        未设置。续写会按题材承诺运行；保存后本章开始使用情感回路。
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded border border-ai-line p-2">
+                    <div className="mb-1 font-semibold text-ai-ink-2">角色情绪</div>
+                    {emotion?.states.length ? (
+                      emotion.states.slice(0, 5).map(s => (
+                        <div
+                          key={s.id}
+                          className="border-t border-ai-line py-1 first:border-0 first:pt-0"
+                        >
+                          <div className="text-ai-ink">
+                            {s.character_name || s.character_id} · {vectorLabel(s.vector)}
+                          </div>
+                          <div className="text-ai-ink-3">
+                            {s.cause_event || '—'}
+                            {s.active_goal ? ` · 目标 ${s.active_goal}` : ''}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-ai-ink-3">暂无角色情绪状态（续写/回流后出现）。</div>
+                    )}
+                  </div>
+
+                  <div className="rounded border border-ai-line p-2">
+                    <div className="mb-1 font-semibold text-ai-ink-2">未释放的关系张力</div>
+                    {emotion?.tensions.length ? (
+                      emotion.tensions.slice(0, 4).map(t => (
+                        <div
+                          key={t.id}
+                          className="border-t border-ai-line py-1 first:border-0 first:pt-0"
+                        >
+                          <div className="text-ai-ink">
+                            {t.source_name} → {t.target_name} · {t.tension_type}
+                          </div>
+                          <div className="text-ai-ink-3">
+                            压力 {t.pressure.toFixed(2)} · 积压 {t.accumulated_beats} 拍
+                            {t.due_chapter ? ` · 第${t.due_chapter}章前兑现` : ''}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-ai-ink-3">暂无张力账本。</div>
+                    )}
+                  </div>
+
+                  <div className="rounded border border-ai-line p-2">
+                    <div className="mb-1 font-semibold text-ai-ink-2">情感债务</div>
+                    {(emotion?.debts ?? []).filter(
+                      d => d.status === 'open' || d.status === 'deferred'
+                    ).length ? (
+                      emotion?.debts
+                        .filter(d => d.status === 'open' || d.status === 'deferred')
+                        .slice(0, 4)
+                        .map(d => (
+                          <div
+                            key={d.id}
+                            className="border-t border-ai-line py-1 first:border-0 first:pt-0"
+                          >
+                            <div className="text-ai-ink">{d.description}</div>
+                            <div className="text-ai-ink-3">
+                              压力 {d.pressure.toFixed(2)}
+                              {d.due_chapter ? ` · 第${d.due_chapter}章到期` : ''}
+                            </div>
+                            <div className="mt-0.5 flex gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleResolveDebt(d.id, 'paid')}
+                                className="rounded border border-ai-line px-1 py-0.5 text-[9px] text-ai-ink-2"
+                              >
+                                兑现
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleResolveDebt(d.id, 'deferred')}
+                                className="rounded border border-ai-line px-1 py-0.5 text-[9px] text-ai-ink-2"
+                              >
+                                延期
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleResolveDebt(d.id, 'ignored')}
+                                className="rounded border border-ai-line px-1 py-0.5 text-[9px] text-ai-ink-3"
+                              >
+                                忽略
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                    ) : (
+                      <div className="text-ai-ink-3">暂无未结情感债务。</div>
+                    )}
+                  </div>
+
+                  <div className="rounded border border-ai-line p-2">
+                    <div className="mb-1 font-semibold text-ai-ink-2">本拍情感回路</div>
+                    {lastEmotionBeat ? (
+                      <div className="space-y-0.5 text-ai-ink-2">
+                        <div>
+                          第{lastEmotionBeat.beat_index}拍 ·{' '}
+                          {lastEmotionBeat.from ? vectorLabel(lastEmotionBeat.from) : '平静'} →{' '}
+                          {vectorLabel(lastEmotionBeat.to)}
+                        </div>
+                        <div className="text-ai-ink-3">事件：{lastEmotionBeat.trigger_event}</div>
+                        <div className="text-ai-ink-3">代价：{lastEmotionBeat.cost}</div>
+                        <div className="text-ai-ink-3">
+                          读者目标：{lastEmotionBeat.reader_target?.primary || '—'} · 强度{' '}
+                          {lastEmotionBeat.scale.toFixed(1)}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-ai-ink-3">暂无已落库的拍级情感链。</div>
+                    )}
+                    {failedEmotionProbes.length > 0 && (
+                      <div className="mt-1 border-t border-ai-line pt-1 text-ai-red">
+                        探针未过 {failedEmotionProbes.length} 项：
+                        {failedEmotionProbes
+                          .slice(0, 3)
+                          .map(p => `${p.probe}（${p.detail}）`)
+                          .join('；')}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded border border-ai-line p-2">
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="font-semibold text-ai-ink-2">读者面板</span>
+                      <button
+                        type="button"
+                        disabled={busy === 'reader-panel'}
+                        onClick={handleRunReaderPanel}
+                        className="rounded border border-ai-line px-1 py-0.5 text-[9px] text-ai-ink-2 disabled:opacity-50"
+                      >
+                        {busy === 'reader-panel' ? '评审中…' : '运行'}
+                      </button>
+                    </div>
+                    {emotion?.reader_reviews.length ? (
+                      emotion.reader_reviews.slice(0, 4).map(r => (
+                        <div key={r.id} className="text-ai-ink-2">
+                          {r.persona} · {r.verdict} · 共鸣 {r.scores.moved.toFixed(2)}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-ai-ink-3">
+                        尚未运行。四人格评审在后台/手动触发，不进续写热路径。
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

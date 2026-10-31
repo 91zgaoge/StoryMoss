@@ -521,15 +521,17 @@ fn parse_relationship_ends(line: &str) -> Option<(String, String)> {
 }
 
 pub fn render_admitted_cards(chars: &[CoreCharacter], admitted: &[impl AsRef<str>]) -> String {
-    render_layered_admitted_cards(chars, admitted, &[] as &[&str])
+    render_layered_admitted_cards(chars, admitted, &[] as &[&str], false)
 }
 
 /// `full_card_names` 空 = 准入者全用 L2。否则仅名单内 L2，其余准入
-/// L1（无情感内核）。
+/// L1。`include_l1_emotion` 为 true 时 L1 卡补一行最小情感信息（伤口/需求/
+/// 内核），仅在本次续写确实有情感张力/弧光资产时开启，旧故事提示词不变。
 pub fn render_layered_admitted_cards(
     chars: &[CoreCharacter],
     admitted: &[impl AsRef<str>],
     full_card_names: &[impl AsRef<str>],
+    include_l1_emotion: bool,
 ) -> String {
     let l2_all = full_card_names.is_empty();
     let mut lines = Vec::new();
@@ -541,7 +543,7 @@ pub fn render_layered_admitted_cards(
         lines.push(if full {
             render_one_card(c)
         } else {
-            render_one_card_l1(c)
+            render_one_card_l1(c, include_l1_emotion)
         });
     }
     if lines.is_empty() {
@@ -550,7 +552,7 @@ pub fn render_layered_admitted_cards(
     format!("【本拍角色（须遵循当前状态）】\n{}", lines.join("\n"))
 }
 
-fn render_one_card_l1(c: &CoreCharacter) -> String {
+fn render_one_card_l1(c: &CoreCharacter, include_emotion: bool) -> String {
     let mut parts = vec![format!("姓名：{}", c.name)];
     if let Some(ref id) = c.identity {
         parts.push(format!("身份：{}", id));
@@ -567,6 +569,27 @@ fn render_one_card_l1(c: &CoreCharacter) -> String {
     }
     if !state_parts.is_empty() {
         parts.push(format!("当前状态：{}", state_parts.join("，")));
+    }
+    if include_emotion {
+        let mut emo = Vec::new();
+        if let Some(ref v) = c.emotional_wound {
+            if !v.trim().is_empty() {
+                emo.push(format!("伤口={}", take_chars(v.trim(), 30)));
+            }
+        }
+        if let Some(ref v) = c.emotional_need {
+            if !v.trim().is_empty() {
+                emo.push(format!("需求={}", take_chars(v.trim(), 30)));
+            }
+        }
+        if let Some(ref v) = c.emotional_core {
+            if !v.trim().is_empty() {
+                emo.push(format!("内核={}", take_chars(v.trim(), 30)));
+            }
+        }
+        if !emo.is_empty() {
+            parts.push(format!("情感：{}", emo.join("；")));
+        }
     }
     format!("- {}", parts.join(" | "))
 }
@@ -842,10 +865,13 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         }
     };
 
+    // 情感张力/弧光存在时，L1 卡补一行最小情感信息；没有时保持旧提示词不变。
+    let include_l1_emotion = !input.tension_lines.is_empty() || !input.arc_lines.is_empty();
     let cards = render_layered_admitted_cards(
         &input.bundle.core_characters,
         input.admitted,
         input.full_card_names,
+        include_l1_emotion,
     );
     let roster = render_roster_line(input.roster);
     let rels = filter_relationship_lines(&input.bundle.relationship_lines, input.admitted);
@@ -1562,14 +1588,23 @@ mod tests {
     }
 
     #[test]
-    fn layered_cards_l1_omits_emotional_core() {
+    fn layered_cards_l1_omits_emotional_core_without_emotion_assets() {
         let chars = vec![core("客栈乙"), core("债主甲")];
         let admitted = vec!["客栈乙".to_string(), "债主甲".to_string()];
         let l2 = vec!["客栈乙".to_string()];
-        let text = render_layered_admitted_cards(&chars, &admitted, &l2);
+        let text = render_layered_admitted_cards(&chars, &admitted, &l2, false);
         assert!(text.contains("情感内核：客栈乙的情感内核"), "{text}");
         assert!(!text.contains("情感内核：债主甲的情感内核"), "{text}");
         assert!(text.contains("姓名：债主甲"), "{text}");
+    }
+
+    #[test]
+    fn layered_cards_l1_adds_minimal_emotion_when_active() {
+        let chars = vec![core("客栈乙"), core("债主甲")];
+        let admitted = vec!["客栈乙".to_string(), "债主甲".to_string()];
+        let l2 = vec!["客栈乙".to_string()];
+        let text = render_layered_admitted_cards(&chars, &admitted, &l2, true);
+        assert!(text.contains("情感：内核=债主甲的情感内核"), "{text}");
     }
 
     #[test]

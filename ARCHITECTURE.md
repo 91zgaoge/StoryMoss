@@ -1146,6 +1146,25 @@ function assertUnreachable(x: never): never {
 
 ---
 
+## 情感回路 (v0.75.0)
+
+设计：`docs/plans/2026-10-31-story-emotion-circuit-design.md`。把 EmotionCircuits-LLM（arXiv:2510.11328）的「情绪方向 / 局部稀疏组件 / 逐层重要性 / 全局电路调制」映射到叙事可观测层。
+
+- **领域模块**：`src-tauri/src/emotion_circuit/`
+  - `vector`：12 维情绪向量（六基本 + 六社会），权重归一化、强度独立。
+  - `appraisal`：OCC 评估（相关性/一致性/归因/确定性/可控性/规范性/依恋）→ 情绪 → 行动倾向；台词策略（目标/手段/潜台词/禁忌）。
+  - `carriers`：8 类表达载体（动作/台词潜台词/选择/代价/感官/内心/沉默/节奏），每拍只选 2–3 项。
+  - `circuit`：情感压力场（关系压力 × 债务逾期 × 情感位移）与 `select_next_beat`；冲突引擎要求双方都有正当性。
+  - `modulation`：把回路编译为【本拍情感回路】提示词块与章纲情感转折块。
+  - `probe`：0 LLM 确定性探针（因果/目标/位移/声音/张力/过载/克制/稀疏）。
+  - `reader`：四类读者人格、共鸣聚合与「感动四问」。
+  - `repo`：V150 七张表的读写；`persist_after_beat` 落库情感链/状态/张力。
+  - `adaptation` / `whitebox`：题材契约建议；本地 HF 白盒适配端口（默认 noop）。
+- **数据表（V150）**：`story_emotion_contracts`、`character_emotion_states`、`scene_emotion_beats`、`emotion_tensions`、`emotion_debts`、`reader_resonance_reviews`、`emotion_probe_log`。全部 additive。
+- **续写接线**：`AgencyCoordinator::write_beat_once` 在章纲生成后加载契约/张力/债务/状态，选本拍回路；若最高压关系对已在本拍阵容，替换按敌意关键词选的冲突（保留 `ConflictStage` 阶梯）；`render_writer_user_prompt_with_emotion` 把情感块放在节拍卡之后、人物锁/状态网之前；落库后 `persist_emotion_beat` 写回。
+- **门禁**：编辑审查第 9 维 `emotion`；`run_rule_grader` 规则分 = 合同 0.4 + 追读 0.3 + 情感 0.3（无计划节拍时情感 0.5）；Gate 顶层权重 0.2/0.3/0.5 与阈值 0.75 不变。
+- **不变量**：P0/P1 情感探针只记录不阻断；作者设置契约后启用，旧故事无契约时提示词逐字不变；稳定 bundle 仍在最前，情感块属于动态区；不在远程 API 上做激活级干预。
+
 ## 目录结构
 
 ```

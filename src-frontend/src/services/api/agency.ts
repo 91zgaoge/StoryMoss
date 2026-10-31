@@ -426,3 +426,219 @@ export function directorReject(actionIds: string[], messageId?: string) {
 export function directorPatrol(storyId: string) {
   return loggedInvoke<CrewSnapshot>('agency_director_patrol', { story_id: storyId });
 }
+
+// ==================== 情感回路（Story Emotion Circuit, v0.75.0） ====================
+
+export interface EmotionVector {
+  joy: number;
+  sadness: number;
+  fear: number;
+  anger: number;
+  disgust: number;
+  surprise: number;
+  love: number;
+  trust: number;
+  guilt: number;
+  shame: number;
+  pride: number;
+  hope: number;
+}
+
+export interface EmotionContract {
+  story_id: string;
+  core_question: string;
+  reader_promise: string;
+  palette: string[];
+  ending_residue: string;
+  forbidden: string[];
+  peak_budget: number;
+  version: number;
+}
+
+export interface CharacterEmotionState {
+  id: string;
+  story_id: string;
+  character_id: string;
+  character_name: string;
+  scene_id: string | null;
+  chapter_number: number | null;
+  beat_index: number | null;
+  vector: EmotionVector;
+  intensity: number;
+  active_goal: string | null;
+  defense: string | null;
+  cause_event: string | null;
+  source: string;
+  created_at: string;
+}
+
+export interface EmotionTension {
+  id: string;
+  story_id: string;
+  source_character_id: string;
+  target_character_id: string | null;
+  source_name: string;
+  target_name: string;
+  tension_type: string;
+  bond: string | null;
+  reverse_bond: string | null;
+  pressure: number;
+  accumulated_beats: number;
+  due_chapter: number | null;
+  status: string;
+  last_escalated_chapter: number | null;
+  updated_at: string;
+}
+
+export interface EmotionDebt {
+  id: string;
+  story_id: string;
+  kind: string;
+  source_ref: string | null;
+  description: string;
+  pressure: number;
+  due_chapter: number | null;
+  status: string;
+  created_at: string;
+}
+
+export interface CarrierPlan {
+  action: number;
+  dialogue_subtext: number;
+  choice: number;
+  consequence: number;
+  sensory: number;
+  interiority: number;
+  silence: number;
+  rhythm: number;
+}
+
+export interface ReaderTarget {
+  primary: string;
+  secondary: string | null;
+  why: string;
+  restraint: string;
+}
+
+export interface SceneEmotionBeat {
+  id: string;
+  story_id: string;
+  scene_id: string;
+  beat_index: number;
+  from: EmotionVector;
+  to: EmotionVector;
+  trigger_event: string;
+  appraisal: Record<string, unknown>;
+  action_tendency: string;
+  dialogue_policy: Record<string, unknown> | null;
+  cost: string;
+  carriers: CarrierPlan;
+  reader_target: ReaderTarget;
+  scale: number;
+  event_kind: string;
+  source_name: string;
+  target_name: string;
+  tension_id: string | null;
+  debt_id: string | null;
+  created_at: string;
+}
+
+export interface EmotionProbeLog {
+  id: string;
+  story_id: string;
+  scene_id: string | null;
+  beat_index: number | null;
+  probe: string;
+  severity: string;
+  passed: boolean;
+  detail: string;
+  created_at: string;
+}
+
+export interface ReaderScores {
+  identification: number;
+  sympathy: number;
+  investment: number;
+  tension: number;
+  curiosity: number;
+  trust: number;
+  moved: number;
+}
+
+export interface ReaderResonanceReview {
+  id: string;
+  story_id: string;
+  scene_id: string | null;
+  chapter_number: number | null;
+  persona: string;
+  scores: ReaderScores;
+  verdict: string;
+  evidence: string | null;
+  created_at: string;
+}
+
+export interface EmotionCircuitSnapshot {
+  contract: EmotionContract | null;
+  states: CharacterEmotionState[];
+  tensions: EmotionTension[];
+  debts: EmotionDebt[];
+  beats: SceneEmotionBeat[];
+  probes: EmotionProbeLog[];
+  reader_reviews: ReaderResonanceReview[];
+}
+
+export interface ReaderAggregate {
+  reviews: number;
+  scores: ReaderScores;
+  verdict: string;
+  moved_moments: string[];
+  flat_moments: string[];
+}
+
+export function getStoryEmotionContract(storyId: string) {
+  return loggedInvoke<EmotionContract | null>('agency_get_story_emotion_contract', {
+    story_id: storyId,
+  });
+}
+
+export function updateStoryEmotionContract(contract: EmotionContract) {
+  return loggedInvoke<void>('agency_update_story_emotion_contract', { contract });
+}
+
+export function suggestStoryEmotionContract(storyId: string) {
+  return loggedInvoke<EmotionContract>('agency_suggest_emotion_contract', {
+    story_id: storyId,
+  });
+}
+
+export function getEmotionCircuitSnapshot(
+  storyId: string,
+  sceneId?: string | null,
+  chapterNumber?: number | null
+) {
+  return loggedInvoke<EmotionCircuitSnapshot>('agency_get_emotion_circuit_snapshot', {
+    story_id: storyId,
+    scene_id: sceneId ?? null,
+    chapter_number: chapterNumber ?? null,
+  });
+}
+
+export function resolveEmotionDebt(storyId: string, debtId: string, status: string) {
+  return loggedInvoke<void>('agency_resolve_emotion_debt', {
+    story_id: storyId,
+    debt_id: debtId,
+    status,
+  });
+}
+
+export function runReaderPanel(
+  storyId: string,
+  sceneId?: string | null,
+  chapterNumber?: number | null
+) {
+  return loggedInvoke<ReaderAggregate>('agency_run_reader_panel', {
+    story_id: storyId,
+    scene_id: sceneId ?? null,
+    chapter_number: chapterNumber ?? null,
+  });
+}

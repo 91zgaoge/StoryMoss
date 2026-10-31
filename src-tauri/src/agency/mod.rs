@@ -21,6 +21,7 @@ pub mod crew;
 pub mod director;
 pub mod director_repository;
 pub mod editor_agreement;
+pub mod emotion_commands;
 pub mod emotional_ledger;
 pub mod eval_harness;
 pub mod gate;

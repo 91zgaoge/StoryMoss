@@ -15,6 +15,8 @@ pub struct CodeGraderReport {
 pub struct RuleGraderReport {
     pub contract_score: f64,
     pub reading_power_score: f64,
+    /// P2：情感回路确定性探针得分。无计划节拍时为中性 0.5（不奖不罚）。
+    pub emotion_score: f64,
     pub subagent_issues: Vec<String>,
     pub score: f64,
     pub issues: Vec<String>,
@@ -127,15 +129,49 @@ pub async fn run_rule_grader(
     };
     let notes = crate::agents::subagents::run_subagent_review(&ctx, content).await;
     let subagent_issues = crate::agency::gate::merge_rule_issues(&notes);
-    let score = contract_score * 0.5 + reading_power_score * 0.5;
+    // P2：情感维度。有本章计划节拍时跑确定性探针；没有时给中性 0.5，
+    // 不让旧故事因「没有情感资产」被扣分。
+    let pool_c = pool.clone();
+    let sid = story_id.to_string();
+    let planned_beat = tokio::task::spawn_blocking(move || {
+        crate::emotion_circuit::EmotionCircuitRepository::new(pool_c)
+            .latest_beat_for_chapter(&sid, chapter_number)
+            .ok()
+            .flatten()
+    })
+    .await
+    .ok()
+    .flatten();
+    let emotion_score = match planned_beat {
+        Some(beat) => {
+            let probes =
+                crate::emotion_circuit::run_emotion_probes(content, &beat.to_emotion_beat());
+            let penalty: f64 = probes
+                .iter()
+                .filter(|p| !p.passed)
+                .map(|p| match p.severity.id() {
+                    "high" => 0.25,
+                    "medium" => 0.12,
+                    _ => 0.05,
+                })
+                .sum();
+            (1.0 - penalty).clamp(0.0, 1.0)
+        }
+        None => 0.5,
+    };
+    let score = contract_score * 0.4 + reading_power_score * 0.3 + emotion_score * 0.3;
     let mut issues = Vec::new();
     if has_contract && contract_score < 0.7 {
         issues.push(format!("合同兑现偏低（{:.2}）", contract_score));
+    }
+    if emotion_score < 0.5 {
+        issues.push(format!("情感回路确定性探针偏低（{:.2}）", emotion_score));
     }
     issues.extend(subagent_issues.iter().cloned());
     RuleGraderReport {
         contract_score,
         reading_power_score,
+        emotion_score,
         subagent_issues,
         score: score.clamp(0.0, 1.0),
         issues,

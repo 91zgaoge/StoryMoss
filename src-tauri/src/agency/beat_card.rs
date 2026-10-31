@@ -904,11 +904,45 @@ pub fn render_writer_user_prompt_with_technique(
     lock: Option<&crate::agency::continue_director::DirectorLock>,
     technique_index: Option<usize>,
 ) -> String {
+    render_writer_user_prompt_with_emotion(
+        bundle_prompt,
+        card,
+        instruction,
+        current_content,
+        state,
+        lock,
+        technique_index,
+        None,
+        None,
+    )
+}
+
+/// 同 `render_writer_user_prompt_with_technique`，但可注入本拍情感回路。
+///
+/// 情感块是动态区（每拍变化），放在节拍卡之后、人物锁/状态网之前；
+/// 稳定 bundle 仍在最前，保持前缀缓存契约。
+#[allow(clippy::too_many_arguments)]
+pub fn render_writer_user_prompt_with_emotion(
+    bundle_prompt: &str,
+    card: &SceneBeatCard,
+    instruction: &str,
+    current_content: &str,
+    state: Option<&crate::agency::beat_state::BeatState>,
+    lock: Option<&crate::agency::continue_director::DirectorLock>,
+    technique_index: Option<usize>,
+    emotion: Option<&crate::emotion_circuit::EmotionBeat>,
+    contract: Option<&crate::emotion_circuit::EmotionContract>,
+) -> String {
     let state_full = state
         .map(|s| format!("\n\n{}", s.render_full()))
         .unwrap_or_default();
     let state_tail = state
         .map(|s| format!("\n\n{}", s.render_tail_summary()))
+        .unwrap_or_default();
+    let emotion_block = emotion
+        .map(|b| crate::emotion_circuit::render_emotion_block(contract, b))
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| format!("\n\n{s}"))
         .unwrap_or_default();
     let lock_block = lock
         .map(|l| {
@@ -939,7 +973,7 @@ pub fn render_writer_user_prompt_with_technique(
     // 每拍变动内容依次靠后。Ds10 等模型的 prefix cache 只有在前半段完全不变
     // 时才能复用；不要改回「card_full 在前」。
     format!(
-        "{bundle}\n\n{card_full}{lock_block}{state_full}\n\n【本次创作指令】\n{instruction}\n\n\
+        "{bundle}\n\n{card_full}{emotion_block}{lock_block}{state_full}\n\n【本次创作指令】\n{instruction}\n\n\
          须在节拍任务硬约束内落实指令核心意图。\n\n{card_tail}{state_tail}\n\n{voice}\n\n{ending}{facts}",
         card_full = card.render_full(),
         bundle = bundle_prompt,
@@ -1170,6 +1204,62 @@ mod tests {
         assert!(i_sum < i_end);
         assert!(prompt.contains("林雪"));
         assert!(!prompt.contains("最高优先级"));
+    }
+
+    #[test]
+    fn writer_prompt_carries_emotion_block_after_card_before_instruction() {
+        let card = SceneBeatCard {
+            cast: vec![CastMember {
+                name: "林雪".into(),
+                purpose: "回归质问".into(),
+            }],
+            conflict_move: ConflictMove {
+                action: "加压：当众揭穿".into(),
+                parties: vec!["林雪".into(), "阿岩".into()],
+                stage: crate::agency::beat_card::default_conflict_stage(),
+            },
+            emotion_beat: EmotionBeat {
+                summary: "林雪伤口=被抛弃".into(),
+            },
+            next_outline_node: "夜宴破裂".into(),
+            expansion_quota: vec![],
+            expansion_quota_text: None,
+            setting_location: Some("夜宴".into()),
+            open_review_issues: vec![],
+            dead: vec![],
+            change_delta: ChangeDelta::default(),
+        };
+        let mut beat = crate::emotion_circuit::EmotionBeat::default();
+        beat.trigger_event = "阿岩当众替林雪承认那封信".into();
+        beat.cost = "她推开他，坐实了不识好歹".into();
+        beat.source_name = "林雪".into();
+        beat.target_name = "阿岩".into();
+        let prompt = render_writer_user_prompt_with_emotion(
+            "【红线】不可飞天",
+            &card,
+            "往下写",
+            "他推开门。",
+            None,
+            None,
+            None,
+            Some(&beat),
+            None,
+        );
+        let i_card = prompt.find("【本章节拍任务】").unwrap();
+        let i_emotion = prompt.find("【本拍情感回路").expect("应注入情感回路");
+        let i_instr = prompt.find("【本次创作指令】").unwrap();
+        assert!(i_card < i_emotion && i_emotion < i_instr, "{prompt}");
+        assert!(prompt.contains("阿岩当众替林雪承认那封信"));
+        assert!(prompt.contains("她推开他"));
+        let without = render_writer_user_prompt(
+            "【红线】不可飞天",
+            &card,
+            "往下写",
+            "他推开门。",
+            None,
+            None,
+        );
+        assert!(!without.contains("【本拍情感回路"));
     }
 
     #[test]
