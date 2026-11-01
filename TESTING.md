@@ -1,8 +1,16 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.76.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.77.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.77.0 变更说明
+
+- **多 write 并行（Rust 1950 passed / 12 ignored，+4 测试、+2 ignored 真机探针）**：
+  ①V151 索引测试：同 story 第二个 write run 允许、review run 仍冲突；②`allocate_chapter_numbers` 在既有第 5 章后分配 6/7、8、9/10，验证互不重叠；③固定语料：`corpus::pinned_context_block` 只含 pinned、无 pinned 返回 None；writer prompt 注入断言；④批量情感回归仍通过。
+- **真机探针（`#[ignore]`）**：导演规划、语料提炼；本机实跑通过（5.1s / 66.1s），不作为 CI 门禁。
+- **前端/E2E**：Corpus 固定 tooltip 文案更新；vitest 647 / 3；playwright 45 / 5。
+- **未关闭**：并行 write 的 ensure_assets 仍可能重复生成资产；固定语料仅文本摘要；探针样本单一。
 
 ### v0.76.0 变更说明
 

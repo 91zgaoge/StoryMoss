@@ -293,6 +293,25 @@ impl CorpusService {
         Ok(parsed)
     }
 
+    /// 真机探针用：返回与 `distill` 同源的 (system, user) 提示词，不调用 LLM。
+    pub(crate) fn distill_prompts_for_probe(&self, id: &str) -> Result<(String, String), AppError> {
+        let detail = self.get(id)?;
+        let brief = self.story_brief(&detail.story_id)?;
+        let content: String = detail.content.chars().take(DISTILL_CONTENT_CHARS).collect();
+        let user = format!(
+            "故事上下文：\n{}\n\n语料标题：{}\n语料原文：\n{}\n\n{}",
+            brief,
+            detail.title,
+            if content.is_empty() {
+                "(图片语料，只有标题可供参考)"
+            } else {
+                content.as_str()
+            },
+            DISTILL_SCHEMA
+        );
+        Ok((DISTILL_SYSTEM.to_string(), user))
+    }
+
     /// 转为资产草稿：只返回目标类型草稿，不写任何资产表。
     pub async fn promote(
         &self,
@@ -565,7 +584,7 @@ fn promote_schema(target_type: &str) -> Result<&'static str, AppError> {
     }
 }
 
-fn parse_json_loose<T: serde::de::DeserializeOwned>(raw: &str) -> Option<T> {
+pub(crate) fn parse_json_loose<T: serde::de::DeserializeOwned>(raw: &str) -> Option<T> {
     let cleaned = raw
         .trim()
         .trim_start_matches("```json")

@@ -94,6 +94,12 @@
 - `GateRunner`/`evaluate_gate`/`run_rule_grader` 用同一计划；revision 追加本章弧；装配后 `persist_chapter_plan` 写 N 行 `scene_emotion_beats`/状态/张力/探针。
 - `run_batch_inner` 用 `last_written_plan` 把上一章末幕 `to` 作为下一章第 1 幕 `from`。
 
+### 多 write、固定语料与真机探针（v0.77.0）
+
+- **多 write**：V151 的 `idx_agency_runs_one_active_per_lane` 只约束 review/inspect/chat；write lane 最多 3 个活跃 run（`MAX_ACTIVE_WRITE_RUNS_PER_STORY`）。`story_chapter_sequences` 由 `allocate_chapter_numbers` 在 IMMEDIATE 事务内分配连续章号；`run_continue_inner` 对 Append 获取 `append:{scene_id}` 租约。
+- **固定语料**：`CorpusRepository::list_pinned` → `corpus::pinned_context_block`（≤4 条、≤1200 字，提炼要点优先）→ `write_beat_once` 的 continuity blocks / `write_chapter` 的 `render_parts` / `assemble_continue_user_prompt`。
+- **真机探针**：`real_machine_probe_director_planning`（CrewInspector → 导演提示词 → Tool 档 → `DirectorPlan`）与 `real_machine_probe_corpus_distill`（同源提示词 → Background 档 → `CorpusDistillation` → `distilled_json`）。
+
 ---
 
 ## 目录

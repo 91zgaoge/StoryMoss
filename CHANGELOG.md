@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.77.0（2026-11-01）
+
+**多 write 并行、固定语料进续写、真机导演规划/语料提炼端到端。**
+
+- **多 write 并行**：V151 将 V149 的 `(story_id, lane)` 唯一索引改为只约束 review/inspect/chat，write lane 允许多个活跃 run；新增 `story_chapter_sequences` 原子章号分配（`allocate_chapter_numbers`），多个 write run 拿到互不重叠的章号区间。命令层上限 `MAX_ACTIVE_WRITE_RUNS_PER_STORY = 3`；幕前 Append 对同一场景加租约（`append:{scene_id}`），防止两个 Append 同时改同一章。beat 计数器/资产历史的读改写改为 `BEGIN IMMEDIATE` 事务，避免并行写丢更新。
+- **固定语料进续写上下文**：`CorpusRepository::list_pinned` + `corpus::pinned_context_block`；作者「固定用于续写」的语料以只读块注入单拍 writer prompt、批量 writer task 与 `assemble_continue_user_prompt`（最多 4 条、≤1200 字；优先提炼要点，其次摘要/短正文）。
+- **真机端到端探针**：新增 `real_machine_probe_director_planning` 与 `real_machine_probe_corpus_distill`（`#[ignore]`）。本机实跑：导演规划 5.1s，`intent=repair`、1 个动作、需确认；语料提炼 66.1s，`facts/conflicts/hooks/angles` 各 5 条并写回 `distilled_json`。
+- **验证**：Rust **1950 passed / 12 ignored**（+4 测试、+2 ignored 真机探针）；vitest **647 passed / 3 skipped**；playwright **45 passed / 5 skipped**；tsc / clippy / fmt / guard / IPC manifest 全绿。
+- **未关闭**：并行 write 的 `ensure_assets` 仍可能重复生成资产（幂等/覆盖兜底）；固定语料仅文本摘要，图片语料只引用标题；真机探针样本单一，需更多故事/模型复测。
+
 ## v0.76.0（2026-11-01）
 
 **批量续写接情感回路：一章 1–3 幕的章节情感弧。**

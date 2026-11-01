@@ -1,5 +1,7 @@
 //! 续写落库模式：Append（当前章）与 NextChapter（新章）的纯数据 + Append 写库。
 
+use rusqlite::TransactionBehavior;
+
 pub use crate::creative_engine::expansion::BeatCounters;
 use crate::{db::DbPool, error::AppError};
 
@@ -61,13 +63,17 @@ pub fn should_agency_append_continue(is_continuation: bool, selected_text: Optio
 
 /// 每次成功 Append/NextChapter 后 +1。失败不阻断落库。
 pub fn increment_append_beat(pool: &DbPool, story_id: &str) -> Result<(), AppError> {
-    let conn = pool
+    let mut conn = pool
         .get()
         .map_err(|e| AppError::from(format!("pool: {e}")))?;
-    let mut beats = crate::creative_engine::expansion::read_beat_counters(&conn, story_id);
-    beats.append_beats = beats.append_beats.saturating_add(1);
-    crate::creative_engine::expansion::write_beat_counters(&conn, story_id, beats)
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(AppError::from)?;
+    let mut beats = crate::creative_engine::expansion::read_beat_counters(&tx, story_id);
+    beats.append_beats = beats.append_beats.saturating_add(1);
+    crate::creative_engine::expansion::write_beat_counters(&tx, story_id, beats)
+        .map_err(AppError::from)?;
+    tx.commit().map_err(AppError::from)?;
     Ok(())
 }
 
@@ -118,10 +124,14 @@ fn touch_refresh_beats(pool: &DbPool, story_id: &str, flags: RefreshFlags) {
     if !flags.conflict && !flags.cast && !flags.location && !flags.foreshadow {
         return;
     }
-    let Ok(conn) = pool.get() else {
+    let Ok(mut conn) = pool.get() else {
         return;
     };
-    let mut beats = crate::creative_engine::expansion::read_beat_counters(&conn, story_id);
+    let Ok(tx) = conn.transaction_with_behavior(TransactionBehavior::Immediate) else {
+        log::warn!("touch_refresh_beats 开启事务失败");
+        return;
+    };
+    let mut beats = crate::creative_engine::expansion::read_beat_counters(&tx, story_id);
     if flags.conflict {
         beats.last_conflict_beat = beats.append_beats;
     }
@@ -134,8 +144,12 @@ fn touch_refresh_beats(pool: &DbPool, story_id: &str, flags: RefreshFlags) {
     if flags.foreshadow {
         beats.last_foreshadow_beat = beats.append_beats;
     }
-    if let Err(e) = crate::creative_engine::expansion::write_beat_counters(&conn, story_id, beats) {
+    if let Err(e) = crate::creative_engine::expansion::write_beat_counters(&tx, story_id, beats) {
         log::warn!("touch_refresh_beats 失败: {e}");
+        return;
+    }
+    if let Err(e) = tx.commit() {
+        log::warn!("touch_refresh_beats 提交失败: {e}");
     }
 }
 

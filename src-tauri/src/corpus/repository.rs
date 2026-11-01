@@ -52,6 +52,27 @@ impl CorpusRepository {
         rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
     }
 
+    /// 作者固定的语料（续写上下文注入用）。只取文案/摘要，不加载大文件。
+    pub fn list_pinned(&self, story_id: &str, limit: i32) -> Result<Vec<CorpusSummary>, AppError> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::from(format!("pool: {e}")))?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, story_id, kind, title, summary, source_url, source_name,
+                        tags, status, pinned, created_at, updated_at
+                 FROM corpus_items
+                 WHERE story_id = ?1 AND pinned = 1
+                 ORDER BY updated_at DESC LIMIT ?2",
+            )
+            .map_err(AppError::from)?;
+        let rows = stmt
+            .query_map(params![story_id, limit.max(0)], map_summary)
+            .map_err(AppError::from)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
+    }
+
     pub fn get(&self, id: &str) -> Result<Option<CorpusDetail>, AppError> {
         let conn = self
             .pool

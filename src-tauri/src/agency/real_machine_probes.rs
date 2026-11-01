@@ -1256,3 +1256,200 @@ async fn real_machine_probe_role_model_viability() {
     }
     println!("\n[真机探针] 矩阵完成：按 [章纲] 与 [编辑裁决] 两列的证据指定 tool_model_id / background_model_id。");
 }
+
+/// 探针 5：真机导演规划（v0.74 导演 Agent）——CrewSnapshot → 导演提示词 →
+/// Tool 档模型 → 解析 DirectorPlan。只验证「规划」，不执行动作。
+#[tokio::test]
+#[ignore]
+async fn real_machine_probe_director_planning() {
+    let Some(cfg) = real_config() else { return };
+    let creative = match pick_profile(&cfg, env_var(ENV_MODEL).as_deref()) {
+        Ok(p) => p,
+        Err(e) => {
+            println!("[真机探针] 跳过：{e}");
+            return;
+        }
+    };
+    let mut profile = resolve_tool_profile(&cfg, &creative);
+    if profile.timeout_seconds < 300 {
+        profile.timeout_seconds = 300;
+    }
+    let (tmp, _db_path, _vs_path) = copy_real_state();
+    let pool = crate::db::connection::init_db(&tmp, None).expect("打开副本库并迁移");
+    let Some((story_id, _, _, _)) = pick_latest_story(&pool) else {
+        println!("[真机探针] 跳过：副本库里没有带正文的场景");
+        return;
+    };
+    let snapshot = match crate::agency::crew::CrewInspector::inspect(&pool, &story_id) {
+        Ok(s) => s,
+        Err(e) => {
+            println!("[真机探针] 跳过：CrewSnapshot 失败 {e}");
+            return;
+        }
+    };
+    let system =
+        crate::agency::director::resolve_director_prompt(&pool, &snapshot.story_title).await;
+    let user = crate::agency::director::render_director_user_prompt(
+        &snapshot,
+        "巡检现场并规划下一步；只输出 JSON。",
+        &[],
+        "",
+        &[],
+    );
+    let adapter = build_adapter(&profile);
+    println!(
+        "[真机探针] 导演规划：story={story_id} runs={} tasks={} alerts={} model={}",
+        snapshot.runs.len(),
+        snapshot.tasks.len(),
+        snapshot.alerts.len(),
+        profile.model
+    );
+    let started = std::time::Instant::now();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(180),
+        adapter.generate(GenerateRequest {
+            prompt: user,
+            max_tokens: Some(4096),
+            temperature: Some(0.4),
+            system_prompt: Some(system),
+            ..Default::default()
+        }),
+    )
+    .await;
+    match result {
+        Ok(Ok(resp)) => {
+            println!(
+                "[真机探针] 导演原始应答 {} 字 / {:.1}s",
+                resp.content.chars().count(),
+                started.elapsed().as_secs_f64()
+            );
+            match crate::agency::director::parse_loose::<crate::agency::director::DirectorPlan>(
+                &resp.content,
+            ) {
+                Some(plan) => println!(
+                    "[真机探针] 导演规划 ✅ intent={} actions={} needs_confirmation={} reply={}",
+                    plan.intent,
+                    plan.actions.len(),
+                    plan.needs_confirmation,
+                    plan.reply.chars().take(80).collect::<String>()
+                ),
+                None => println!(
+                    "[真机探针] 导演规划 ❌ 不是可解析 JSON：{}",
+                    resp.content.chars().take(160).collect::<String>()
+                ),
+            }
+        }
+        Ok(Err(e)) => println!("[真机探针] 导演规划 ❌ 调用失败：{e}"),
+        Err(_) => println!("[真机探针] 导演规划 ❌ 超时（>180s）"),
+    }
+}
+
+/// 探针 6：真机语料提炼——创建一条短语料 → 同源提示词 → Background 档模型
+/// → 解析 CorpusDistillation → 写回 distilled_json。
+#[tokio::test]
+#[ignore]
+async fn real_machine_probe_corpus_distill() {
+    let Some(cfg) = real_config() else { return };
+    let creative = match pick_profile(&cfg, env_var(ENV_MODEL).as_deref()) {
+        Ok(p) => p,
+        Err(e) => {
+            println!("[真机探针] 跳过：{e}");
+            return;
+        }
+    };
+    let mut profile = resolve_editor_profile(&cfg, &creative);
+    if profile.timeout_seconds < 300 {
+        profile.timeout_seconds = 300;
+    }
+    let (tmp, _db_path, _vs_path) = copy_real_state();
+    let pool = crate::db::connection::init_db(&tmp, None).expect("打开副本库并迁移");
+    let Some((story_id, _, _, _)) = pick_latest_story(&pool) else {
+        println!("[真机探针] 跳过：副本库里没有带正文的场景");
+        return;
+    };
+    let service = crate::corpus::service::CorpusService::new(pool.clone());
+    let title = format!("真机探针语料-{}", chrono::Local::now().timestamp());
+    let detail = match service.create(
+        &story_id,
+        "article",
+        &title,
+        Some(
+            "潮汐禁令规定每月朔日不得出海，违者船毁人亡。旧港的守夜人会在朔日前一晚敲钟三次，提醒渔船归港。",
+        ),
+        Some("潮汐禁令与守夜人敲钟习俗"),
+        None,
+        None,
+        None,
+    ) {
+        Ok(d) => d,
+        Err(e) => {
+            println!("[真机探针] 跳过：创建探针语料失败 {e}");
+            return;
+        }
+    };
+    let (system, user) = match service.distill_prompts_for_probe(&detail.id) {
+        Ok(p) => p,
+        Err(e) => {
+            println!("[真机探针] 跳过：生成提炼提示词失败 {e}");
+            return;
+        }
+    };
+    let adapter = build_adapter(&profile);
+    println!(
+        "[真机探针] 语料提炼：corpus={} model={}",
+        detail.id, profile.model
+    );
+    let started = std::time::Instant::now();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(180),
+        adapter.generate(GenerateRequest {
+            prompt: user,
+            max_tokens: Some(4096),
+            temperature: Some(0.4),
+            system_prompt: Some(system),
+            ..Default::default()
+        }),
+    )
+    .await;
+    match result {
+        Ok(Ok(resp)) => {
+            println!(
+                "[真机探针] 语料原始应答 {} 字 / {:.1}s",
+                resp.content.chars().count(),
+                started.elapsed().as_secs_f64()
+            );
+            match crate::corpus::service::parse_json_loose::<
+                crate::corpus::models::CorpusDistillation,
+            >(&resp.content)
+            {
+                Some(parsed) => {
+                    let json = serde_json::to_string(&parsed).unwrap_or_default();
+                    let _ = crate::corpus::repository::CorpusRepository::new(pool.clone())
+                        .set_distilled(&detail.id, &json, &resp.model);
+                    println!(
+                        "[真机探针] 语料提炼 ✅ facts={} conflicts={} hooks={} angles={}",
+                        parsed.facts.len(),
+                        parsed.conflicts.len(),
+                        parsed.world_hooks.len(),
+                        parsed.adaptation_angles.len()
+                    );
+                }
+                None => {
+                    let head: String = resp.content.chars().take(120).collect();
+                    let tail: String = resp
+                        .content
+                        .chars()
+                        .rev()
+                        .take(120)
+                        .collect::<String>()
+                        .chars()
+                        .rev()
+                        .collect();
+                    println!("[真机探针] 语料提炼 ❌ 不是可解析 JSON：head={head} ... tail={tail}");
+                }
+            }
+        }
+        Ok(Err(e)) => println!("[真机探针] 语料提炼 ❌ 调用失败：{e}"),
+        Err(_) => println!("[真机探针] 语料提炼 ❌ 超时（>180s）"),
+    }
+}

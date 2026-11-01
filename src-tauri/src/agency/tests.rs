@@ -2790,6 +2790,39 @@ async fn test_batch_injects_emotion_plan_and_persists_acts() {
     assert!(beats.len() <= 3, "批量章最多 3 幕: {}", beats.len());
 }
 
+#[test]
+fn test_pinned_corpus_is_injected_into_writer_prompt() {
+    let pool = create_test_pool().unwrap();
+    let story_id = seed_story_with_assets(&pool);
+    let corpus = crate::corpus::repository::CorpusRepository::new(pool.clone());
+    let id = corpus
+        .create(
+            &story_id,
+            "article",
+            "潮汐禁令",
+            "潮汐禁令规定每月朔日不得出海，违者船毁人亡。",
+            "潮汐禁令：朔日禁海",
+            None,
+            None,
+            vec![],
+        )
+        .unwrap();
+    corpus
+        .update(
+            &id,
+            &crate::corpus::models::CorpusUpdate {
+                pinned: Some(true),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let (prompt, _) =
+        crate::agency::coordinator::assemble_continue_user_prompt(&pool, &story_id, "续写", "", "")
+            .unwrap();
+    assert!(prompt.contains("固定语料"), "prompt={prompt}");
+    assert!(prompt.contains("潮汐禁令"), "prompt={prompt}");
+}
+
 #[tokio::test]
 async fn test_batch_revision_sends_bus_proposal() {
     let pool = create_test_pool().unwrap();

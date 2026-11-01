@@ -401,7 +401,7 @@ fn action_requires_confirmation(action: &DirectorActionSpec) -> bool {
     }
 }
 
-async fn resolve_director_prompt(pool: &DbPool, premise: &str) -> String {
+pub(crate) async fn resolve_director_prompt(pool: &DbPool, premise: &str) -> String {
     let mut vars = HashMap::new();
     vars.insert("premise".to_string(), premise.to_string());
     let pool = pool.clone();
@@ -414,7 +414,7 @@ async fn resolve_director_prompt(pool: &DbPool, premise: &str) -> String {
     resolved.unwrap_or_else(|| DIRECTOR_FALLBACK_SYSTEM.to_string())
 }
 
-fn render_director_user_prompt(
+pub(crate) fn render_director_user_prompt(
     snapshot: &CrewSnapshot,
     user_message: &str,
     history: &[ChatMessage],
@@ -488,7 +488,7 @@ fn render_director_user_prompt(
     out
 }
 
-fn parse_loose<T: serde::de::DeserializeOwned>(raw: &str) -> Option<T> {
+pub(crate) fn parse_loose<T: serde::de::DeserializeOwned>(raw: &str) -> Option<T> {
     let cleaned = raw
         .trim()
         .trim_start_matches("```json")

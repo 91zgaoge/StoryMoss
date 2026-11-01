@@ -1166,6 +1166,15 @@ function assertUnreachable(x: never): never {
 - **门禁**：编辑审查第 9 维 `emotion`；`run_rule_grader` 规则分 = 合同 0.4 + 追读 0.3 + 情感 0.3（无计划节拍时情感 0.5）；Gate 顶层权重 0.2/0.3/0.5 与阈值 0.75 不变。
 - **不变量**：P0/P1 情感探针只记录不阻断；作者设置契约后启用，旧故事无契约时提示词逐字不变；稳定 bundle 仍在最前，情感块属于动态区；不在远程 API 上做激活级干预。
 
+## 多 write 并行与固定语料 (v0.77.0)
+
+- **lane 语义**：V151 将 `idx_agency_runs_one_active_per_lane` 改为只约束 `review/inspect/chat`；`write` lane 允许最多 `MAX_ACTIVE_WRITE_RUNS_PER_STORY = 3` 个活跃 run。命令层 `ensure_write_slot` 控制上限。
+- **章号分配**：`story_chapter_sequences(story_id, next_chapter)` 由 `AgencyRepository::allocate_chapter_numbers` 在 `BEGIN IMMEDIATE` 事务内递增，多个 write run 获得互不重叠的连续区间；`next_chapter_number` 仅保留给 UI/提示预览。
+- **Append 串行**：`run_continue_inner` 对 `PersistMode::Append` 获取 `append:{scene_id}` 租约（TTL 1800s），Drop 释放；同一场景不允许两个 Append 同时改写。
+- **计数一致性**：`increment_append_beat`、`touch_refresh_beats`、`append_asset_history` 改为 `BEGIN IMMEDIATE` 读改写，避免并行 write 丢更新。
+- **固定语料**：`CorpusRepository::list_pinned` 取 `pinned=1` 条目；`corpus::pinned_context_block` 渲染只读块（≤4 条、≤1200 字，优先提炼要点/摘要/短正文），注入 `write_beat_once` 的 continuity blocks、`write_chapter` 的 `render_parts` 与 `assemble_continue_user_prompt`。
+- **真机探针**：`real_machine_probe_director_planning`（CrewInspector → 导演提示词 → Tool 档 → `DirectorPlan`）与 `real_machine_probe_corpus_distill`（同源提示词 → Background 档 → `CorpusDistillation` → `distilled_json`）；均 `#[ignore]`，手动跑。
+
 ## 目录结构
 
 ```

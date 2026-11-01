@@ -3646,6 +3646,23 @@ impl AgencyCoordinator {
                 (PersistMode::Append { scene_id: resolved }, seq)
             }
         };
+        // 多 write 并行下，同一场景的 Append 仍必须串行：拿不到 append 租约
+        // 直接返回 resource_busy，避免两个 run 同时改同一章正文。
+        let _append_lease = if let PersistMode::Append { scene_id } = &persist {
+            let lease = crate::agency::lease::LeaseManager::new(self.pool.clone()).acquire(
+                story_id,
+                &format!("append:{scene_id}"),
+                Some(run_id),
+                None,
+                1800,
+            )?;
+            Some(AppendLeaseGuard {
+                pool: self.pool.clone(),
+                lease_id: Some(lease.id),
+            })
+        } else {
+            None
+        };
         let title = self
             .story_title(story_id)
             .await
@@ -5191,6 +5208,10 @@ impl AgencyCoordinator {
                     {
                         blocks.push(block);
                     }
+                    // v0.76.1：作者固定语料进入续写上下文（只读，不参与门限）。
+                    if let Some(block) = crate::corpus::pinned_context_block(&pool, &sid) {
+                        blocks.push(block);
+                    }
                     Ok(blocks)
                 })
                 .await
@@ -5744,7 +5765,7 @@ impl AgencyCoordinator {
         let key = format!("第{}章", chapter_number);
         let pool = self.pool.clone();
         let sid = story_id.to_string();
-        let (parts, card, latest_content) = self
+        let (parts, card, latest_content, pinned_blocks) = self
             .db({
                 let pool = pool.clone();
                 let sid = sid.clone();
@@ -5764,7 +5785,10 @@ impl AgencyCoordinator {
                         None,
                         latest_scene.and_then(|s| s.outline_content.as_deref()),
                     )?;
-                    Ok((parts, card, latest))
+                    let pinned = crate::corpus::pinned_context_block(&pool, &sid)
+                        .map(|b| vec![b])
+                        .unwrap_or_default();
+                    Ok((parts, card, latest, pinned))
                 }
             })
             .await?;
@@ -5838,7 +5862,7 @@ impl AgencyCoordinator {
                 card.setting_location.as_deref(),
                 Some(&latest_content),
                 &l2,
-                &[],
+                &pinned_blocks,
             )
         } else {
             String::new()
@@ -6693,8 +6717,16 @@ impl AgencyCoordinator {
         let start_chapter = {
             let pool = self.pool.clone();
             let sid = outcome.story_id.clone();
-            self.db(move || Self::next_chapter_number(&pool, &sid))
-                .await?
+            let mut chapters = self
+                .db(move || {
+                    crate::agency::repository::AgencyRepository::new(pool)
+                        .allocate_chapter_numbers(&sid, 1)
+                        .map_err(AppError::from)
+                })
+                .await?;
+            chapters
+                .pop()
+                .ok_or_else(|| AppError::validation_failed("章号分配失败", None::<String>))?
         };
         self.run_continue_batch(&outcome.new_run_id, &outcome.story_id, start_chapter, 1)
             .await?;
@@ -7745,6 +7777,21 @@ pub(crate) struct BatchChapterArtifacts {
     pub emotion_probes: Vec<crate::emotion_circuit::EmotionProbe>,
 }
 
+/// 幕前 Append 的场景租约守卫：Drop 时释放，防止同一场景被两个 Append
+/// run 同时改写。释放失败由 TTL 兜底。
+struct AppendLeaseGuard {
+    pool: DbPool,
+    lease_id: Option<String>,
+}
+
+impl Drop for AppendLeaseGuard {
+    fn drop(&mut self) {
+        if let Some(id) = self.lease_id.take() {
+            let _ = crate::agency::lease::LeaseManager::new(self.pool.clone()).release(&id);
+        }
+    }
+}
+
 fn build_cast_profiles(
     card: &crate::agency::beat_card::SceneBeatCard,
     parts: Option<&ContinueContextParts>,
@@ -8498,6 +8545,9 @@ pub(crate) fn assemble_continue_user_prompt(
             &parts.bundle.relationship_lines,
             &lock,
         );
+    let pinned = crate::corpus::pinned_context_block(pool, story_id)
+        .map(|b| vec![b])
+        .unwrap_or_default();
     let assets = render_parts(
         &parts,
         &admitted,
@@ -8506,7 +8556,7 @@ pub(crate) fn assemble_continue_user_prompt(
         card.setting_location.as_deref(),
         Some(current_content),
         &l2,
-        &[],
+        &pinned,
     );
     let state = compile_continue_beat_state(&card, Some(&parts), current_content);
     let user = crate::agency::beat_card::render_writer_user_prompt(

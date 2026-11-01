@@ -149,8 +149,11 @@ pub fn append_asset_history(
     if ids.is_empty() {
         return Ok(());
     }
-    let conn = pool.get().map_err(|e| e.to_string())?;
-    let mut doc = load_history_document(&conn, story_id);
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(|e| e.to_string())?;
+    let mut doc = load_history_document(&tx, story_id);
     doc.assets.push(AssetHistoryEntry {
         chapter,
         ids: ids.to_vec(),
@@ -158,7 +161,8 @@ pub fn append_asset_history(
     if doc.assets.len() > ASSET_HISTORY_KEEP {
         doc.assets = doc.assets.split_off(doc.assets.len() - ASSET_HISTORY_KEEP);
     }
-    save_history_document(&conn, story_id, &doc)
+    save_history_document(&tx, story_id, &doc)?;
+    tx.commit().map_err(|e| e.to_string())
 }
 
 pub fn write_beat_counters(

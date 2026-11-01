@@ -12,6 +12,49 @@ use crate::{
     error::AppError,
 };
 
+/// 多 write 并行上限：允许同故事同时跑多个 write run，但不无限放大模型/DB
+/// 压力。
+async fn ensure_write_slot(pool: &DbPool, story_id: &str) -> Result<(), AppError> {
+    let pool_c = pool.clone();
+    let sid = story_id.to_string();
+    let active = tokio::task::spawn_blocking(move || {
+        AgencyRepository::new(pool_c).count_active_write_runs(&sid)
+    })
+    .await
+    .map_err(|e| AppError::from(format!("guard join error: {}", e)))?
+    .map_err(AppError::from)?;
+    let cap = crate::agency::repository::MAX_ACTIVE_WRITE_RUNS_PER_STORY;
+    if active >= cap {
+        return Err(AppError::validation_failed(
+            format!("该故事并行创作任务已达上限（{cap}）"),
+            Some("active_run"),
+        ));
+    }
+    Ok(())
+}
+
+fn allocate_chapters_blocking(
+    pool: &DbPool,
+    story_id: &str,
+    count: usize,
+) -> Result<Vec<i32>, AppError> {
+    AgencyRepository::new(pool.clone())
+        .allocate_chapter_numbers(story_id, count)
+        .map_err(AppError::from)
+}
+
+async fn allocate_one_chapter(pool: &DbPool, story_id: &str) -> Result<i32, AppError> {
+    let pool_c = pool.clone();
+    let sid = story_id.to_string();
+    let mut chapters =
+        tokio::task::spawn_blocking(move || allocate_chapters_blocking(&pool_c, &sid, 1))
+            .await
+            .map_err(|e| AppError::from(format!("chapter join error: {e}")))??;
+    chapters
+        .pop()
+        .ok_or_else(|| AppError::validation_failed("章号分配失败", None::<String>))
+}
+
 /// 启动创世 2.0：立即返回 run_id，进度经 `agency-run-progress` 事件推送。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn agency_start_genesis(
@@ -31,7 +74,8 @@ pub async fn agency_start_genesis(
     Ok(run_id)
 }
 
-/// 续写下一章：同一 story 不允许并行 run；章号 = MAX(sequence_number)+1。
+/// 续写下一章：同故事最多 MAX_ACTIVE_WRITE_RUNS_PER_STORY 个 write run；
+/// 章号由 story_chapter_sequences 原子分配。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn agency_continue_chapter(
     story_id: String,
@@ -39,38 +83,16 @@ pub async fn agency_continue_chapter(
     pool: State<'_, DbPool>,
 ) -> Result<String, AppError> {
     let pool = pool.inner().clone();
-    // 并发护栏：同一 story 不允许并行 run
-    let pool_guard = pool.clone();
-    let sid_guard = story_id.clone();
-    let has_running = tokio::task::spawn_blocking(move || {
-        crate::agency::repository::AgencyRepository::new(pool_guard)
-            .has_running_run_for_story(&sid_guard, "write")
-    })
-    .await
-    .map_err(|e| AppError::from(format!("guard join error: {}", e)))?
-    .map_err(AppError::from)?;
-    if has_running {
-        return Err(AppError::validation_failed(
-            "该故事已有进行中的创作任务",
-            Some("active_run"),
-        ));
-    }
-    // 下一章号
+    ensure_write_slot(&pool, &story_id).await?;
     let pool2 = pool.clone();
     let sid2 = story_id.clone();
-    let chapter_number = tokio::task::spawn_blocking(move || -> Result<i32, AppError> {
-        let conn = pool2
-            .get()
-            .map_err(|e| AppError::from(format!("pool: {}", e)))?;
-        conn.query_row(
-            "SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM scenes WHERE story_id = ?1",
-            rusqlite::params![sid2],
-            |r| r.get(0),
-        )
-        .map_err(AppError::from)
-    })
-    .await
-    .map_err(|e| AppError::from(format!("chapter join error: {}", e)))??;
+    let mut chapters =
+        tokio::task::spawn_blocking(move || allocate_chapters_blocking(&pool2, &sid2, 1))
+            .await
+            .map_err(|e| AppError::from(format!("chapter join error: {}", e)))??;
+    let chapter_number = chapters
+        .pop()
+        .ok_or_else(|| AppError::validation_failed("章号分配失败", None::<String>))?;
     let run_id = uuid::Uuid::new_v4().to_string();
     let coordinator = AgencyCoordinator::new(app_handle, pool);
     let rid = run_id.clone();
@@ -92,7 +114,8 @@ pub async fn agency_continue_chapter(
 }
 
 /// 批量续写：并行稳态循环（gate(n-1) ∥ writer(n)），立即返回 run_id。
-/// count 默认 3，钳制 1..=5；起始章号 = MAX(sequence_number)+1。
+/// count 默认 3，钳制 1..=5；章号由 story_chapter_sequences 原子分配
+/// （一段连续区间），多个 write run 不会抢到同一章。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn agency_continue_batch(
     story_id: String,
@@ -102,29 +125,17 @@ pub async fn agency_continue_batch(
 ) -> Result<String, AppError> {
     let count = (count.unwrap_or(3) as usize).clamp(1, 5);
     let pool = pool.inner().clone();
-    // 并发护栏：同一 story 不允许并行 run
-    let pool_guard = pool.clone();
-    let sid = story_id.clone();
-    let has_running = tokio::task::spawn_blocking(move || {
-        crate::agency::repository::AgencyRepository::new(pool_guard)
-            .has_running_run_for_story(&sid, "write")
-    })
-    .await
-    .map_err(|e| AppError::from(format!("guard join error: {}", e)))?
-    .map_err(AppError::from)?;
-    if has_running {
-        return Err(AppError::validation_failed(
-            "该故事已有进行中的创作任务",
-            Some("active_run"),
-        ));
-    }
-    // 起始章号
+    ensure_write_slot(&pool, &story_id).await?;
     let pool2 = pool.clone();
     let sid2 = story_id.clone();
-    let start_chapter =
-        tokio::task::spawn_blocking(move || AgencyCoordinator::next_chapter_number(&pool2, &sid2))
+    let chapters =
+        tokio::task::spawn_blocking(move || allocate_chapters_blocking(&pool2, &sid2, count))
             .await
             .map_err(|e| AppError::from(format!("chapter join error: {}", e)))??;
+    let start_chapter = chapters
+        .first()
+        .copied()
+        .ok_or_else(|| AppError::validation_failed("章号分配失败", None::<String>))?;
     let run_id = uuid::Uuid::new_v4().to_string();
     let coordinator = AgencyCoordinator::new(app_handle, pool);
     let rid = run_id.clone();
@@ -154,45 +165,44 @@ pub async fn agency_resume_run(
     let (new_run_id, story_id) = (outcome.new_run_id.clone(), outcome.story_id.clone());
     let outcome_ret = outcome.clone();
     tauri::async_runtime::spawn(async move {
-        let start =
-            match AgencyCoordinator::next_chapter_number_async(&coordinator, &story_id).await {
-                Ok(n) => n,
-                Err(e) => {
-                    log::error!("resume batch chapter number failed: {}", e);
-                    // 失败分支补落终态 + 进度事件：避免新 run 永久滞留 pending
-                    let pool_f = pool.clone();
-                    let rid_f = new_run_id.clone();
-                    let msg = e.to_string();
-                    match tokio::task::spawn_blocking(move || {
-                        AgencyRepository::new(pool_f).finish_run(
-                            &rid_f,
-                            "failed",
-                            None,
-                            Some(msg.as_str()),
-                        )
-                    })
-                    .await
-                    {
-                        Ok(Ok(())) => {}
-                        Ok(Err(fe)) => {
-                            log::warn!("resume 终态落库失败 run={}: {}", new_run_id, fe)
-                        }
-                        Err(je) => {
-                            log::warn!("resume 终态落库 join 失败 run={}: {}", new_run_id, je)
-                        }
+        let start = match allocate_one_chapter(&pool, &story_id).await {
+            Ok(n) => n,
+            Err(e) => {
+                log::error!("resume batch chapter number failed: {}", e);
+                // 失败分支补落终态 + 进度事件：避免新 run 永久滞留 pending
+                let pool_f = pool.clone();
+                let rid_f = new_run_id.clone();
+                let msg = e.to_string();
+                match tokio::task::spawn_blocking(move || {
+                    AgencyRepository::new(pool_f).finish_run(
+                        &rid_f,
+                        "failed",
+                        None,
+                        Some(msg.as_str()),
+                    )
+                })
+                .await
+                {
+                    Ok(Ok(())) => {}
+                    Ok(Err(fe)) => {
+                        log::warn!("resume 终态落库失败 run={}: {}", new_run_id, fe)
                     }
-                    let _ = app_handle.emit(
-                        crate::agency::coordinator::EVENT_RUN_PROGRESS,
-                        serde_json::json!({
-                            "run_id": new_run_id,
-                            "phase": "assembly",
-                            "status": "failed",
-                            "message": e.to_string(),
-                        }),
-                    );
-                    return;
+                    Err(je) => {
+                        log::warn!("resume 终态落库 join 失败 run={}: {}", new_run_id, je)
+                    }
                 }
-            };
+                let _ = app_handle.emit(
+                    crate::agency::coordinator::EVENT_RUN_PROGRESS,
+                    serde_json::json!({
+                        "run_id": new_run_id,
+                        "phase": "assembly",
+                        "status": "failed",
+                        "message": e.to_string(),
+                    }),
+                );
+                return;
+            }
+        };
         if let Err(e) = coordinator
             .run_continue_batch(&new_run_id, &story_id, start, 1)
             .await

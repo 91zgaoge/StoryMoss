@@ -75,6 +75,9 @@ Infrastructure (db / llm / vector / embeddings / model_gateway / config / router
 | `agency::serial_harness` | 长篇稳定性回归门（`#[cfg(test)]`）：四拍串联跨状态约束，随 `cargo test` 进 CI；守卫 `tests/serial_harness_guard.rs` | v0.71.0 |
 | `emotion_circuit` | 情感回路领域层：12 维情绪向量 / OCC 评估 / 8 类载体 / 压力场选拍 / 调制器 / 确定性探针 / 读者面板 / 题材契约建议 / 白盒端口；v0.76.0 增加批量章节级 1–3 幕规划与幕切分；V150 七张表 | v0.75.0 / v0.76.0 |
 | `agency::emotion_commands` | 情感回路 IPC：契约读取/保存/按题材建议、快照、债务结算、读者面板 | v0.75.0 |
+| `agency::repository::allocate_chapter_numbers` | V151 多 write 章号原子分配（`story_chapter_sequences`，IMMEDIATE 事务） | v0.77.0 |
+| `corpus::pinned_context_block` | 固定语料只读注入块（≤4 条、≤1200 字，提炼要点/摘要/短正文优先） | v0.77.0 |
+| `agency::real_machine_probes` | 真机端到端探针：导演规划、语料提炼（`#[ignore]`，手动跑） | v0.77.0 |
 
 ---
 

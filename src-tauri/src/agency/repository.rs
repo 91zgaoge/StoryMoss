@@ -1,6 +1,8 @@
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, OptionalExtension, TransactionBehavior};
 
 use crate::{agency::models::*, db::DbPool};
+
+pub const MAX_ACTIVE_WRITE_RUNS_PER_STORY: usize = 3;
 
 pub struct AgencyRepository {
     pool: DbPool,
@@ -281,6 +283,55 @@ impl AgencyRepository {
     }
 
     /// 并发护栏：同一 story、同一 lane 是否存在 pending/running 的 run。
+    /// 同故事活跃 write run 数（v0.151 多 write 并行上限用）。
+    pub fn count_active_write_runs(&self, story_id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM agency_runs
+             WHERE story_id = ?1 AND lane = 'write' AND status IN ('pending', 'running')",
+            params![story_id],
+            |r| r.get(0),
+        )?;
+        Ok(count.max(0) as usize)
+    }
+
+    /// 原子分配一段连续章号。`story_chapter_sequences` 是唯一的写者；
+    /// 同时取 MAX(scenes.sequence_number)+1 兜底手工加章，避免分配低于既有章。
+    pub fn allocate_chapter_numbers(
+        &self,
+        story_id: &str,
+        count: usize,
+    ) -> Result<Vec<i32>, rusqlite::Error> {
+        let count = count.max(1) as i64;
+        let mut conn = self.pool.get().map_err(pool_err)?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let now = now();
+        tx.execute(
+            "INSERT OR IGNORE INTO story_chapter_sequences (story_id, next_chapter, updated_at)
+             SELECT ?1, COALESCE((SELECT MAX(sequence_number) + 1 FROM scenes WHERE story_id = ?1), 1), ?2
+             WHERE EXISTS (SELECT 1 FROM stories WHERE id = ?1)",
+            params![story_id, now],
+        )?;
+        let start: Option<i64> = tx
+            .query_row(
+                "SELECT MAX(next_chapter,
+                        COALESCE((SELECT MAX(sequence_number) + 1 FROM scenes WHERE story_id = ?1), 1))
+                 FROM story_chapter_sequences WHERE story_id = ?1",
+                params![story_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(start) = start else {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        };
+        tx.execute(
+            "UPDATE story_chapter_sequences SET next_chapter = ?2, updated_at = ?3 WHERE story_id = ?1",
+            params![story_id, start + count, now],
+        )?;
+        tx.commit()?;
+        Ok((start..start + count).map(|n| n as i32).collect())
+    }
+
     pub fn has_running_run_for_story(
         &self,
         story_id: &str,
@@ -973,11 +1024,41 @@ mod tests {
         assert!((diff.gate_weighted_delta - 0.82).abs() < 0.001);
     }
 
-    /// V149 部分唯一索引 idx_agency_runs_one_active_per_lane：
-    /// 同 story 同 lane 仅一个 pending/running run；不同 lane 可并行；
-    /// story_id 为 NULL 的行豁免。
     #[test]
-    fn test_partial_unique_index_one_active_per_lane() {
+    fn test_allocate_chapter_numbers_are_disjoint_and_above_existing_scenes() {
+        let (repo, pool) = repo();
+        let story = crate::db::repositories::StoryRepository::new(pool.clone())
+            .create(crate::db::dto::CreateStoryRequest {
+                title: "章号分配".into(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        {
+            let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
+            let mut conn = pool.get().unwrap();
+            let tx = conn.transaction().unwrap();
+            scene_repo
+                .create_in_tx(&tx, &story.id, 5, Some("第5章"))
+                .unwrap();
+            tx.commit().unwrap();
+        }
+        let first = repo.allocate_chapter_numbers(&story.id, 2).unwrap();
+        assert_eq!(first, vec![6, 7]);
+        let second = repo.allocate_chapter_numbers(&story.id, 1).unwrap();
+        assert_eq!(second, vec![8]);
+        let third = repo.allocate_chapter_numbers(&story.id, 2).unwrap();
+        assert_eq!(third, vec![9, 10]);
+    }
+
+    /// V151 部分唯一索引：write lane 允许多活跃 run（多 write 并行），
+    /// review / inspect / chat 仍单活跃；story_id 为 NULL 的行豁免。
+    #[test]
+    fn test_partial_unique_index_allows_parallel_write_runs() {
         let (repo, _) = repo();
         let mut r1 = AgencyRun::new("u1", "前提");
         r1.story_id = Some("s1".into());
@@ -991,16 +1072,34 @@ mod tests {
         r2.lane = "review".into();
         repo.create_run(&r2).unwrap();
 
-        // 同 story 第二个 write run 命中索引
+        // 同 story 第二个 write run 允许（多 write 并行）
         let mut r3 = AgencyRun::new("u3", "前提3");
         r3.story_id = Some("s1".into());
-        assert!(repo.create_run(&r3).is_err(), "同 lane 第二活跃 run 应冲突");
+        r3.lane = "write".into();
+        repo.create_run(&r3).unwrap();
+        assert_eq!(repo.count_active_write_runs("s1").unwrap(), 2);
 
-        // story_id 为 NULL 的行豁免；置 story 时按 lane 判定
+        // 同 story 第二个 review run 仍命中唯一索引
+        let mut r5 = AgencyRun::new("u5", "前提5");
+        r5.story_id = Some("s1".into());
+        r5.lane = "review".into();
+        assert!(
+            repo.create_run(&r5).is_err(),
+            "review lane 第二活跃 run 应冲突"
+        );
+
+        // story_id 为 NULL 的 write 行可在置 story 时加入并行
         let r4 = AgencyRun::new("u4", "前提4");
         repo.create_run(&r4).unwrap();
-        let err = repo.set_run_story("u4", "s1");
-        assert!(err.is_err(), "NULL→s1 的 write run 应撞已有 write run");
+        repo.set_run_story("u4", "s1").unwrap();
+        assert_eq!(repo.count_active_write_runs("s1").unwrap(), 3);
+
+        // NULL 的 review 行置 story 时仍撞已有 review run
+        let mut r6 = AgencyRun::new("u6", "前提6");
+        r6.lane = "review".into();
+        repo.create_run(&r6).unwrap();
+        let err = repo.set_run_story("u6", "s1");
+        assert!(err.is_err(), "NULL→s1 的 review run 应撞已有 review run");
         assert!(
             err.unwrap_err()
                 .to_string()

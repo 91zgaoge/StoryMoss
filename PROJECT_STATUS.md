@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.76.0 项目完成状态
+# StoryMoss (草苔) v0.77.0 项目完成状态
 
+> 最后更新: 2026-11-01（**v0.77.0：多 write 并行 + 固定语料 + 真机端到端**——①V151 将 write lane 从单活跃放开为多活跃（命令层上限 3），`story_chapter_sequences` 原子分配互不重叠的章号区间；幕前 Append 对同一场景加租约；beat 计数器/资产历史改 `BEGIN IMMEDIATE` 读改写。②`CorpusRepository::list_pinned` + `pinned_context_block` 把作者固定语料只读注入单拍/批量 writer prompt（≤4 条、≤1200 字）。③新增真机导演规划与语料提炼探针；本机实跑：导演 5.1s（intent=repair、1 动作）、语料 66.1s（四类各 5 条并写回）。Rust **1950 passed / 12 ignored**；vitest 647 / 3；playwright 45 / 5；tsc/clippy/fmt/guard/IPC 全绿。**未关闭**：并行 write 的 ensure_assets 仍可能重复生成资产（幂等兜底）；固定语料仅文本摘要；探针样本单一。）
+>
 > 最后更新: 2026-11-01（**v0.76.0：批量续写接情感回路**——`ChapterEmotionPlan` 按章纲关键事件生成 1–3 幕；`write_chapter` 返回 `BatchChapterArtifacts` 并注入【本章情感回路（批量续写）】；GateRunner/evaluate_gate/run_rule_grader 使用同一计划，revision 保留情感弧；装配后 `persist_chapter_plan` 写 N 行 `scene_emotion_beats`/状态/张力/探针；`last_written_plan` 把上一章末幕 `to` 作为下一章起点。Rust **1946 passed / 10 ignored**（+11）；vitest 647 / 3；playwright 45 / 5；tsc/clippy/fmt/guard/IPC 全绿。**未关闭**：人类 A/B 与真实模型端到端批量情感目标达成率待复测。）
 >
 > 最后更新: 2026-10-31（**v0.75.0：情感回路（Story Emotion Circuit）**——①新增 `src-tauri/src/emotion_circuit/`：12 维情绪向量、OCC 评估、8 类表达载体、压力场选拍、调制器、确定性探针、读者面板、题材契约建议、白盒适配端口；V150 七张表（情感契约/角色情绪状态/拍级情感链/关系张力/情感债务/读者面板/探针日志）。②情感上游于情节：续写先选最高压「角色-关系-债务」组合，再决定本拍事件的情感读法；writer prompt 动态区注入【本拍情感回路】，旧故事无契约时逐字不变。③每拍落库情感链/状态/张力，ingest 把 mood 折成 12 维状态回流，情感债务可兑现/延期/忽略。④编辑第 9 维 emotion；rule grader 规则分改为合同 0.4 / 追读 0.3 / 情感 0.3（无节拍中性 0.5）。⑤代理工作室「情感」页签、角色情感四元组编辑、5 个 IPC 命令。Rust **1935 passed / 10 ignored**（+45）；vitest **647 passed / 3 skipped**（+1）；playwright 45 / 5；tsc/clippy/fmt/guard/IPC 全绿。**未关闭**：人类 A/B 未跑，不得宣称「已能感动读者」；批量续写 `write_chapter` 未接；真实模型情感目标达成率待复测。）

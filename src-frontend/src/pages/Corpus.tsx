@@ -661,7 +661,7 @@ export default function Corpus() {
                   type="button"
                   onClick={handleTogglePin}
                   className="rounded border border-ai-line px-2 py-1 text-xs text-ai-ink-2 hover:bg-ai-hover"
-                  data-tooltip={detail.pinned ? '取消固定' : 'P1 会进入续写上下文'}
+                  data-tooltip={detail.pinned ? '取消固定' : '固定后进入续写上下文'}
                 >
                   {detail.pinned ? '取消固定' : '固定用于续写'}
                 </button>
