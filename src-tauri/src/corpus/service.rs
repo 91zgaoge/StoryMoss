@@ -5,6 +5,7 @@ use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
 
 use crate::{
+    config::settings::{AppConfig, LlmProfile, LlmProvider, ModelCapability},
     corpus::{
         models::{
             CorpusDetail, CorpusDistillation, CorpusMedia, CorpusPromotionDraft, CorpusSummary,
@@ -14,7 +15,11 @@ use crate::{
     },
     db::DbPool,
     error::AppError,
-    llm::LlmService,
+    llm::{
+        adapter::{GenerateRequest, LlmAdapter},
+        openai::OpenAiAdapter,
+        LlmService,
+    },
     router::TaskType,
 };
 
@@ -263,20 +268,129 @@ impl CorpusService {
         })
     }
 
+    /// 选一个支持视觉的 OpenAI 兼容 profile（优先后台档），并直接构建适配器。
+    /// 语料提炼/转资产是手动/后台动作，不抢创作档网关候选链。
+    fn vision_adapter(&self, app: &AppHandle) -> Option<(String, Box<dyn LlmAdapter>)> {
+        let dir = app.path().app_data_dir().ok()?;
+        let cfg = AppConfig::load(&dir).ok()?;
+        let mut all: Vec<LlmProfile> = cfg
+            .llm_profiles
+            .values()
+            .filter(|p| p.enabled)
+            .cloned()
+            .collect();
+        all.sort_by(|a, b| a.id.cmp(&b.id));
+        let vision_capable = |p: &LlmProfile| {
+            p.capabilities.contains(&ModelCapability::Vision) || {
+                let m = p.model.to_lowercase();
+                m.contains("vision")
+                    || m.contains("vl")
+                    || (m.contains("deepseek")
+                        && (m.contains("4.1")
+                            || m.contains("v4")
+                            || m.contains("4-")
+                            || m.contains("flash")))
+            }
+        };
+        let preferred = [
+            cfg.background_model_id.as_deref(),
+            cfg.creative_model_id.as_deref(),
+        ];
+        let picked = preferred
+            .into_iter()
+            .flatten()
+            .find_map(|id| {
+                all.iter()
+                    .find(|p| p.id == id && vision_capable(p))
+                    .cloned()
+            })
+            .or_else(|| all.iter().find(|p| vision_capable(p)).cloned())?;
+        if matches!(
+            picked.provider,
+            LlmProvider::Anthropic | LlmProvider::Ollama
+        ) {
+            return None;
+        }
+        let adapter = OpenAiAdapter::new(
+            picked.api_key.clone(),
+            picked.model.clone(),
+            picked.api_base.clone(),
+            picked.max_tokens.max(1),
+            picked.temperature,
+            picked.timeout_seconds.max(60),
+            60,
+            300,
+        );
+        Some((picked.model, Box::new(adapter)))
+    }
+
+    fn persist_distillation(
+        &self,
+        id: &str,
+        raw: &str,
+        model: &str,
+    ) -> Result<CorpusDistillation, AppError> {
+        let mut parsed: CorpusDistillation = parse_json_loose(raw).ok_or_else(|| {
+            AppError::validation_failed("AI 提炼返回不是有效 JSON", Some("distill"))
+        })?;
+        parsed.version = 1;
+        parsed.model = model.to_string();
+        parsed.generated_at = chrono::Utc::now().to_rfc3339();
+        let json = serde_json::to_string(&parsed).map_err(AppError::from)?;
+        CorpusRepository::new(self.pool.clone()).set_distilled(id, &json, model)?;
+        Ok(parsed)
+    }
+
     /// AI 提炼：失败只返回错误，不破坏原语料；成功后 status=distilled。
     pub async fn distill(&self, id: &str, app: &AppHandle) -> Result<CorpusDistillation, AppError> {
         let detail = self.get(id)?;
         let brief = self.story_brief(&detail.story_id)?;
         let content = self.prepare_distill_source(app, &detail.content).await;
         let source = if content.is_empty() {
-            image_context(&detail)
+            image_context(&detail, false)
         } else {
-            content
+            content.clone()
         };
         let user = format!(
             "故事上下文：\n{}\n\n语料标题：{}\n语料原文/信息：\n{}\n\n{}",
             brief, detail.title, source, DISTILL_SCHEMA
         );
+        // 图片语料优先走视觉模型（deepseek-4.1-flash 等）；失败再回退到
+        // 纯文本摘要/标签，不让提炼整体失败。
+        if content.is_empty() {
+            if let Some((model, adapter)) = self.vision_adapter(app) {
+                if let Ok(media) = self.read_media(id) {
+                    let vision_user = format!(
+                        "故事上下文：\n{}\n\n语料标题：{}\n语料原文/信息：\n{}\n\n{}",
+                        brief,
+                        detail.title,
+                        image_context(&detail, true),
+                        DISTILL_SCHEMA
+                    );
+                    let req = GenerateRequest {
+                        prompt: vision_user,
+                        max_tokens: Some(4096),
+                        temperature: Some(0.4),
+                        system_prompt: Some(DISTILL_SYSTEM.to_string()),
+                        ..Default::default()
+                    };
+                    match adapter
+                        .generate_with_images(req, vec![media.data_url])
+                        .await
+                    {
+                        Ok(resp) => match self.persist_distillation(id, &resp.content, &resp.model)
+                        {
+                            Ok(parsed) => {
+                                log::info!("corpus distill: 视觉提炼成功 model={model}");
+                                return Ok(parsed);
+                            }
+                            Err(e) => log::warn!("corpus distill: 视觉提炼解析失败，回退文本：{e}"),
+                        },
+                        Err(e) => log::warn!("corpus distill: 视觉调用失败，回退文本：{e}"),
+                    }
+                }
+            }
+        }
         let llm = LlmService::new(app.clone());
         let (_rid, result) = llm
             .generate_for_task_with_system_prompt(
@@ -290,16 +404,7 @@ impl CorpusService {
             )
             .await;
         let response = result.map_err(AppError::from)?;
-        let mut parsed: CorpusDistillation =
-            parse_json_loose(&response.content).ok_or_else(|| {
-                AppError::validation_failed("AI 提炼返回不是有效 JSON", Some("distill"))
-            })?;
-        parsed.version = 1;
-        parsed.model = response.model.clone();
-        parsed.generated_at = chrono::Utc::now().to_rfc3339();
-        let json = serde_json::to_string(&parsed).map_err(AppError::from)?;
-        CorpusRepository::new(self.pool.clone()).set_distilled(id, &json, &response.model)?;
-        Ok(parsed)
+        self.persist_distillation(id, &response.content, &response.model)
     }
 
     /// 真机探针用：返回与 `distill` 同源的 (system, user) 提示词，不调用 LLM。
@@ -308,7 +413,7 @@ impl CorpusService {
         let brief = self.story_brief(&detail.story_id)?;
         let content: String = detail.content.chars().take(DISTILL_CONTENT_CHARS).collect();
         let source = if content.is_empty() {
-            image_context(&detail)
+            image_context(&detail, false)
         } else {
             content
         };
@@ -335,14 +440,59 @@ impl CorpusService {
             .map(|d| serde_json::to_string(d).unwrap_or_default())
             .unwrap_or_default();
         let source = if content.is_empty() {
-            image_context(&detail)
+            image_context(&detail, false)
         } else {
-            content
+            content.clone()
         };
         let user = format!(
             "语料标题：{}\n原文/信息：\n{}\nAI 提炼：\n{}\n\n{}",
             detail.title, source, distilled, schema
         );
+        if content.is_empty() {
+            if let Some((model, adapter)) = self.vision_adapter(app) {
+                if let Ok(media) = self.read_media(id) {
+                    let vision_user = format!(
+                        "语料标题：{}\n原文/信息：\n{}\nAI 提炼：\n{}\n\n{}",
+                        detail.title,
+                        image_context(&detail, true),
+                        distilled,
+                        schema
+                    );
+                    let req = GenerateRequest {
+                        prompt: vision_user,
+                        max_tokens: Some(4096),
+                        temperature: Some(0.3),
+                        system_prompt: Some(PROMOTE_SYSTEM.to_string()),
+                        ..Default::default()
+                    };
+                    match adapter
+                        .generate_with_images(req, vec![media.data_url])
+                        .await
+                    {
+                        Ok(resp) => {
+                            if let Some(fields) =
+                                parse_json_loose::<serde_json::Value>(&resp.content)
+                            {
+                                let title = fields
+                                    .get("title")
+                                    .or_else(|| fields.get("name"))
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string())
+                                    .unwrap_or_else(|| detail.title.clone());
+                                log::info!("corpus promote: 视觉草稿成功 model={model}");
+                                return Ok(CorpusPromotionDraft {
+                                    target_type: target_type.to_string(),
+                                    title,
+                                    fields,
+                                });
+                            }
+                            log::warn!("corpus promote: 视觉草稿不是有效 JSON，回退文本");
+                        }
+                        Err(e) => log::warn!("corpus promote: 视觉调用失败，回退文本：{e}"),
+                    }
+                }
+            }
+        }
         let llm = LlmService::new(app.clone());
         let (_rid, result) = llm
             .generate_for_task_with_system_prompt(
@@ -524,20 +674,39 @@ fn chunk_fallback(chunk: &str, index: usize, total: usize) -> String {
 }
 
 /// 图片语料没有文本正文时的结构化说明（当前模型未启用视觉识别）。
-fn image_context(detail: &CorpusDetail) -> String {
+fn image_context(detail: &CorpusDetail, vision: bool) -> String {
     let tags = if detail.tags.is_empty() {
         "（无）".to_string()
     } else {
         detail.tags.join("、")
     };
+    let head = if vision {
+        "图片语料（已附原图；可进行视觉识别）"
+    } else {
+        "图片语料（无文本正文；当前模型未启用视觉识别）"
+    };
+    let tail = if vision {
+        "请先阅读图片，再结合摘要/标签提炼；不要编造图片中不存在的细节。"
+    } else {
+        "不要编造画面；只使用摘要/标签/标题中可用的信息。"
+    };
     format!(
-        "图片语料（无文本正文；当前模型未启用视觉识别）：标题={}；摘要={}；标签={}；文件={}；类型={}；大小={}。不要编造画面；只使用摘要/标签/标题中可用的信息。",
+        "{}：标题={}；摘要={}；标签={}；文件={}；类型={}；大小={}。{}",
+        head,
         detail.title,
-        if detail.summary.trim().is_empty() { "（作者未填写）" } else { detail.summary.trim() },
+        if detail.summary.trim().is_empty() {
+            "（作者未填写）"
+        } else {
+            detail.summary.trim()
+        },
         tags,
         detail.file_name.as_deref().unwrap_or("（未知）"),
         detail.mime_type.as_deref().unwrap_or("（未知）"),
-        detail.file_size.map(|n| format!("{n} bytes")).unwrap_or_else(|| "（未知）".to_string()),
+        detail
+            .file_size
+            .map(|n| format!("{n} bytes"))
+            .unwrap_or_else(|| "（未知）".to_string()),
+        tail,
     )
 }
 

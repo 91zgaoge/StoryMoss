@@ -318,6 +318,16 @@ pub trait LlmAdapter: Send + Sync {
         request: GenerateRequest,
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>>;
 
+    /// 多模态生成：默认忽略 images，保持非视觉适配器兼容；OpenAI 兼容适配器
+    /// 会把 data URL 作为 `image_url` 内容块发送。
+    async fn generate_with_images(
+        &self,
+        request: GenerateRequest,
+        _images: Vec<String>,
+    ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
+        self.generate(request).await
+    }
+
     async fn generate_stream(
         &self,
         request: GenerateRequest,

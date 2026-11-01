@@ -80,6 +80,8 @@ Infrastructure (db / llm / vector / embeddings / model_gateway / config / router
 | `agency::real_machine_probes` | 真机端到端探针：导演规划、语料提炼（`#[ignore]`，手动跑） | v0.77.0 |
 | `agency::coordinator::acquire_asset_lease` | 多 write 资产引导租约（`write:assets`，TTL 600s；等待超时 `resource_busy`） | v0.77.1 |
 | `corpus::service::image_context` / `image_dimensions` | 图片语料元数据（PNG/GIF/JPEG/WebP/BMP 尺寸）与无正文时的结构化说明 | v0.77.1 |
+| `llm::LlmAdapter::generate_with_images` | OpenAI 兼容多模态输入（`text + image_url`）；默认忽略图片保持非视觉适配器兼容 | v0.78.0 |
+| `corpus::service::vision_adapter` | 图片语料优先视觉 profile（deepseek-v4.1-flash 等），失败回退摘要/标签 | v0.78.0 |
 
 ---
 

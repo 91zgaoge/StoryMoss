@@ -104,7 +104,8 @@
 
 - `ensure_assets` 获取 `write:assets` 租约（TTL 600s）；多 write 同时启动时只让一个 run 生成资产，其余最多等 120s，超时返回 `resource_busy`。
 - 图片导入读取 PNG/GIF/JPEG/WebP/BMP 尺寸并生成可编辑摘要；`create(kind=image)` 无摘要也有兜底说明。
-- `distill`/`promote` 无正文时使用标题/摘要/标签/文件/类型/大小，并明确未启用视觉识别、不要编造画面；pinned 块沿用摘要/标签。
+- `distill`/`promote` 无正文时使用标题/摘要/标签/文件/类型/大小。
+- v0.78.0：图片语料优先走 `LlmAdapter::generate_with_images`（OpenAI 兼容 `text + image_url`，优先 deepseek-v4.1-flash），失败回退摘要/标签；pinned 块沿用摘要/标签。
 
 ---
 

@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.77.1)
+# 🧪 StoryMoss 自动化测试环境 (v0.78.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.78.0 变更说明
+
+- **视觉多模态（Rust 1953 passed / 13 ignored）**：`OpenAiAdapter::build_messages` 图片输入契约（text + image_url 数组、纯文本仍为字符串）；真机视觉探针 `real_machine_probe_vision_image_input` 实跑通过（deepseek-v4.1-flash 3.9s 描述 logo.png）。
+- **语料视觉提炼**：`CorpusService::distill`/`promote` 优先视觉 profile，失败回退摘要/标签；文本路径回归通过。
+- **前端/E2E**：无改动；vitest 647 / 3；playwright 45 / 5。
+- **未关闭**：视觉仅 OpenAI 兼容 provider；图片提炼质量依赖模型视觉能力。
 
 ### v0.77.1 变更说明
 

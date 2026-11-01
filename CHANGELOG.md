@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.78.0（2026-11-01）
+
+**图片语料接入视觉模型（deepseek-v4.1-flash）。**
+
+- **OpenAI 兼容适配器支持多模态**：`LlmAdapter` 新增 `generate_with_images`（默认忽略图片，保持非视觉适配器兼容）；`OpenAiAdapter` 把 data URL 作为 `image_url` 内容块与文本一起发送。新增消息形状契约测试。
+- **语料提炼/转资产优先视觉**：`CorpusService::distill` / `promote` 对图片语料先选一个支持视觉的 OpenAI 兼容 profile（优先后台档；识别 `capabilities=Vision` 或 `deepseek-4.1/v4/flash`），读取图片 data URL 并走视觉调用；解析失败/调用失败自动回退到摘要+标签文本路径，不阻断原流程。
+- **真机验证**：新增 `real_machine_probe_vision_image_input`；本机 `deepseek-v4.1-flash` 3.9 秒正确描述 `logo.png`（“深蓝色立方体图形，白色分支状线条……”）。
+- **验证**：Rust **1953 passed / 13 ignored**（+1 多模态消息测试、+1 ignored 视觉探针）；vitest **647 / 3**；playwright **45 / 5**；tsc / clippy / fmt / guard / IPC manifest 全绿。
+- **未关闭**：视觉路径仅支持 OpenAI 兼容 provider（Anthropic/Ollama 默认忽略图片）；图片提炼质量依赖模型视觉能力；摘要/标签仍是回退与补充。
+
 ## v0.77.1（2026-11-01）
 
 **并行 write 的资产引导租约 + 图片语料可用化。**

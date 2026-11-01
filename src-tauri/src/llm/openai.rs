@@ -31,7 +31,7 @@ pub struct OpenAiAdapter {
 #[derive(Debug, Serialize)]
 struct OpenAiRequest {
     model: String,
-    messages: Vec<Message>,
+    messages: Vec<OutboundMessage>,
     max_tokens: i32,
     temperature: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -44,6 +44,14 @@ struct OpenAiRequest {
     response_format: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<serde_json::Value>>,
+}
+
+/// 出站消息：content 既可以是字符串，也可以是 OpenAI 多模态内容数组
+/// （text + image_url）。响应消息仍用 `Message`（content 为字符串）。
+#[derive(Debug, Serialize)]
+struct OutboundMessage {
+    role: String,
+    content: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -70,7 +78,7 @@ struct OpenAiResponse {
 #[derive(Debug, Serialize)]
 struct OpenAiStreamRequest {
     model: String,
-    messages: Vec<Message>,
+    messages: Vec<OutboundMessage>,
     max_tokens: i32,
     temperature: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -272,38 +280,55 @@ impl OpenAiAdapter {
         (tokens as f64 / 1000.0) * rate
     }
 
-    fn build_messages(&self, prompt: String, system_prompt: Option<&str>) -> Vec<Message> {
+    fn build_messages(
+        &self,
+        prompt: String,
+        system_prompt: Option<&str>,
+        images: &[String],
+    ) -> Vec<OutboundMessage> {
         let system_content = system_prompt
             .filter(|s| !s.trim().is_empty())
             .unwrap_or("You are a professional creative writing assistant.");
+        let user_content = if images.is_empty() {
+            serde_json::Value::String(prompt)
+        } else {
+            let mut parts = vec![serde_json::json!({"type": "text", "text": prompt})];
+            for url in images {
+                parts.push(serde_json::json!({
+                    "type": "image_url",
+                    "image_url": {"url": url}
+                }));
+            }
+            serde_json::Value::Array(parts)
+        };
         vec![
-            Message {
+            OutboundMessage {
                 role: "system".to_string(),
-                content: system_content.to_string(),
-                reasoning_content: None,
-                tool_calls: None,
+                content: serde_json::Value::String(system_content.to_string()),
             },
-            Message {
+            OutboundMessage {
                 role: "user".to_string(),
-                content: prompt,
-                reasoning_content: None,
-                tool_calls: None,
+                content: user_content,
             },
         ]
     }
 }
 
-#[async_trait::async_trait]
-impl LlmAdapter for OpenAiAdapter {
-    async fn generate(
+impl OpenAiAdapter {
+    async fn generate_inner(
         &self,
         request: GenerateRequest,
+        images: Vec<String>,
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
         use super::adapter::{read_body_with_generation_timeout_ex, send_with_response_timeout};
 
         let openai_req = OpenAiRequest {
             model: self.model.clone(),
-            messages: self.build_messages(request.prompt, request.system_prompt.as_deref()),
+            messages: self.build_messages(
+                request.prompt,
+                request.system_prompt.as_deref(),
+                &images,
+            ),
             max_tokens: request.max_tokens.unwrap_or(self.default_max_tokens),
             temperature: request.temperature.unwrap_or(self.default_temperature),
             top_p: sanitize_top_p(request.top_p),
@@ -373,6 +398,24 @@ impl LlmAdapter for OpenAiAdapter {
             tool_calls: parsed.tool_calls,
         })
     }
+}
+
+#[async_trait::async_trait]
+impl LlmAdapter for OpenAiAdapter {
+    async fn generate(
+        &self,
+        request: GenerateRequest,
+    ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
+        self.generate_inner(request, Vec::new()).await
+    }
+
+    async fn generate_with_images(
+        &self,
+        request: GenerateRequest,
+        images: Vec<String>,
+    ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
+        self.generate_inner(request, images).await
+    }
 
     async fn generate_stream(
         &self,
@@ -383,7 +426,7 @@ impl LlmAdapter for OpenAiAdapter {
     > {
         let openai_req = OpenAiStreamRequest {
             model: self.model.clone(),
-            messages: self.build_messages(request.prompt, request.system_prompt.as_deref()),
+            messages: self.build_messages(request.prompt, request.system_prompt.as_deref(), &[]),
             max_tokens: request.max_tokens.unwrap_or(self.default_max_tokens),
             temperature: request.temperature.unwrap_or(self.default_temperature),
             top_p: sanitize_top_p(request.top_p),
@@ -481,7 +524,7 @@ impl LlmAdapter for OpenAiAdapter {
 mod tests {
     use super::{
         classify_sse_line, content_delta_from_sse_payload, parse_chat_completion_bytes,
-        resolve_content, sanitize_top_p, SseLine,
+        resolve_content, sanitize_top_p, OpenAiAdapter, OutboundMessage, SseLine,
     };
 
     #[test]
@@ -516,6 +559,38 @@ mod tests {
     fn resolve_content_returns_empty_when_both_empty() {
         assert_eq!(resolve_content("", &None), "");
         assert_eq!(resolve_content("", &Some("".to_string())), "");
+    }
+
+    #[test]
+    fn build_messages_emits_image_url_content_array() {
+        let adapter = OpenAiAdapter::new(
+            "key".into(),
+            "deepseek-4.1-flash".into(),
+            None,
+            1024,
+            0.7,
+            60,
+            60,
+            300,
+        );
+        let msgs = adapter.build_messages(
+            "看图".into(),
+            Some("你是助手".into()),
+            &["data:image/png;base64,AAA".into()],
+        );
+        assert_eq!(msgs.len(), 2);
+        let v = serde_json::to_value(&msgs[1]).unwrap();
+        assert_eq!(v["content"][0]["type"], "text");
+        assert_eq!(v["content"][0]["text"], "看图");
+        assert_eq!(v["content"][1]["type"], "image_url");
+        assert_eq!(
+            v["content"][1]["image_url"]["url"],
+            "data:image/png;base64,AAA"
+        );
+
+        let text_only = adapter.build_messages("纯文本".into(), None, &[]);
+        let tv = serde_json::to_value(&text_only[1]).unwrap();
+        assert_eq!(tv["content"], "纯文本");
     }
 
     #[test]
@@ -755,14 +830,12 @@ mod tests {
 
     #[test]
     fn openai_request_omits_tools_when_none() {
-        use super::{Message, OpenAiRequest};
+        use super::OpenAiRequest;
         let req = OpenAiRequest {
             model: "gpt".into(),
-            messages: vec![Message {
+            messages: vec![OutboundMessage {
                 role: "user".into(),
-                content: "hi".into(),
-                reasoning_content: None,
-                tool_calls: None,
+                content: serde_json::Value::String("hi".into()),
             }],
             max_tokens: 16,
             temperature: 0.2,

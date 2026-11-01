@@ -1453,3 +1453,69 @@ async fn real_machine_probe_corpus_distill() {
         Err(_) => println!("[真机探针] 语料提炼 ❌ 超时（>180s）"),
     }
 }
+
+/// 探针 7：真机视觉输入——把仓库内 logo.png 作为 image_url 发给视觉档模型，
+/// 验证 OpenAI 兼容适配器的多模态消息形状与模型实际视觉能力。
+#[tokio::test]
+#[ignore]
+async fn real_machine_probe_vision_image_input() {
+    let Some(cfg) = real_config() else { return };
+    let creative = match pick_profile(&cfg, env_var(ENV_MODEL).as_deref()) {
+        Ok(p) => p,
+        Err(e) => {
+            println!("[真机探针] 跳过：{e}");
+            return;
+        }
+    };
+    let mut profile = resolve_editor_profile(&cfg, &creative);
+    if profile.timeout_seconds < 180 {
+        profile.timeout_seconds = 180;
+    }
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../docs/images/logo.png");
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) => {
+            println!("[真机探针] 跳过：读取探针图片失败 {e}");
+            return;
+        }
+    };
+    use base64::Engine as _;
+    let data_url = format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(&bytes)
+    );
+    let adapter = build_adapter(&profile);
+    println!(
+        "[真机探针] 视觉输入：model={} image={} bytes",
+        profile.model,
+        bytes.len()
+    );
+    let started = std::time::Instant::now();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(180),
+        adapter.generate_with_images(
+            GenerateRequest {
+                prompt: "这张图里有什么？请用一句话描述你实际看到的画面，不要猜。".to_string(),
+                max_tokens: Some(300),
+                temperature: Some(0.2),
+                system_prompt: Some(
+                    "你是视觉助手。只描述图片中实际可见的内容；看不清就说看不清。".to_string(),
+                ),
+                ..Default::default()
+            },
+            vec![data_url],
+        ),
+    )
+    .await;
+    match result {
+        Ok(Ok(resp)) if !resp.content.trim().is_empty() => println!(
+            "[真机探针] 视觉输入 ✅ {} 字 / {:.1}s：{}",
+            resp.content.chars().count(),
+            started.elapsed().as_secs_f64(),
+            resp.content.chars().take(120).collect::<String>()
+        ),
+        Ok(Ok(_)) => println!("[真机探针] 视觉输入 ❌ 返回空正文"),
+        Ok(Err(e)) => println!("[真机探针] 视觉输入 ❌ 调用失败：{e}"),
+        Err(_) => println!("[真机探针] 视觉输入 ❌ 超时（>180s）"),
+    }
+}
