@@ -106,11 +106,25 @@ impl StateSync {
         story_id: &str,
         title: Option<&str>,
     ) {
+        Self::emit_story_selected_with_meta(app, story_id, title, 0, "legacy");
+    }
+
+    /// v0.79.0：带选择序号的 `story-selected`。幕前按 seq 丢弃过期请求；
+    /// 旧调用方仍走 [`Self::emit_story_selected`]（seq=0, origin=legacy）。
+    pub fn emit_story_selected_with_meta<R: Runtime>(
+        app: &AppHandle<R>,
+        story_id: &str,
+        title: Option<&str>,
+        seq: i64,
+        origin: &str,
+    ) {
         Self::emit_event(
             app,
             SyncEvent::StorySelected {
                 story_id: story_id.to_string(),
                 title: title.map(|s| s.to_string()),
+                seq,
+                origin: origin.to_string(),
             },
         );
     }

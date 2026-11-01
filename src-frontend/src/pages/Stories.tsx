@@ -469,6 +469,7 @@ export function Stories() {
       await loggedInvoke<unknown>('notify_frontstage_story_selected', {
         story_id: story.id,
         title: story.title,
+        origin: 'backstage_card',
       });
     } catch (error) {
       storiesLogger.error('Failed to sync story selection to frontstage', { error });

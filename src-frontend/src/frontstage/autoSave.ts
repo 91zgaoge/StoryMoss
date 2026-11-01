@@ -18,7 +18,10 @@ export interface AutoSaveTask {
 interface SavePayload {
   /** Phase 2: 编辑主键改为 sceneId */
   sceneId: string;
-  title?: string;
+  /**
+   * 正文自动保存不携带 title：标题是独立元数据，自动取名/后台改名后
+   * 这里捕获的旧占位名会把新标题写回去（见 useScenePersistence）。
+   */
   content: string;
   wordCount: number;
 }

@@ -421,6 +421,7 @@ fn spawn_observe_editor(
             &draft,
             1,
             None,
+            None,
             deadline,
         )
         .await;

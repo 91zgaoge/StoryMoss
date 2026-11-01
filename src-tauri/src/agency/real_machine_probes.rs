@@ -750,6 +750,7 @@ async fn real_machine_probe_continue_retrieval_technique_agreement() {
                     &draft,
                     1,
                     None,
+                    None,
                 )
                 .await
             {

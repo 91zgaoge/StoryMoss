@@ -9,7 +9,15 @@
  * - `[Resource]Deleted`: 资源删除（前台/后台需要移除条目）
  * - `[Resource]Selected`: 资源选择（前台/后台需要切换当前焦点）
  */
-export type SyncEvent = { "type": "storyCreated", "payload": { story_id: string, title: string | null, } } | { "type": "storyUpdated", "payload": { story_id: string, title: string | null, } } | { "type": "storyDeleted", "payload": { story_id: string, } } | { "type": "storySelected", "payload": { story_id: string, title: string | null, } } | { "type": "characterCreated", "payload": { story_id: string, character_id: string, name: string, } } | { "type": "characterUpdated", "payload": { story_id: string, character_id: string, name: string | null, } } | { "type": "characterDeleted", "payload": { story_id: string, character_id: string, } } | { "type": "sceneCreated", "payload": { story_id: string, scene_id: string, title: string | null, } } | { "type": "sceneUpdated", "payload": { story_id: string, scene_id: string, title: string | null, 
+export type SyncEvent = { "type": "storyCreated", "payload": { story_id: string, title: string | null, } } | { "type": "storyUpdated", "payload": { story_id: string, title: string | null, } } | { "type": "storyDeleted", "payload": { story_id: string, } } | { "type": "storySelected", "payload": { story_id: string, title: string | null, 
+/**
+ * v0.79.0：选择序号。幕前用它丢弃过期/乱序的切换请求。
+ */
+seq: bigint, 
+/**
+ * 选择来源：backstage_card | backstage_open | restore | legacy。
+ */
+origin: string, } } | { "type": "characterCreated", "payload": { story_id: string, character_id: string, name: string, } } | { "type": "characterUpdated", "payload": { story_id: string, character_id: string, name: string | null, } } | { "type": "characterDeleted", "payload": { story_id: string, character_id: string, } } | { "type": "sceneCreated", "payload": { story_id: string, scene_id: string, title: string | null, } } | { "type": "sceneUpdated", "payload": { story_id: string, scene_id: string, title: string | null, 
 /**
  * Phase 4: 标记内容是否变更，供前端决定是否刷新编辑器正文
  */

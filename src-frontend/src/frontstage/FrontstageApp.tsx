@@ -251,6 +251,7 @@ const FrontstageApp: React.FC = () => {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
+  const [isAutoNaming, setIsAutoNaming] = useState(false);
   const { markAccepted, isRecentlyAccepted, clearAccepted } = useRecentAcceptGuard();
 
   // v5.4.1: 使用 ref 跟踪最新状态，避免 event listener 中的 stale closure
@@ -260,6 +261,16 @@ const FrontstageApp: React.FC = () => {
   // v0.33.x: scenes 同步快照 ref——selectStory 中 setScenes 后同步调用 selectChapter
   // 会读到 stale 空 scenes，导致 sceneId 错误回落 chapter.id（走后端 heal 建空 scene）。
   const scenesRef = useRef(scenes);
+  // v0.79.0：多作品切换。epoch 用于丢弃切换前发出的旧生成结果；seq 用于
+  // 丢弃乱序/过期的后台选择事件；ignoredStoryEvents 阻止已切走的旧作品事件
+  // 把幕前拉回旧故事。
+  const storySwitchEpochRef = useRef(0);
+  const switchSeqRef = useRef(0);
+  const lastAppliedStorySeqRef = useRef(0);
+  const ignoredStoryEventsRef = useRef<Set<string>>(new Set());
+  const switchStoryRef = useRef<(storyId: string, seq?: number, origin?: string) => Promise<void>>(
+    async () => {}
+  );
   // v0.26.51: 粘贴/输入正文时自动建「未命名」故事；防并发 + 挡住 story_created→loadStories 误选
   const ensuringStoryRef = useRef(false);
   // [DEBUG-dup] 统计创世过程中 ChapterSwitch 事件触发次数
@@ -577,6 +588,41 @@ const FrontstageApp: React.FC = () => {
       }
     };
   }, [currentStory?.id]);
+
+  /**
+   * 后端自动取名/手动取名落库后，同步本地章节、场景与 sceneInfo。
+   *
+   * sceneInfo 必须一起更新：正文自动保存不再携带 title，但切换章节、
+   * flush 与重试仍会读 store；保持它指向新标题，避免旧占位名在后续
+   * 路径里回流。
+   */
+  const applyChapterTitleLocally = useCallback(
+    (chapterId: string, title: string) => {
+      const nextTitle = title.trim();
+      if (!nextTitle) return;
+      setChapters(prev => prev.map(c => (c.id === chapterId ? { ...c, title: nextTitle } : c)));
+      chaptersRef.current = chaptersRef.current.map(c =>
+        c.id === chapterId ? { ...c, title: nextTitle } : c
+      );
+      if (currentChapterRef.current?.id === chapterId) {
+        const updated = { ...currentChapterRef.current, title: nextTitle };
+        currentChapterRef.current = updated;
+        setCurrentChapter(prev => (prev?.id === chapterId ? { ...prev, title: nextTitle } : prev));
+        setScenes(prev =>
+          prev.map(s => (s.chapter_id === chapterId ? { ...s, title: nextTitle } : s))
+        );
+        setCurrentScene(prev =>
+          prev && prev.chapter_id === chapterId ? { ...prev, title: nextTitle } : prev
+        );
+        const store = useFrontstageStore.getState();
+        if (store.chapterId === chapterId && store.sceneId) {
+          setSceneInfo(store.sceneId, nextTitle, chapterId, currentStoryRef.current?.title);
+        }
+      }
+    },
+    [setSceneInfo]
+  );
+
   // 统一实时状态同步中心：幕前监听后台数据变更，自动刷新本地状态
   // useSyncStore 内部已自动 invalidate TanStack Query 缓存，useCharacters/useScenes 等 hook 会自动重新获取
   useSyncStore({
@@ -592,31 +638,9 @@ const FrontstageApp: React.FC = () => {
     onStoryDeleted: () => {
       loadStories();
     },
-    // v0.33.7: 幕后故事卡片「打开」→ 幕前选中该故事并定位最新章节
-    // （selectStory 内取 chapter_number 最大章）。
-    onStorySelected: storyId => {
-      // 生成中/创世装配期间不切换，避免打断在途内容
-      if (isGeneratingRef.current || isGenesisSettingUpRef.current) {
-        toast('正在生成，完成后请再切换故事');
-        return;
-      }
-      const current = currentStoryRef.current;
-      if (current?.id === storyId) {
-        // 同一故事也重新定位到最新章节
-        void selectStory(current);
-        return;
-      }
-      (async () => {
-        try {
-          const list = await loggedInvoke<Story[]>('list_stories');
-          if (!Array.isArray(list)) return;
-          setStories(list);
-          const story = list.find(s => s.id === storyId);
-          if (story) await selectStory(story);
-        } catch (e) {
-          frontstageLogger.error('[storySelected] Failed to switch story', { error: e });
-        }
-      })();
+    // v0.79.0: 选中即切换。生成中不再拒绝；在途生成由 switchStory 决定取消/分离。
+    onStorySelected: (storyId, _title, seq, origin) => {
+      void switchStoryRef.current(storyId, seq, origin || 'backstage');
     },
     // v5.4.0: 监听 scene 变更（幕后修改后同步到幕前 scenes 列表）
     // v0.33.x fix: 分章循环每轮重写 scene，sceneCreated/Updated 会成批到达，
@@ -739,6 +763,11 @@ const FrontstageApp: React.FC = () => {
     },
     // v5.2.0: 监听 chapter 更新（幕后修改后同步到幕前）
     onChapterUpdated: (chapterId, title) => {
+      // 标题是独立元数据：即使正文同步被 genesis/生成中/静默期闸门跳过，
+      // 自动取名或幕后改名也应立即反映到顶栏与章节列表。
+      if (title) {
+        applyChapterTitleLocally(chapterId, title);
+      }
       // v0.26.16: Genesis 状态机硬闸门——创世期间禁止后台同步覆盖编辑器。
       if (genesisDeliveryRef.current !== 'idle') {
         frontstageLogger.info('[onChapterUpdated] Skipped during genesis delivery', {
@@ -2011,6 +2040,18 @@ const FrontstageApp: React.FC = () => {
 
         switch (type) {
           case 'contentUpdate':
+            // v0.79.0：只接受当前章节的事件；切换作品后旧章节的事件不得污染新故事。
+            if (
+              payload?.chapter_id &&
+              currentChapterRef.current?.id &&
+              payload.chapter_id !== currentChapterRef.current.id
+            ) {
+              frontstageLogger.info('[storySwitch] stale ContentUpdate dropped', {
+                chapterId: payload.chapter_id,
+                activeChapterId: currentChapterRef.current.id,
+              });
+              break;
+            }
             // v0.23.92: 文思活跃模式直接追加到编辑器；否则只更新 generatedText（幽灵文本）。
             try {
               if (payload?.text !== undefined && isRecentlyAccepted(payload.text)) {
@@ -2049,6 +2090,18 @@ const FrontstageApp: React.FC = () => {
             }
             break;
           case 'appendContent':
+            // v0.79.0：只接受当前章节的事件；切换作品后旧章节的事件不得污染新故事。
+            if (
+              payload?.chapter_id &&
+              currentChapterRef.current?.id &&
+              payload.chapter_id !== currentChapterRef.current.id
+            ) {
+              frontstageLogger.info('[storySwitch] stale AppendContent dropped', {
+                chapterId: payload.chapter_id,
+                activeChapterId: currentChapterRef.current.id,
+              });
+              break;
+            }
             // v0.23.92: 文思活跃模式直接追加到编辑器；否则只追加到 generatedText（幽灵文本）。
             if (payload?.text !== undefined) {
               const appendText = payload.text;
@@ -2114,6 +2167,13 @@ const FrontstageApp: React.FC = () => {
             setIsSaved(payload?.saved ?? true);
             break;
           case 'chapterSwitch':
+            // v0.79.0：已切走的旧作品不得用 ChapterSwitch 把幕前拉回旧故事。
+            if (payload?.story_id && ignoredStoryEventsRef.current.has(payload.story_id)) {
+              frontstageLogger.info('[storySwitch] stale ChapterSwitch dropped', {
+                storyId: payload.story_id,
+              });
+              break;
+            }
             if (payload?.chapter_id) {
               // v0.23.82: 先判断 auto_accept，再决定是否清空 generatedText。
               // 只有 ChapterSwitch 真正加载正文时（auto_accept=true），才需要清空幽灵文本；
@@ -2827,22 +2887,33 @@ const FrontstageApp: React.FC = () => {
       const chaptersSnapshot = chaptersRef.current || [];
       const chapterIndex = chaptersSnapshot.findIndex(c => c.id === chapter.id);
       if (chapterIndex === -1 && currentStory) {
-        (async () => {
-          try {
-            const full = await loadChapterWithContent(chapter.id);
-            if (full) {
-              setChapters(prev => {
-                const map = new Map(prev.map(c => [c.id, c]));
-                map.set(full.id, full);
-                return Array.from(map.values()).sort((a, b) => a.chapter_number - b.chapter_number);
-              });
-              selectChapter(full, opts);
+        // v0.79.0：切换故事时 chaptersRef 可能尚未更新，但章节正文已在手。
+        // 此时不得再走「缺章懒加载」——否则跨故事切换会先拉空正文再清空编辑器。
+        if (chapter.content !== undefined && chapter.content !== null) {
+          frontstageLogger.info(
+            '[selectChapter] chapter missing from snapshot but has content, skip lazy-load',
+            { chapter_id: chapter.id }
+          );
+        } else {
+          (async () => {
+            try {
+              const full = await loadChapterWithContent(chapter.id);
+              if (full) {
+                setChapters(prev => {
+                  const map = new Map(prev.map(c => [c.id, c]));
+                  map.set(full.id, full);
+                  return Array.from(map.values()).sort(
+                    (a, b) => a.chapter_number - b.chapter_number
+                  );
+                });
+                selectChapter(full, opts);
+              }
+            } catch (e) {
+              frontstageLogger.error('Failed to load missing chapter', { error: e });
             }
-          } catch (e) {
-            frontstageLogger.error('Failed to load missing chapter', { error: e });
-          }
-        })();
-        return;
+          })();
+          return;
+        }
       }
 
       // B2: 接近已加载章节末尾时预加载下一页
@@ -3064,9 +3135,30 @@ const FrontstageApp: React.FC = () => {
     ]
   );
 
+  // v0.79.0：切换作品时清理所有故事级瞬态状态。放在 selectStory 前，保证
+  // 旧故事的幽灵正文/生成态/打字机/输入缓冲不会跨到新故事。
+  const resetStoryScopedUiState = useCallback(() => {
+    setGeneratedText('');
+    setHideGhostUntil(0);
+    postAcceptLockRef.current = 0;
+    if (typewriterFrameRef.current) {
+      cancelAnimationFrame(typewriterFrameRef.current);
+      typewriterFrameRef.current = null;
+    }
+    genesisDeliveryRef.current = 'idle';
+    isGenesisSettingUpRef.current = false;
+    smartExecuteInFlightRef.current = false;
+    latestContentRef.current = '';
+    useFrontstageStore.getState().setContent('');
+    useFrontstageStore.getState().clearAiHints();
+    setCurrentChapter(null);
+    setCurrentScene(null);
+  }, [setGeneratedText]);
+
   const selectStory = useCallback(
-    async (story: Story) => {
-      setCurrentStory(story);
+    async (story: Story, opts?: { switchSeq?: number; clearEditor?: boolean }) => {
+      const switchSeq = opts?.switchSeq;
+      const clearEditor = opts?.clearEditor !== false;
       try {
         // v0.33.7: 章节列表改用全量元数据接口（Phase 4 后 chapters 表已剥离
         // content，列表仅为元数据，无大 payload）。选中**最新章**而非第一章——
@@ -3081,6 +3173,15 @@ const FrontstageApp: React.FC = () => {
             offset: 0,
           }),
         ]);
+        // 后台快速连点时，旧请求必须丢弃，不能让后返回的旧故事覆盖新选择。
+        if (switchSeq !== undefined && switchSeq !== switchSeqRef.current) {
+          frontstageLogger.info('[selectStory] stale switch dropped', {
+            storyId: story.id,
+            switchSeq,
+            currentSeq: switchSeqRef.current,
+          });
+          return;
+        }
         if (!Array.isArray(result) || !Array.isArray(scenesResult)) {
           frontstageLogger.warn('selectStory received non-array result, aborting', {
             storyId: story.id,
@@ -3089,6 +3190,10 @@ const FrontstageApp: React.FC = () => {
           });
           return;
         }
+        if (clearEditor) {
+          resetStoryScopedUiState();
+        }
+        setCurrentStory(story);
         setChapters(result);
         setScenes(scenesResult);
         loadStoryWordCount(story.id);
@@ -3103,6 +3208,9 @@ const FrontstageApp: React.FC = () => {
               const chapterScenes = await loggedInvoke<Scene[]>('get_chapter_scenes', {
                 chapter_id: latestChapter.id,
               });
+              if (switchSeq !== undefined && switchSeq !== switchSeqRef.current) {
+                return;
+              }
               if (Array.isArray(chapterScenes) && chapterScenes.length > 0) {
                 const map = new Map(scenesResult.map(s => [s.id, s]));
                 chapterScenes.forEach(s => map.set(s.id, s));
@@ -3115,6 +3223,7 @@ const FrontstageApp: React.FC = () => {
               frontstageLogger.error('Failed to load latest chapter scenes', { error: e });
             }
           }
+          if (switchSeq !== undefined && switchSeq !== switchSeqRef.current) return;
           // v0.33.x fix: 传入刚 fetch 的 scenes，避免 selectChapter 读到
           // setScenes 之前的 stale scenes（冷启动 scenes=[] 时 sceneId 错误回落 chapter.id）
           selectChapter(latestChapter, { scenes: scenesForSelect });
@@ -3131,6 +3240,7 @@ const FrontstageApp: React.FC = () => {
     },
     [
       loadStoryWordCount,
+      resetStoryScopedUiState,
       selectChapter,
       setChapters,
       setContent,
@@ -3139,6 +3249,128 @@ const FrontstageApp: React.FC = () => {
       setScenes,
     ]
   );
+
+  // v0.79.0：选中即切换状态机。顺序固定：flush 旧故事 → 取消/隔离在途生成
+  // → 加载目标故事（seq 校验）→ 原子应用并清理旧状态。生成中不再拒绝切换。
+  const switchStory = useCallback(
+    async (storyId: string, seqFromEvent?: number, origin = 'backstage') => {
+      if (!storyId) return;
+      if (seqFromEvent && seqFromEvent > 0) {
+        if (seqFromEvent < lastAppliedStorySeqRef.current) {
+          frontstageLogger.info('[storySwitch] stale selection dropped', {
+            storyId,
+            seq: seqFromEvent,
+            last: lastAppliedStorySeqRef.current,
+          });
+          return;
+        }
+        lastAppliedStorySeqRef.current = seqFromEvent;
+      }
+
+      const current = currentStoryRef.current;
+      if (current?.id === storyId) {
+        // 同一故事只重新定位最新章节，不 flush、不清空编辑器。
+        await selectStory(current, { clearEditor: false });
+        return;
+      }
+
+      const switchSeq = ++switchSeqRef.current;
+      storySwitchEpochRef.current += 1;
+      const previousStoryId = current?.id;
+      if (previousStoryId) ignoredStoryEventsRef.current.add(previousStoryId);
+      const previousTitle = current?.title;
+
+      // 1) 先保存旧故事。flush 失败则中止切换，不能丢稿。
+      try {
+        await flushSceneSaveRef.current();
+      } catch (e) {
+        frontstageLogger.error('[storySwitch] flush failed', { error: e });
+        toast.error('当前章节保存失败，已取消切换');
+        return;
+      }
+
+      // 2) 处置在途生成：前台单拍/流式取消；后台/创世分离后由 epoch 过滤。
+      if (isGeneratingRef.current || isGenesisSettingUpRef.current) {
+        try {
+          cancelGenerationRef.current?.();
+          cancelGenerationRef.current = null;
+          if (sessionIdRef.current) {
+            await loggedInvoke<unknown>('cancel_genesis_pipeline', {
+              session_id: sessionIdRef.current,
+            });
+            sessionIdRef.current = null;
+          } else {
+            await loggedInvoke<unknown>('agent_cancel_all_tasks', {});
+          }
+        } catch (e) {
+          frontstageLogger.warn('[storySwitch] cancel generation failed', { error: e });
+        }
+        smartExecuteInFlightRef.current = false;
+        smartExecuteNeedDiagnosticRef.current = false;
+        stopElapsedTimer();
+        setIsGenerating(false);
+        setGenerationStatus('✓ 已切换作品');
+        useBackendActivityStore.getState().failAllRunning('切换作品');
+        toast(
+          origin === 'restore'
+            ? `已恢复《${previousTitle || '当前作品'}》`
+            : `已停止《${previousTitle || '当前作品'}》的生成，切换到另一部作品`
+        );
+      }
+
+      // 3) 加载目标故事并原子应用。
+      try {
+        const list = await loggedInvoke<Story[]>('list_stories');
+        if (!Array.isArray(list)) return;
+        setStories(list);
+        const story = list.find(s => s.id === storyId);
+        if (!story) {
+          toast.error('目标作品不存在，已保留当前作品');
+          return;
+        }
+        await selectStory(story, { switchSeq, clearEditor: true });
+        ignoredStoryEventsRef.current.delete(storyId);
+        toast.success(`已切换到《${story.title}》`);
+      } catch (e) {
+        frontstageLogger.error('[storySwitch] failed to load target story', { error: e });
+        toast.error('切换作品失败，已保留当前作品');
+      }
+    },
+    [selectStory, stopElapsedTimer, setIsGenerating, setGenerationStatus, toast, setStories]
+  );
+
+  useEffect(() => {
+    switchStoryRef.current = switchStory;
+  }, [switchStory]);
+
+  // v0.79.0：幕前隐藏/重载时事件可能丢失；聚焦或可见性恢复时重新读取
+  // active_story，若与当前不同则补切。
+  useEffect(() => {
+    const restore = async () => {
+      if (!currentStoryRef.current) return;
+      if (isGeneratingRef.current || isGenesisSettingUpRef.current) return;
+      try {
+        const active = await loggedInvoke<{ story_id?: string } | null>('get_active_story');
+        if (active?.story_id && active.story_id !== currentStoryRef.current?.id) {
+          await switchStoryRef.current(active.story_id, 0, 'restore');
+        }
+      } catch {
+        /* best-effort */
+      }
+    };
+    const onFocus = () => {
+      void restore();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void restore();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
 
   const loadStories = useCallback(async () => {
     try {
@@ -3159,7 +3391,12 @@ const FrontstageApp: React.FC = () => {
         !isGeneratingRef.current &&
         !isGenesisSettingUpRef.current
       ) {
-        await selectStory(result[0]);
+        // v0.79.0：挂载时先恢复后端持久化的 active story，不再盲目选第一个。
+        const active = await loggedInvoke<{ story_id?: string } | null>('get_active_story').catch(
+          () => null
+        );
+        const preferred = active?.story_id ? result.find(s => s.id === active.story_id) : undefined;
+        await selectStory(preferred || result[0], { clearEditor: true });
       }
     } catch (e) {
       frontstageLogger.error('Failed to load stories', { error: e });
@@ -3401,6 +3638,29 @@ const FrontstageApp: React.FC = () => {
     [scenes, setSceneInfo]
   );
 
+  /** 手动「AI 取名」：显式覆盖当前标题，失败不影响正文。 */
+  const handleAutoNameChapter = useCallback(async () => {
+    const chapter = currentChapterRef.current;
+    if (!chapter || isAutoNaming) return;
+    setIsAutoNaming(true);
+    try {
+      const title = await loggedInvoke<string | null>('auto_name_chapter', {
+        chapter_id: chapter.id,
+        overwrite: true,
+      });
+      if (!title) {
+        showTransientStatus('正文还太少，先写一些再让 AI 取名');
+        return;
+      }
+      applyChapterTitleLocally(chapter.id, title);
+      showTransientStatus(`✨ 本章已取名：${title}`);
+    } catch (e) {
+      showTransientStatus(`✗ 自动取名失败：${extractMessage(e)}`, 5000);
+    } finally {
+      setIsAutoNaming(false);
+    }
+  }, [applyChapterTitleLocally, isAutoNaming, showTransientStatus]);
+
   const handleContentChange = useCallback(
     async (newContent: string) => {
       // v0.23.23: 内容未变化时跳过，避免伪"保存中"
@@ -3428,19 +3688,18 @@ const FrontstageApp: React.FC = () => {
         // W4-F7: 自动保存非阻塞化 — Phase 2: 保存走 Scene
         const sceneIdForSave = useFrontstageStore.getState().sceneId;
         const chapterIdForSave = useFrontstageStore.getState().chapterId;
-        const sceneTitleForSave = useFrontstageStore.getState().sceneTitle;
         if (!sceneIdForSave) return;
         scheduleAutoSave(
           () => ({
             sceneId: sceneIdForSave,
-            title: sceneTitleForSave ?? undefined,
             content: latestContentRef.current,
             wordCount: computeWordCount(latestContentRef.current),
           }),
           async payload => {
             try {
-              // v0.30.34: 走 persistSceneContent 序列化，消除并发覆写竞态
-              await persistSceneContent(payload.sceneId, payload.content, payload.title);
+              // v0.30.34: 走 persistSceneContent 序列化，消除并发覆写竞态。
+              // 正文保存不携带 title：避免把自动取名前的占位标题写回去。
+              await persistSceneContent(payload.sceneId, payload.content);
               setWordCount(payload.wordCount);
             } catch (e) {
               frontstageLogger.error('Auto-save failed', { error: e });
@@ -3623,6 +3882,7 @@ const FrontstageApp: React.FC = () => {
       cancelGenerationRef.current = () => {
         if (timeoutId) clearTimeout(timeoutId);
       };
+      const requestStoryEpoch = storySwitchEpochRef.current;
 
       try {
         smartExecuteInFlightRef.current = true;
@@ -3637,6 +3897,20 @@ const FrontstageApp: React.FC = () => {
           timeoutPromise,
         ]);
         if (timeoutId) clearTimeout(timeoutId);
+
+        // v0.79.0：切换作品后到达的旧生成结果必须丢弃，不能追加到新故事。
+        if (storySwitchEpochRef.current !== requestStoryEpoch) {
+          frontstageLogger.info('[storySwitch] stale generation dropped', {
+            requestStoryEpoch,
+            currentEpoch: storySwitchEpochRef.current,
+          });
+          smartExecuteInFlightRef.current = false;
+          smartExecuteNeedDiagnosticRef.current = false;
+          stopElapsedTimer();
+          setIsGenerating(false);
+          setGenerationStatus('');
+          return;
+        }
 
         // v0.31.x: 审计意图自动路由结果——报告弹窗展示，不进入正文处理管线
         if (result.result_kind === 'audit_report') {
@@ -4377,6 +4651,7 @@ const FrontstageApp: React.FC = () => {
       // 误判代价：创世误判为续写->planner 仍产出首章（安全）；续写误判为创世->
       // 启动 Agency 全流程、新建故事、覆盖工作（灾难）。故默认偏向续写。
       setOrchestratorStatus({ stepType: 'busy', message: '🧠 正在理解创作意图...' });
+      const requestStoryEpoch = storySwitchEpochRef.current;
       let classification = intentClassificationCacheRef.current.get(userInput);
       if (!classification) {
         try {
@@ -4649,6 +4924,19 @@ const FrontstageApp: React.FC = () => {
         ]);
 
         if (timeoutId) clearTimeout(timeoutId);
+        // v0.79.0：切换作品后到达的旧生成结果必须丢弃，不能追加到新故事。
+        if (storySwitchEpochRef.current !== requestStoryEpoch) {
+          frontstageLogger.info('[storySwitch] stale smart generation dropped', {
+            requestStoryEpoch,
+            currentEpoch: storySwitchEpochRef.current,
+          });
+          smartExecuteInFlightRef.current = false;
+          smartExecuteNeedDiagnosticRef.current = false;
+          stopElapsedTimer();
+          setIsGenerating(false);
+          setGenerationStatus('');
+          return;
+        }
         // v0.30.44: 不在此处清除 smartExecuteInFlightRef -- 与 handleRequestGeneration 同理，
         // 此处清除会让 backend activity sync (100ms 防抖) 在内容处理（isAlreadyPresent /
         // active mode / appendAiContent 等同步步骤）期间把 isGenerating 置 false，
@@ -5467,6 +5755,8 @@ const FrontstageApp: React.FC = () => {
                     displayTitle={displayChapterTitle(currentChapter)}
                     canRename
                     onRename={handleRenameChapter}
+                    onAutoName={handleAutoNameChapter}
+                    autoNaming={isAutoNaming}
                     variant="heading"
                     isZenMode={isZenMode}
                   />

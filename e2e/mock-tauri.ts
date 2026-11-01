@@ -232,6 +232,16 @@ export function getMockTauriInitScript() {
               sessionStorage.setItem(STORAGE_KEY, mockContent);
             }
             return null;
+          case 'auto_name_chapter': {
+            // 幕前「AI 取名」按钮：返回新标题并同步 mock 章节/场景，
+            // 前端会立即用返回值刷新标题。
+            const title = '雨夜来客';
+            mockChapter.title = title;
+            mockScenes.forEach(s => {
+              if (s.chapter_id === mockChapter.id) s.title = title;
+            });
+            return title;
+          }
           case 'update_scene': {
             // v0.24.0: 幕前自动保存走 update_scene，mock 需要同时更新 chapter 内容以支持 E2E 重载断言
             // 当前 IPC 结构：{ scene_id, updates: { title?, content? } }

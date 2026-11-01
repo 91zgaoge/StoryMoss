@@ -1,8 +1,16 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.78.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.79.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.79.0 变更说明
+
+- **叙事契约 P0（Rust 1981 passed / 13 ignored，+28）**：`SceneContract`/`StateDelta`/`EmotionChain` 类型与校验；确定性场契约编译（通用 next_node 回退到章纲/ChangeDelta，不产通用句）；场简报渲染；契约核对（具名阻力缺席/正文过短/契约无效）；gate 签名接契约；姓名校验 4 项；active story 4 项。
+- **前端（vitest 653 passed / 3 skipped，+6）**：`story-selected` 的 `seq/origin` 契约 2 项；生成中幕后选中另一部小说的切换集成 1 项；契约/情感/姓名相关组件与 prompt 快照扩展。
+- **E2E（playwright 46 passed / 5 skipped）**：切换/契约相关用例扩展，既有编辑/创世/导航/性能用例全绿。
+- **静态门禁**：`npx tsc --noEmit`、`cargo clippy --lib`、`cargo +nightly-2026-10-05 fmt -- --check`、`npm run format:check`、`python3 scripts/architecture_guard.py` 全绿。
+- **未关闭**：章契约 LLM 生成/1–3 场投影、完整 NameLedger/称呼图与 DB 落库、legacy 资产映射、人类 A/B、双窗口多故事切换 E2E。
 
 ### v0.78.0 变更说明
 

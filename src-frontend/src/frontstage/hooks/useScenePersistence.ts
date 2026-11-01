@@ -112,8 +112,10 @@ export default function useScenePersistence({
   }, []);
 
   // 序列化 DB 写入：所有 update_scene 必经此函数，按调用顺序串行提交。
+  // 只写正文，不写 title：标题由改名/自动取名独立维护，正文保存携带的
+  // 旧 sceneTitle 会在自动取名后把新标题覆盖回占位名（v0.79.0）。
   const persistSceneContent = useCallback(
-    async (sceneId: string, content: string, title?: string, retryCount = 0): Promise<void> => {
+    async (sceneId: string, content: string, retryCount = 0): Promise<void> => {
       if (!sceneId || !content) return;
       // v0.59.2: 载入期空写保护（见 loadGuardRef 注释）
       const guard = loadGuardRef.current;
@@ -140,7 +142,7 @@ export default function useScenePersistence({
         // 静默 0 行更新，UI 显示"已保存"但正文从未落库，重启即丢失。
         const updated = await loggedInvoke<number>(
           'update_scene',
-          buildUpdateSceneIpcArgs({ sceneId, title, content })
+          buildUpdateSceneIpcArgs({ sceneId, content })
         );
         if (updated === 0) {
           throw new Error(`update_scene 影响 0 行（scene ${sceneId.slice(0, 8)} 不存在）`);
@@ -193,7 +195,7 @@ export default function useScenePersistence({
               );
               return;
             }
-            void persistSceneContent(sceneId, content, title, retryCount + 1);
+            void persistSceneContent(sceneId, content, retryCount + 1);
           }, delay);
         } else {
           setSaveError(String(e));
@@ -242,11 +244,7 @@ export default function useScenePersistence({
     }
     // 同步 latestContentRef，使后续保存基准与编辑器一致
     latestContentRef.current = content;
-    await persistSceneContent(
-      sceneId,
-      content,
-      useFrontstageStore.getState().sceneTitle ?? undefined
-    );
+    await persistSceneContent(sceneId, content);
   }, [persistSceneContent]);
   const flushSceneSaveRef = useRef(flushSceneSave);
   useEffect(() => {

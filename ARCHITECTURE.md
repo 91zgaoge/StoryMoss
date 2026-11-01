@@ -1530,6 +1530,13 @@ npm test
 
 ---
 
+## v0.79.0 新增：叙事契约 / 多作品切换 / 姓名校验
+
+- **叙事契约 P0**：`src-tauri/src/agency/narrative_contract/`（`types` / `compile` / `render` / `verify`）。`SceneContract` 由 `SceneBeatCard` + 章纲/近文确定性编译；单拍 writer prompt 注入场简报，批量 `write_chapter` 注入同一契约；`GateRunner` / `evaluate_gate_impl` 接收契约，具名阻力缺席、正文过短、契约无效触发硬修订。
+- **情感最小链**：无作者情感契约时 `compile_emotion` 产出「事件→评估→情绪→行动→代价」，`load_emotion_plan` / `load_chapter_emotion_plan` 不再无契约就关闭。
+- **多作品切换**：后端 `set_active_story` / `get_active_story` 持久化 `active_story_id` + 单调 `seq`；`story-selected` 事件带 `seq/origin`；幕前 `StorySwitchController` 先 flush → 处置在途生成（前台取消/后台分离）→ 按 seq 加载 → 原子应用/清理；旧故事事件按 `story_id + storySwitchEpoch` 过滤。
+- **姓名校验 P0**：`src-tauri/src/naming/` 校验重名、给定名同用字、同姓扎堆、长度塌缩、模型陈词组合；创世角色谱逐组校验；两处取名提示词改为真实姓氏分布 + 长度分布 + 反对二字冷色组合。
+
 ## 相关文档
 
 - [V3 架构计划](docs/plans/ARCHITECTURE_V3_PLAN.md) - V3 详细设计文档

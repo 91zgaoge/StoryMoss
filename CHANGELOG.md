@@ -2,6 +2,20 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.79.0（2026-11-02）
+
+**叙事契约 P0 + 多作品切换 + 姓名校验。**
+
+- **多作品切换（用户可见 bug）**：新增后端 `set_active_story/get_active_story` 持久化真源（`active_story_id` + 单调 `seq`），`story-selected` 事件带 `seq/origin`；幕前改为 `StorySwitchController`：先 flush 旧故事 → 处置在途生成 → 按 seq 加载目标故事 → 原子应用 + 清理旧状态。删掉 `onStorySelected` 里「生成中直接 toast-return」的守卫——生成态只决定取消/分离，不再决定是否切换。新增 `storySwitchEpoch`/`ignoredStoryEvents` 过滤，旧故事生成结果和 ChapterSwitch 不会把幕前拉回旧故事。
+- **跨故事切换空正文修复**：`selectChapter` 在 `chaptersRef` 尚未更新但章节已有正文时不再走「缺章懒加载」；此前会先拉空正文再清空编辑器。
+- **叙事契约 P0**：新增 `agency/narrative_contract/`（`SceneContract`/`StateDelta`/`EmotionChain`、确定性编译、场简报渲染、契约核对）。单拍 writer prompt 从四行节拍卡升级为「本场契约」：目标/具名阻力/阻力目标/障碍/手段/转折/必须结果/状态变化/情感链/禁止/钩子/字数；契约摘要放在末句锚点前。批量 `write_chapter` 也注入场契约，不再只拿「章纲 + 资产 + 有起伏」。
+- **情感最小链默认启用**：无作者情感契约时，`compile_emotion` 不再返回静态角色档案，改为「事件→评估→情绪→行动→代价」最小链；`load_emotion_plan`/`load_chapter_emotion_plan` 不再无契约就整块关闭。
+- **契约门禁**：`GateRunner`/`evaluate_gate_impl` 接收场契约；具名阻力缺席、正文过短、契约无效等硬失败强制修订，不再只按加权总分放行；修订任务带场简报，只改失败场/段。
+- **姓名编译 P0**：新增 `naming` 模块（重名、同用字、同姓扎堆、长度塌缩、模型陈词组合校验）；创世角色谱生成后逐组校验；修正两处反模式提示词（不再禁止常见姓/单字名，改为真实分布 + 长度分布 + 反对「林雪/沈夜/苏墨/顾寒」式组合）。
+- **进度回流**：`progress_lines_from_parts` 改为最近 3 章实际正文末段，不再读 `outline_content` 里的计划卡块。
+- **验证**：Rust **1981 passed / 13 ignored**（+28：契约类型/编译/渲染/核对、姓名校验、active story 4 项、gate 签名）；vitest **653 passed / 3 skipped**（+6：story-selected 契约、生成中切换集成）；playwright **46 passed / 5 skipped**；tsc / clippy / fmt / guard 全绿。
+- **未关闭**：章契约 LLM 生成与 1–3 场投影仍在 M3；完整 `NameLedger`/称呼图与数据库落库仍在 M4；legacy 方法论/追读力资产映射、人类 A/B、Playwright 双窗口多故事切换用例待补。不得宣称「已解决全部叙事质量」或「姓名已全面替换」。
+
 ## v0.78.0（2026-11-01）
 
 **图片语料接入视觉模型（deepseek-v4.1-flash）。**

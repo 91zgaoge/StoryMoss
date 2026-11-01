@@ -1,7 +1,7 @@
 tauri::generate_handler! {
     commands::core::health_check, commands::core::check_model_status, commands::core::chat_completion, commands::story::list_stories, commands::story::create_story, commands::story::update_story, commands::story::delete_story,
     commands::character::get_story_characters, commands::character::create_character, commands::character::update_character, commands::character::delete_character, commands::character::set_character_life_status,
-    commands::chapter::get_story_chapters, commands::chapter::get_story_chapters_paged, commands::chapter::get_chapter, commands::chapter::get_chapter_aggregated_content, commands::chapter::create_chapter, commands::chapter::update_chapter, commands::chapter::delete_chapter,
+    commands::chapter::get_story_chapters, commands::chapter::get_story_chapters_paged, commands::chapter::get_chapter, commands::chapter::get_chapter_aggregated_content, commands::chapter::create_chapter, commands::chapter::update_chapter, commands::chapter::delete_chapter, commands::chapter::auto_name_chapter,
     commands::skill::get_skills, commands::skill::get_skill,
     commands::skill::import_skill, commands::skill::enable_skill, commands::skill::disable_skill, commands::skill::uninstall_skill, commands::skill::execute_skill, commands::skill::update_skill, commands::skill::format_text,
     commands::mcp::connect_mcp_server, commands::mcp::call_mcp_tool, commands::mcp::disconnect_mcp_server, commands::mcp::get_mcp_connections, commands::mcp::list_mcp_tools, commands::mcp::execute_mcp_tool, commands::mcp::register_mcp_tool, commands::mcp::unregister_mcp_tool,
@@ -21,6 +21,8 @@ tauri::generate_handler! {
     commands::sync::show_backstage,
     commands::sync::open_story_in_frontstage,
     commands::sync::notify_frontstage_story_selected,
+    commands::sync::set_active_story,
+    commands::sync::get_active_story,
     commands::sync::cancel_genesis_pipeline,
     // Settings commands
     config::get_settings,

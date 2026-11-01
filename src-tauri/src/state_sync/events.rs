@@ -33,6 +33,12 @@ pub enum SyncEvent {
     StorySelected {
         story_id: String,
         title: Option<String>,
+        /// v0.79.0：选择序号。幕前用它丢弃过期/乱序的切换请求。
+        #[serde(default)]
+        seq: i64,
+        /// 选择来源：backstage_card | backstage_open | restore | legacy。
+        #[serde(default)]
+        origin: String,
     },
 
     // === Character 事件 ===

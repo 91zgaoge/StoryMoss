@@ -72,4 +72,48 @@ describe('EditableChapterTitle', () => {
     expect(onRename).not.toHaveBeenCalled();
     expect(screen.getByText('第一章')).toBeInTheDocument();
   });
+
+  it('传入 onAutoName 时显示 AI 取名按钮并触发回调', async () => {
+    const user = userEvent.setup();
+    const onAutoName = vi.fn().mockResolvedValue(undefined);
+    render(
+      <EditableChapterTitle
+        displayTitle="临江夜雨"
+        canRename
+        onRename={onRename}
+        onAutoName={onAutoName}
+        variant="heading"
+      />
+    );
+    const button = screen.getByLabelText('AI 自动取名');
+    await user.click(button);
+    expect(onAutoName).toHaveBeenCalledTimes(1);
+  });
+
+  it('自动取名进行中禁用按钮', () => {
+    render(
+      <EditableChapterTitle
+        displayTitle="临江夜雨"
+        canRename
+        onRename={onRename}
+        onAutoName={vi.fn()}
+        autoNaming
+        variant="heading"
+      />
+    );
+    expect(screen.getByLabelText('AI 自动取名')).toBeDisabled();
+  });
+
+  it('status 变体不显示 AI 取名按钮', () => {
+    render(
+      <EditableChapterTitle
+        displayTitle="临江夜雨"
+        canRename
+        onRename={onRename}
+        onAutoName={vi.fn()}
+        variant="status"
+      />
+    );
+    expect(screen.queryByLabelText('AI 自动取名')).not.toBeInTheDocument();
+  });
 });

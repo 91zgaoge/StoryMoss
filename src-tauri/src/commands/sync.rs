@@ -1,9 +1,158 @@
 #![allow(dead_code)]
 //! Sync commands
 
-use tauri::{AppHandle, Emitter, Manager};
+use rusqlite::OptionalExtension;
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::error::AppError;
+use crate::{db::DbPool, error::AppError};
+
+/// v0.79.0：跨窗口「当前选中故事」的持久化真源。
+///
+/// 幕后点击故事后写入 `app_settings`，幕前挂载/聚焦时读取；事件里的 `seq`
+/// 用于丢弃乱序/过期选择。旧调用方仍可只发事件（seq=0）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActiveStorySelection {
+    pub story_id: String,
+    pub title: Option<String>,
+    pub seq: i64,
+    pub updated_at: String,
+}
+
+const ACTIVE_STORY_ID_KEY: &str = "active_story_id";
+const ACTIVE_STORY_SEQ_KEY: &str = "active_story_seq";
+const ACTIVE_STORY_TITLE_KEY: &str = "active_story_title";
+
+fn ensure_app_settings_table(conn: &rusqlite::Connection) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )",
+        [],
+    )?;
+    Ok(())
+}
+
+fn read_setting(conn: &rusqlite::Connection, key: &str) -> Result<Option<String>, rusqlite::Error> {
+    conn.query_row(
+        "SELECT value FROM app_settings WHERE key = ?1",
+        rusqlite::params![key],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+}
+
+fn clear_active_story(conn: &rusqlite::Connection) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "DELETE FROM app_settings WHERE key IN (?1, ?2, ?3)",
+        rusqlite::params![
+            ACTIVE_STORY_ID_KEY,
+            ACTIVE_STORY_SEQ_KEY,
+            ACTIVE_STORY_TITLE_KEY
+        ],
+    )?;
+    Ok(())
+}
+
+/// 写入选中故事并返回递增后的 seq。使用 IMMEDIATE 事务，避免幕后快速连点
+/// 两个故事时 seq 相同。
+fn set_active_story_in_db(
+    pool: &DbPool,
+    story_id: &str,
+    title: Option<&str>,
+    origin: &str,
+) -> Result<ActiveStorySelection, AppError> {
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .get_by_id(story_id)?
+        .ok_or_else(|| AppError::NotFound {
+            resource: "story".into(),
+            id: story_id.to_string(),
+        })?;
+    let title = title
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or(Some(story.title));
+
+    let mut conn = pool.get().map_err(|e| AppError::Internal {
+        message: format!("active story db pool: {e}"),
+    })?;
+    ensure_app_settings_table(&conn)?;
+    let tx = conn.transaction()?;
+    let prev_seq = read_setting(&tx, ACTIVE_STORY_SEQ_KEY)?
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(0);
+    let seq = prev_seq.saturating_add(1);
+    let now = chrono::Local::now().to_rfc3339();
+    let mut stmt = tx.prepare(
+        "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
+    )?;
+    stmt.execute(rusqlite::params![ACTIVE_STORY_ID_KEY, story_id, now])?;
+    stmt.execute(rusqlite::params![
+        ACTIVE_STORY_SEQ_KEY,
+        seq.to_string(),
+        now
+    ])?;
+    stmt.execute(rusqlite::params![
+        ACTIVE_STORY_TITLE_KEY,
+        title.clone().unwrap_or_default(),
+        now
+    ])?;
+    drop(stmt);
+    tx.commit()?;
+
+    log::info!(
+        "[active_story] selected story={} seq={} origin={}",
+        story_id,
+        seq,
+        origin
+    );
+    Ok(ActiveStorySelection {
+        story_id: story_id.to_string(),
+        title,
+        seq,
+        updated_at: now,
+    })
+}
+
+fn get_active_story_from_db(pool: &DbPool) -> Result<Option<ActiveStorySelection>, AppError> {
+    let conn = pool.get().map_err(|e| AppError::Internal {
+        message: format!("active story db pool: {e}"),
+    })?;
+    ensure_app_settings_table(&conn)?;
+    let Some(story_id) = read_setting(&conn, ACTIVE_STORY_ID_KEY)? else {
+        return Ok(None);
+    };
+    let Some(story) =
+        crate::db::repositories::StoryRepository::new(pool.clone()).get_by_id(&story_id)?
+    else {
+        // 目标故事已删除：不要让幕前恢复到一个不存在的故事。
+        clear_active_story(&conn)?;
+        return Ok(None);
+    };
+    let seq = read_setting(&conn, ACTIVE_STORY_SEQ_KEY)?
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(0);
+    let title = read_setting(&conn, ACTIVE_STORY_TITLE_KEY)?
+        .filter(|s| !s.trim().is_empty())
+        .or(Some(story.title));
+    let updated_at = conn
+        .query_row(
+            "SELECT updated_at FROM app_settings WHERE key = ?1",
+            rusqlite::params![ACTIVE_STORY_ID_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .unwrap_or_default();
+    Ok(Some(ActiveStorySelection {
+        story_id,
+        title,
+        seq,
+        updated_at,
+    }))
+}
 
 // ===== 幕前/幕后通信命令 =====
 
@@ -50,6 +199,33 @@ pub fn notify_frontstage_data_refresh(entity: String, app: AppHandle) -> Result<
     crate::window::WindowManager::send_to_frontstage(&app, event)
 }
 
+/// v0.79.0：写入/读取「当前选中故事」真源。
+#[tauri::command(rename_all = "snake_case")]
+pub fn set_active_story(
+    story_id: String,
+    title: Option<String>,
+    origin: Option<String>,
+    app: AppHandle,
+    pool: State<'_, DbPool>,
+) -> Result<ActiveStorySelection, AppError> {
+    let origin = origin.as_deref().unwrap_or("backstage_card");
+    let selection = set_active_story_in_db(&pool, &story_id, title.as_deref(), origin)?;
+    crate::state_sync::service::StateSync::emit_story_selected_with_meta(
+        &app,
+        &selection.story_id,
+        selection.title.as_deref(),
+        selection.seq,
+        origin,
+    );
+    Ok(selection)
+}
+
+/// 幕前挂载/聚焦时恢复上次选中的故事。
+#[tauri::command(rename_all = "snake_case")]
+pub fn get_active_story(pool: State<'_, DbPool>) -> Result<Option<ActiveStorySelection>, AppError> {
+    get_active_story_from_db(&pool)
+}
+
 /// 幕后故事卡片「打开」：显示幕前窗口并广播 storySelected，
 /// 幕前收到后选中该故事（selectStory 定位到最新章节）。
 #[tauri::command(rename_all = "snake_case")]
@@ -57,24 +233,41 @@ pub fn open_story_in_frontstage(
     story_id: String,
     title: Option<String>,
     app: AppHandle,
+    pool: State<'_, DbPool>,
 ) -> Result<(), AppError> {
     crate::window::WindowManager::show_frontstage(&app)?;
-    crate::state_sync::service::StateSync::emit_story_selected(&app, &story_id, title.as_deref());
+    let selection = set_active_story_in_db(&pool, &story_id, title.as_deref(), "backstage_open")?;
+    crate::state_sync::service::StateSync::emit_story_selected_with_meta(
+        &app,
+        &selection.story_id,
+        selection.title.as_deref(),
+        selection.seq,
+        "backstage_open",
+    );
     Ok(())
 }
 
 /// v0.73.9: 幕后点击故事卡片（不打开窗口）时同步选中到幕前。
 ///
-/// 此前卡片点击只更新幕后 `currentStory`，幕前仍停在旧故事；只有卡片上的
-/// 小「打开」按钮会发 storySelected。这里只广播事件，不显示/聚焦幕前窗口，
-/// 避免用户在幕后浏览时被强行弹窗打断。
+/// v0.79.0：先持久化 active_story（seq 单调），再广播事件；幕前据此恢复，
+/// 不再依赖一次性事件是否被监听。
 #[tauri::command(rename_all = "snake_case")]
 pub fn notify_frontstage_story_selected(
     story_id: String,
     title: Option<String>,
+    origin: Option<String>,
     app: AppHandle,
+    pool: State<'_, DbPool>,
 ) -> Result<(), AppError> {
-    crate::state_sync::service::StateSync::emit_story_selected(&app, &story_id, title.as_deref());
+    let origin = origin.as_deref().unwrap_or("backstage_card");
+    let selection = set_active_story_in_db(&pool, &story_id, title.as_deref(), origin)?;
+    crate::state_sync::service::StateSync::emit_story_selected_with_meta(
+        &app,
+        &selection.story_id,
+        selection.title.as_deref(),
+        selection.seq,
+        origin,
+    );
     Ok(())
 }
 
@@ -227,5 +420,73 @@ pub fn cancel_genesis_pipeline(session_id: String) -> Result<bool, AppError> {
             session_id
         );
         Ok(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{connection::create_test_pool, dto::CreateStoryRequest, DbPool};
+
+    fn story_req(title: &str) -> CreateStoryRequest {
+        CreateStoryRequest {
+            title: title.into(),
+            description: None,
+            genre: Some("玄幻".into()),
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        }
+    }
+
+    fn seed_story(pool: &DbPool, title: &str) -> String {
+        crate::db::repositories::StoryRepository::new(pool.clone())
+            .create(story_req(title))
+            .unwrap()
+            .id
+    }
+
+    #[test]
+    fn active_story_set_get_roundtrip() {
+        let pool = create_test_pool().unwrap();
+        let sid = seed_story(&pool, "甲");
+        let first = set_active_story_in_db(&pool, &sid, Some("甲"), "test").unwrap();
+        assert_eq!(first.seq, 1);
+        assert_eq!(first.title.as_deref(), Some("甲"));
+
+        let got = get_active_story_from_db(&pool).unwrap().unwrap();
+        assert_eq!(got.story_id, sid);
+        assert_eq!(got.seq, 1);
+        assert_eq!(got.title.as_deref(), Some("甲"));
+    }
+
+    #[test]
+    fn active_story_seq_increases() {
+        let pool = create_test_pool().unwrap();
+        let a = seed_story(&pool, "甲");
+        let b = seed_story(&pool, "乙");
+        set_active_story_in_db(&pool, &a, None, "test").unwrap();
+        let second = set_active_story_in_db(&pool, &b, None, "test").unwrap();
+        assert_eq!(second.seq, 2);
+        assert_eq!(second.story_id, b);
+    }
+
+    #[test]
+    fn active_story_rejects_missing_story() {
+        let pool = create_test_pool().unwrap();
+        let err = set_active_story_in_db(&pool, "missing", None, "test").unwrap_err();
+        assert_eq!(err.code(), "NOT_FOUND");
+    }
+
+    #[test]
+    fn active_story_clears_after_story_deleted() {
+        let pool = create_test_pool().unwrap();
+        let sid = seed_story(&pool, "甲");
+        set_active_story_in_db(&pool, &sid, Some("甲"), "test").unwrap();
+        crate::db::repositories::StoryRepository::new(pool.clone())
+            .delete(&sid)
+            .unwrap();
+        assert!(get_active_story_from_db(&pool).unwrap().is_none());
     }
 }

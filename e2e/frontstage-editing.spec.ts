@@ -79,6 +79,30 @@ test.describe('Frontstage 编辑器测试', () => {
     await expect(chapterTitle).toContainText('测试章节');
   });
 
+  test('AI 自动取名按钮更新章节标题', async ({ page }) => {
+    await page.addInitScript(getMockTauriInitScript());
+    await page.goto('/frontstage.html');
+
+    const chapterTitle = page.locator('.chapter-title');
+    await expect(chapterTitle).toContainText('测试章节', { timeout: 10000 });
+
+    const autoNameButton = page.getByLabel('AI 自动取名');
+    await expect(autoNameButton).toBeVisible();
+    await autoNameButton.click();
+
+    await expect(chapterTitle).toContainText('雨夜来客', { timeout: 10000 });
+    const calls = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __e2eMock?: { calls: Array<{ cmd: string; args?: Record<string, unknown> }> };
+          }
+        ).__e2eMock?.calls ?? []
+    );
+    const call = calls.find(c => c.cmd === 'auto_name_chapter');
+    expect(call?.args).toMatchObject({ chapter_id: 'test-chapter-1', overwrite: true });
+  });
+
   test('进入和退出禅模式', async ({ page }) => {
     await page.addInitScript(getMockTauriInitScript());
     await page.goto('/frontstage.html');

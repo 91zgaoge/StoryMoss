@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Loader2, Sparkles } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 export interface EditableChapterTitleProps {
@@ -7,6 +8,10 @@ export interface EditableChapterTitleProps {
   onRename?: (title: string) => Promise<void> | void;
   /** 视觉变体：编辑器上方大标题 / 顶栏状态小字 */
   variant?: 'heading' | 'status';
+  /** 大标题旁「AI 自动取名」入口；传入才渲染按钮 */
+  onAutoName?: () => Promise<void> | void;
+  /** 自动取名请求进行中（按钮转圈并禁用） */
+  autoNaming?: boolean;
   className?: string;
   isZenMode?: boolean;
 }
@@ -19,6 +24,8 @@ const EditableChapterTitle: React.FC<EditableChapterTitleProps> = ({
   canRename,
   onRename,
   variant = 'heading',
+  onAutoName,
+  autoNaming = false,
   className,
   isZenMode = false,
 }) => {
@@ -117,7 +124,7 @@ const EditableChapterTitle: React.FC<EditableChapterTitleProps> = ({
   }
 
   const Tag = variant === 'heading' ? 'h1' : 'span';
-  return (
+  const titleEl = (
     <Tag
       className={cn(
         variant === 'heading' ? 'chapter-title' : 'status-item frontstage-chapter-name',
@@ -130,6 +137,32 @@ const EditableChapterTitle: React.FC<EditableChapterTitleProps> = ({
     >
       {displayTitle}
     </Tag>
+  );
+
+  if (variant !== 'heading' || !onAutoName) return titleEl;
+
+  return (
+    <div className="chapter-title-row">
+      {titleEl}
+      <button
+        type="button"
+        className="chapter-auto-name-btn"
+        aria-label="AI 自动取名"
+        title="AI 自动取名（会覆盖当前标题）"
+        disabled={autoNaming}
+        onClick={event => {
+          event.preventDefault();
+          event.stopPropagation();
+          void onAutoName();
+        }}
+      >
+        {autoNaming ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Sparkles className="h-3.5 w-3.5" />
+        )}
+      </button>
+    </div>
   );
 };
 

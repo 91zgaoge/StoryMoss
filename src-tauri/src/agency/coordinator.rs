@@ -1904,7 +1904,9 @@ impl AgencyCoordinator {
         let (draft, scene_id) = self
             .assemble_only(repo, run_id, &story_id, cancel, draft)
             .await?;
-        self.spawn_editor_qc(run_id, &story_id, premise, &draft, budget, "genesis", None);
+        self.spawn_editor_qc(
+            run_id, &story_id, premise, &draft, budget, "genesis", None, None,
+        );
 
         Ok(AgencyGenesisResult {
             run_id: run_id.to_string(),
@@ -2854,7 +2856,9 @@ impl AgencyCoordinator {
         let (draft, scene_id) = self
             .assemble_only(repo, run_id, &story_id, cancel, draft)
             .await?;
-        self.spawn_editor_qc(run_id, &story_id, premise, &draft, budget, "genesis", None);
+        self.spawn_editor_qc(
+            run_id, &story_id, premise, &draft, budget, "genesis", None, None,
+        );
 
         Ok(AgencyGenesisResult {
             run_id: run_id.to_string(),
@@ -2956,6 +2960,7 @@ impl AgencyCoordinator {
         })
         .await
         .map_err(|e| AppError::from(format!("scene assembly join error: {}", e)))??;
+        self.spawn_auto_name_chapter(run_id, &scene.id);
         self.emit_activity(run_id, AgentRole::Producer, "done", "装配");
         // 装配完成后、交付结果前再查一次：确保 cancelled 不被 completed 覆盖
         self.check_cancel(cancel)?;
@@ -3003,6 +3008,7 @@ impl AgencyCoordinator {
         budget: &Arc<AgencyBudget>,
         source: &str,
         chapter_number: Option<i32>,
+        scene_contract: Option<crate::agency::narrative_contract::SceneContract>,
     ) {
         let Some(app) = self.app_handle.clone() else {
             // 测试环境无 app_handle，跳过后台质检
@@ -3046,8 +3052,19 @@ impl AgencyCoordinator {
             )
             .await;
             let result = evaluate_gate_impl(
-                &llm, &budget, &pool, &board, &registry, &run_id, &story_id, &premise, &draft, 1,
-                None, deadline,
+                &llm,
+                &budget,
+                &pool,
+                &board,
+                &registry,
+                &run_id,
+                &story_id,
+                &premise,
+                &draft,
+                1,
+                None,
+                scene_contract.as_ref(),
+                deadline,
             )
             .await;
             // 取消后不再产出裁决/toast：用户已经终止这次生成，噪声反馈只会误导
@@ -3710,7 +3727,7 @@ impl AgencyCoordinator {
             PersistMode::Append { scene_id } => Some(scene_id.as_str()),
             PersistMode::NextChapter { .. } => None,
         };
-        let (draft, card, technique_index, emotion_outcome) = self
+        let (draft, card, technique_index, emotion_outcome, scene_contract) = self
             .write_beat_once(
                 budget,
                 run_id,
@@ -3782,6 +3799,8 @@ impl AgencyCoordinator {
             .await;
             // 资产回流（best-effort 后台）与章里程碑检查点，与 handle_gate 对齐
             self.spawn_asset_ingest(run_id, story_id, &outcome.scene_id, &outcome.full_content);
+            // 幕前 Append 建的新章同样自动取名；已有手写标题时 helper 内跳过。
+            self.spawn_auto_name_chapter(run_id, &outcome.scene_id);
             self.checkpoint_auto(
                 run_id,
                 story_id,
@@ -3798,6 +3817,7 @@ impl AgencyCoordinator {
                 budget,
                 "continue",
                 Some(chapter_number),
+                scene_contract,
             );
             return Ok(AgencyContinueResult {
                 run_id: run_id.to_string(),
@@ -3854,6 +3874,7 @@ impl AgencyCoordinator {
             budget,
             "continue",
             Some(chapter_number),
+            scene_contract,
         );
         Ok(AgencyContinueResult {
             verdict: EditorVerdict::pending(),
@@ -5018,6 +5039,7 @@ impl AgencyCoordinator {
             crate::agency::beat_card::SceneBeatCard,
             usize,
             Option<EmotionBeatOutcome>,
+            Option<crate::agency::narrative_contract::SceneContract>,
         ),
         AppError,
     > {
@@ -5192,7 +5214,7 @@ impl AgencyCoordinator {
                 )
             })
         };
-        let (user, admitted, l2, lock) = if let Some(ref mut p) = parts {
+        let (user, admitted, l2, lock, scene_contract) = if let Some(ref mut p) = parts {
             let (mut admitted, mut l2) = admit_for_continue(p, &card, &chapter_outline, instr);
             let mut lock = compile_continue_director(
                 Some(p),
@@ -5292,18 +5314,32 @@ impl AgencyCoordinator {
             let state = compile_continue_beat_state(&card, Some(p), current_content.unwrap_or(""));
             let emotion_beat = emotion_ctx.as_ref().map(|(plan, _)| &plan.beat);
             let emotion_contract = emotion_ctx.as_ref().and_then(|(_, c)| c.as_ref());
-            let user = crate::agency::beat_card::render_writer_user_prompt_with_emotion(
-                &assets,
+            let scene_contract = crate::agency::narrative_contract::compile_scene_contract(
                 &card,
-                instr,
+                &chapter_outline,
                 current_content.unwrap_or(""),
-                Some(&state),
-                Some(&lock),
-                Some(technique_index),
-                emotion_beat,
-                emotion_contract,
-            );
-            (user, admitted, l2, lock)
+                0,
+                1,
+            )
+            .map_err(|e| {
+                log::warn!("agency: 场契约编译降级 run={} err={}", run_id, e);
+                e
+            })
+            .ok();
+            let user =
+                crate::agency::beat_card::render_writer_user_prompt_with_emotion_and_contract(
+                    &assets,
+                    &card,
+                    instr,
+                    current_content.unwrap_or(""),
+                    Some(&state),
+                    Some(&lock),
+                    Some(technique_index),
+                    emotion_beat,
+                    emotion_contract,
+                    scene_contract.as_ref(),
+                );
+            (user, admitted, l2, lock, scene_contract)
         } else {
             let mut admitted = Vec::new();
             let mut l2 = Vec::new();
@@ -5327,18 +5363,32 @@ impl AgencyCoordinator {
             let state = compile_continue_beat_state(&card, None, current_content.unwrap_or(""));
             let emotion_beat = emotion_ctx.as_ref().map(|(plan, _)| &plan.beat);
             let emotion_contract = emotion_ctx.as_ref().and_then(|(_, c)| c.as_ref());
-            let user = crate::agency::beat_card::render_writer_user_prompt_with_emotion(
-                "",
+            let scene_contract = crate::agency::narrative_contract::compile_scene_contract(
                 &card,
-                instr,
+                &chapter_outline,
                 current_content.unwrap_or(""),
-                Some(&state),
-                Some(&lock),
-                Some(technique_index),
-                emotion_beat,
-                emotion_contract,
-            );
-            (user, admitted, l2, lock)
+                0,
+                1,
+            )
+            .map_err(|e| {
+                log::warn!("agency: 场契约编译降级 run={} err={}", run_id, e);
+                e
+            })
+            .ok();
+            let user =
+                crate::agency::beat_card::render_writer_user_prompt_with_emotion_and_contract(
+                    "",
+                    &card,
+                    instr,
+                    current_content.unwrap_or(""),
+                    Some(&state),
+                    Some(&lock),
+                    Some(technique_index),
+                    emotion_beat,
+                    emotion_contract,
+                    scene_contract.as_ref(),
+                );
+            (user, admitted, l2, lock, scene_contract)
         };
         let frozen = self.continue_freeze.pin(
             run_id,
@@ -5694,7 +5744,7 @@ impl AgencyCoordinator {
             plan,
             probes: emotion_probes,
         });
-        Ok((item, card, technique_index, emotion_outcome))
+        Ok((item, card, technique_index, emotion_outcome, scene_contract))
     }
 
     /// 本拍情感回路落库：场景情感链 + 主角情绪状态 + 张力累积 + 探针日志。
@@ -5913,6 +5963,17 @@ impl AgencyCoordinator {
         } else {
             String::new()
         };
+        // v0.79.0：批量续写不再只拿「章纲 + 资产 + 有起伏」。先编译本场契约，
+        // 注入 writer task；失败只降级，不阻断批量。
+        let scene_contract = crate::agency::narrative_contract::compile_scene_contract(
+            &card,
+            &chapter_outline,
+            &latest_content,
+            0,
+            1,
+        )
+        .map_err(|e| log::warn!("agency: 批量场契约编译降级 run={} err={}", run_id, e))
+        .ok();
         let writer_task = if assets_ctx.is_empty() && chapter_outline.is_empty() {
             format!("续写{}（1500-2500 字）。必须推进剧情到下一节点，不得原地踏步；遵循世界观规则与约束。禁止重复：同一段落/句子不得出现两次，不得复述前文段落。先 board_read 读资产区、asset_query(kind=scenes) 读最近场景保持连贯，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, key)
         } else if !chapter_outline.is_empty() {
@@ -5935,6 +5996,7 @@ impl AgencyCoordinator {
         } else {
             format!("续写{}（1500-2500 字）。必须推进剧情到故事大纲的下一节点，不得原地踏步、不得仅复述设定或复述前文；遵循世界观设定中的规则与约束。禁止重复：同一段落/句子不得出现两次，不得复述前文段落。\n资产已注入下方，无需 board_read 重复读取（如确有遗漏可补读）：\n{}\n完成后用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, assets_ctx, key)
         };
+        let writer_task = inject_batch_contract_block(writer_task, scene_contract.as_ref());
         let writer_task = inject_batch_emotion_block(writer_task, &emotion_block);
         let writer_out = self
             .run_role_with_llm_and_budget(
@@ -6007,6 +6069,7 @@ impl AgencyCoordinator {
             card,
             emotion: emotion_plan,
             emotion_probes,
+            contract: scene_contract,
         })
     }
 
@@ -6033,6 +6096,7 @@ impl AgencyCoordinator {
             card,
             emotion,
             emotion_probes: _,
+            contract,
         } = artifacts;
         let final_verdict = match outcome {
             GateOutcome::Passed { verdict } => verdict,
@@ -6064,8 +6128,12 @@ impl AgencyCoordinator {
                     }),
                 );
                 self.update_phase(repo, run_id, "revision").await?;
-                let task =
-                    Self::build_revision_task_with_emotion(&draft, &issues, emotion.as_ref());
+                let task = Self::build_revision_task_with_emotion_and_contract(
+                    &draft,
+                    &issues,
+                    emotion.as_ref(),
+                    contract.as_ref(),
+                );
                 let revise_out = self
                     .run_role_with_llm_and_budget(
                         budget,
@@ -6103,6 +6171,7 @@ impl AgencyCoordinator {
                         &draft,
                         2,
                         emotion.as_ref(),
+                        contract.as_ref(),
                     )
                     .await?;
                 match second {
@@ -6298,6 +6367,7 @@ impl AgencyCoordinator {
             self.close_beat_loop(run_id, story_id, card, &ingest_text);
         }
         self.spawn_asset_ingest(run_id, story_id, &scene.id, &ingest_text);
+        self.spawn_auto_name_chapter(run_id, &scene.id);
         self.checkpoint_auto(run_id, story_id, "chapter", Some(chapter_number), budget)
             .await;
         Ok(AgencyContinueResult {
@@ -6309,6 +6379,116 @@ impl AgencyCoordinator {
             revised: false,
             verdict: EditorVerdict::pending(),
         })
+    }
+
+    /// 手动自动取名（幕前标题旁的 AI 取名入口）。`overwrite=true` 会覆盖
+    /// 作者当前标题；自动落库路径始终传 false。
+    pub async fn auto_name_chapter(
+        &self,
+        chapter_id: &str,
+        overwrite: bool,
+    ) -> Result<Option<String>, AppError> {
+        let pool = self.pool.clone();
+        let cid = chapter_id.to_string();
+        let ctx = self
+            .db(move || crate::agency::chapter_title::load_by_chapter(&pool, &cid))
+            .await?;
+        let Some(ctx) = ctx else {
+            return Err(AppError::validation_failed(
+                "章节不存在",
+                Some("chapter_not_found"),
+            ));
+        };
+        let run_id = format!("chapter-title-{}", chapter_id);
+        self.name_chapter_context(&run_id, ctx, overwrite).await
+    }
+
+    /// 落库后自动取名（best-effort 后台）。测试环境无 app_handle 时跳过：
+    /// 既有 MockLlm 队列按固定调用序编写，额外取名调用会打乱脚本。
+    fn spawn_auto_name_chapter(&self, run_id: &str, scene_id: &str) {
+        if self.app_handle.is_none() {
+            return;
+        }
+        let coordinator = self.clone_for_finalize();
+        let rid = run_id.to_string();
+        let sid = scene_id.to_string();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = coordinator.auto_name_scene(&rid, &sid).await {
+                log::warn!("[chapter-title] 自动取名失败 scene={}: {}", sid, e);
+            }
+        });
+    }
+
+    async fn auto_name_scene(
+        &self,
+        run_id: &str,
+        scene_id: &str,
+    ) -> Result<Option<String>, AppError> {
+        let pool = self.pool.clone();
+        let sid = scene_id.to_string();
+        let ctx = self
+            .db(move || crate::agency::chapter_title::load_by_scene(&pool, &sid))
+            .await?;
+        match ctx {
+            Some(ctx) => self.name_chapter_context(run_id, ctx, false).await,
+            None => Ok(None),
+        }
+    }
+
+    async fn name_chapter_context(
+        &self,
+        run_id: &str,
+        ctx: crate::agency::chapter_title::ChapterTitleContext,
+        overwrite: bool,
+    ) -> Result<Option<String>, AppError> {
+        use crate::agency::chapter_title as naming;
+
+        if !naming::should_auto_name(&ctx, overwrite) {
+            return Ok(None);
+        }
+
+        let prompt_pool = self.pool.clone();
+        let prompt_ctx = ctx.clone();
+        let prompt = self
+            .db(move || Ok(naming::render_title_prompt(&prompt_pool, &prompt_ctx)))
+            .await?;
+        let llm = self.llm_for_run(run_id, AgentRole::EditorAuditor, &ctx.story_id);
+        let title = naming::generate_title(llm.as_ref(), &prompt)
+            .await
+            .filter(|t| naming::is_acceptable_title(&ctx, t))
+            .or_else(|| {
+                naming::fallback_title_from_outline(&ctx.outline)
+                    .filter(|t| naming::is_acceptable_title(&ctx, t))
+            });
+        let Some(title) = title else {
+            return Ok(None);
+        };
+
+        let apply_pool = self.pool.clone();
+        let apply_ctx = ctx.clone();
+        let apply_title = title.clone();
+        let applied = self
+            .db(move || naming::apply_title(&apply_pool, &apply_ctx, &apply_title, overwrite))
+            .await?;
+        if !applied {
+            return Ok(None);
+        }
+
+        if let Some(app) = &self.app_handle {
+            crate::state_sync::StateSync::emit_chapter_updated(
+                app,
+                &ctx.chapter_id,
+                Some(&title),
+                &ctx.story_id,
+            );
+        }
+        log::info!(
+            "[chapter-title] 第{}章自动取名「{}」（run={}）",
+            ctx.chapter_number,
+            title,
+            run_id
+        );
+        Ok(Some(title))
     }
 
     /// 并行稳态循环：gate(n-1) 与 writer(n) 并发，修订在本章 handle_gate
@@ -6567,6 +6747,7 @@ impl AgencyCoordinator {
                 &board,
                 &registry,
                 artifacts.emotion.clone().map(Arc::new),
+                artifacts.contract.clone().map(Arc::new),
             );
             let (rid, sid, prem, d) = (
                 run_id.to_string(),
@@ -6789,6 +6970,7 @@ impl AgencyCoordinator {
         board: &BlackboardService,
         registry: &Arc<ToolRegistry>,
         emotion_plan: Option<Arc<crate::emotion_circuit::ChapterEmotionPlan>>,
+        scene_contract: Option<Arc<crate::agency::narrative_contract::SceneContract>>,
     ) -> GateRunner {
         GateRunner {
             llm: self.llm_for_run(run_id, AgentRole::EditorAuditor, story_id),
@@ -6799,6 +6981,7 @@ impl AgencyCoordinator {
             app_handle: self.app_handle.clone(),
             deadline: self.current_deadline(),
             emotion_plan,
+            scene_contract,
         }
     }
 
@@ -6839,6 +7022,7 @@ impl AgencyCoordinator {
         draft: &BoardItem,
         round: u32,
         emotion_plan: Option<&crate::emotion_circuit::ChapterEmotionPlan>,
+        scene_contract: Option<&crate::agency::narrative_contract::SceneContract>,
     ) -> Result<GateOutcome, AppError> {
         // 质量门恒为编辑审计角色档（模型路由 + 定点取消注册）
         let llm = self.llm_for_run(run_id, AgentRole::EditorAuditor, story_id);
@@ -6855,6 +7039,7 @@ impl AgencyCoordinator {
             draft,
             round,
             emotion_plan,
+            scene_contract,
             deadline,
         )
         .await?;
@@ -6900,6 +7085,23 @@ impl AgencyCoordinator {
             }
         }
         base
+    }
+
+    /// v0.79.0：带场契约的定向修订。只让 writer 修失败场/失败段，保留已达标项。
+    pub(crate) fn build_revision_task_with_emotion_and_contract(
+        draft: &BoardItem,
+        issues: &[String],
+        plan: Option<&crate::emotion_circuit::ChapterEmotionPlan>,
+        scene_contract: Option<&crate::agency::narrative_contract::SceneContract>,
+    ) -> String {
+        let mut task = Self::build_revision_task_with_emotion(draft, issues, plan);
+        if let Some(contract) = scene_contract {
+            let brief = crate::agency::narrative_contract::render_scene_brief(contract);
+            task = format!(
+                "{task}\n\n{brief}\n\n修订纪律：只改失败场/失败段，保留已达标项；不得新增角色、不得改变已发生事实、不得重写开头结尾。"
+            );
+        }
+        task
     }
 
     /// 质量门 Failed 降级放行（v0.30.30）：editor 完全失败（tool_loop 熔断 +
@@ -7224,6 +7426,7 @@ pub(crate) async fn evaluate_gate_impl(
     draft: &BoardItem,
     round: u32,
     emotion_plan: Option<&crate::emotion_circuit::ChapterEmotionPlan>,
+    scene_contract: Option<&crate::agency::narrative_contract::SceneContract>,
     deadline: Option<std::time::Instant>,
 ) -> Result<(GateOutcome, Option<crate::agency::gate::GateScore>), AppError> {
     // 1) editor 裁决（解析失败重试一次）。
@@ -7471,15 +7674,33 @@ pub(crate) async fn evaluate_gate_impl(
         rule_report.score,
         model.model_score,
     );
+    // v0.79.0：场契约核对（P0 确定性）。硬失败优先于加权总分：总分再高，
+    // 「具名阻力缺席 / 正文过短 / 契约无效」也必须修订。
+    let contract_report = scene_contract
+        .map(|c| crate::agency::narrative_contract::verify_contract(c, &draft.content));
+    let contract_hard = contract_report
+        .as_ref()
+        .map(|r| r.hard_failures.clone())
+        .unwrap_or_default();
+    if let Some(report) = contract_report.as_ref() {
+        log::info!(
+            "agency: 场契约核对 run={} score={:.2} hard={} soft={}",
+            run_id,
+            report.score(),
+            report.hard_failures.len(),
+            report.soft_issues.len()
+        );
+    }
     // 3) 判定：revise+blocking 直接 RevisionRequired（issues 合并 blocking +
     //    复检问题 + code 问题，去重保留序）；规则复检 High+ 硬拦截（v1 语义
-    //    保留）；否则 weighted < 阈值修订；否则放行
+    //    保留）；契约硬失败硬拦截；否则 weighted < 阈值修订；否则放行
     let outcome = if verdict.verdict == "revise" && !verdict.blocking_issues.is_empty() {
         let mut issues = ModelGraderReport::blocking_strings(&verdict);
         for issue in rule_report
             .subagent_issues
             .iter()
             .chain(code_report.issues.iter())
+            .chain(contract_hard.iter())
         {
             if !issues.contains(issue) {
                 issues.push(issue.clone());
@@ -7494,6 +7715,19 @@ pub(crate) async fn evaluate_gate_impl(
             .subagent_issues
             .iter()
             .chain(code_report.issues.iter())
+            .chain(contract_hard.iter())
+        {
+            if !issues.contains(issue) {
+                issues.push(issue.clone());
+            }
+        }
+        GateOutcome::RevisionRequired { issues, verdict }
+    } else if !contract_hard.is_empty() {
+        let mut issues: Vec<String> = Vec::new();
+        for issue in contract_hard
+            .iter()
+            .chain(code_report.issues.iter())
+            .chain(rule_report.issues.iter())
         {
             if !issues.contains(issue) {
                 issues.push(issue.clone());
@@ -7503,7 +7737,17 @@ pub(crate) async fn evaluate_gate_impl(
     } else if gate_score.weighted < gate_score.threshold {
         // 加权分不足：issues 以 grader 低分项为主，至少含一条加权说明
         let mut issues: Vec<String> = Vec::new();
-        for issue in rule_report.issues.iter().chain(code_report.issues.iter()) {
+        for issue in rule_report
+            .issues
+            .iter()
+            .chain(code_report.issues.iter())
+            .chain(
+                contract_report
+                    .as_ref()
+                    .map(|r| r.soft_issues.iter())
+                    .unwrap_or_default(),
+            )
+        {
             if !issues.contains(issue) {
                 issues.push(issue.clone());
             }
@@ -7644,6 +7888,7 @@ pub struct GateRunner {
     app_handle: Option<AppHandle>,
     deadline: Option<std::time::Instant>,
     emotion_plan: Option<Arc<crate::emotion_circuit::ChapterEmotionPlan>>,
+    scene_contract: Option<Arc<crate::agency::narrative_contract::SceneContract>>,
 }
 
 impl GateRunner {
@@ -7667,6 +7912,7 @@ impl GateRunner {
             &draft,
             round,
             self.emotion_plan.as_deref(),
+            self.scene_contract.as_deref(),
             self.deadline,
         )
         .await?;
@@ -7821,6 +8067,8 @@ pub(crate) struct BatchChapterArtifacts {
     pub card: crate::agency::beat_card::SceneBeatCard,
     pub emotion: Option<crate::emotion_circuit::ChapterEmotionPlan>,
     pub emotion_probes: Vec<crate::emotion_circuit::EmotionProbe>,
+    /// v0.79.0：本章（或本章第一场）的叙事契约；gate 用它核对正文。
+    pub contract: Option<crate::agency::narrative_contract::SceneContract>,
 }
 
 /// 幕前 Append 的场景租约守卫：Drop 时释放，防止同一场景被两个 Append
@@ -8079,25 +8327,32 @@ fn grounded_table_names(parts: &ContinueContextParts) -> Vec<String> {
 }
 
 fn progress_lines_from_parts(parts: &ContinueContextParts) -> Vec<String> {
-    let mut prior: Vec<_> = parts
-        .scenes
-        .iter()
-        .filter(|sc| {
-            sc.outline_content
-                .as_ref()
-                .map(|o| !o.trim().is_empty())
-                .unwrap_or(false)
-        })
-        .collect();
+    // v0.79.0：进度块必须是「最近 3 场实际发生了什么」，不是 outline_content
+    // 里的计划卡块（【当前场大纲】/在场/冲突/下一拍）。优先取正文末段，
+    // 正文为空时才回退章纲前缀。
+    let mut prior: Vec<_> = parts.scenes.iter().collect();
     prior.sort_by_key(|sc| std::cmp::Reverse(sc.sequence_number));
     prior
         .into_iter()
         .take(3)
         .map(|sc| {
-            let o = sc.outline_content.as_deref().unwrap_or("");
-            let truncated: String = o.chars().take(200).collect();
-            format!("第{}章：{}", sc.sequence_number, truncated)
+            let content = sc.content.as_deref().unwrap_or("");
+            let plain = crate::agency::continue_assets::strip_editor_markup(content);
+            let plain = plain.trim();
+            let source = if plain.chars().count() >= 40 {
+                let n = plain.chars().count();
+                plain
+                    .chars()
+                    .skip(n.saturating_sub(220))
+                    .collect::<String>()
+            } else {
+                crate::agency::continue_assets::chapter_plan_from_scene_outline(
+                    sc.outline_content.as_deref().unwrap_or(""),
+                )
+            };
+            format!("第{}章：{}", sc.sequence_number, source.trim())
         })
+        .filter(|line| !line.ends_with('：'))
         .collect()
 }
 
@@ -8271,6 +8526,23 @@ fn format_chars_for_outline(parts: &ContinueContextParts, admitted: &[String]) -
 
 /// 批量 writer task 注入情感块：优先放在「写作要求」前，其次放在
 /// 「完成后用 board_write」前；空块原样返回，保证无契约时 task 逐字不变。
+fn inject_batch_contract_block(
+    task: String,
+    contract: Option<&crate::agency::narrative_contract::SceneContract>,
+) -> String {
+    let Some(contract) = contract else {
+        return task;
+    };
+    let block = crate::agency::narrative_contract::render_scene_brief(contract);
+    for marker in ["写作要求：", "完成后用 board_write"] {
+        if let Some(pos) = task.find(marker) {
+            let (head, tail) = task.split_at(pos);
+            return format!("{head}{block}\n\n{tail}");
+        }
+    }
+    format!("{task}\n\n{block}")
+}
+
 fn inject_batch_emotion_block(task: String, block: &str) -> String {
     if block.trim().is_empty() {
         return task;

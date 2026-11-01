@@ -3,6 +3,7 @@
 use tauri::{AppHandle, State};
 
 use crate::{
+    agency::coordinator::AgencyCoordinator,
     db::{ChapterRepository, CreateChapterRequest, DbPool, SceneRepository, SceneUpdate},
     error::AppError,
     story_system::chapter_service::ChapterService,
@@ -184,4 +185,19 @@ pub fn get_chapter_aggregated_content(
 ) -> Result<String, AppError> {
     let repo = ChapterRepository::new(pool.inner().clone());
     repo.get_content(&chapter_id).map_err(AppError::from)
+}
+
+/// 手动为章节自动取名。`overwrite=true` 时覆盖作者当前标题（幕前点击
+/// 「AI 取名」即显式覆盖）；自动落库路径不经过本命令。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn auto_name_chapter(
+    chapter_id: String,
+    overwrite: Option<bool>,
+    app_handle: AppHandle,
+    pool: State<'_, DbPool>,
+) -> Result<Option<String>, AppError> {
+    let coordinator = AgencyCoordinator::new(app_handle, pool.inner().clone());
+    coordinator
+        .auto_name_chapter(&chapter_id, overwrite.unwrap_or(false))
+        .await
 }

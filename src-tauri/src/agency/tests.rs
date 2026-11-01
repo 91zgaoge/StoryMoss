@@ -493,7 +493,7 @@ async fn test_editor_verdict_prose_fallback() {
     let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
     let outcome = coordinator
         .evaluate_gate(
-            &budget, &board, &registry, "rg-fb", &story.id, "续写", &draft, 1, None,
+            &budget, &board, &registry, "rg-fb", &story.id, "续写", &draft, 1, None, None,
         )
         .await
         .unwrap();
@@ -2549,7 +2549,7 @@ async fn test_gate_rule_recheck_blocks_repeated_opening() {
     let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
     let outcome = coordinator
         .evaluate_gate(
-            &budget, &board, &registry, "rg-1", &story.id, "续写", &draft, 1, None,
+            &budget, &board, &registry, "rg-1", &story.id, "续写", &draft, 1, None, None,
         )
         .await
         .unwrap();
@@ -3442,7 +3442,7 @@ async fn test_gate_v2_subagent_high_blocks_despite_high_weighted() {
     let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
     let outcome = coordinator
         .evaluate_gate(
-            &budget, &board, &registry, "rg-5", &story.id, "续写", &draft, 1, None,
+            &budget, &board, &registry, "rg-5", &story.id, "续写", &draft, 1, None, None,
         )
         .await
         .unwrap();

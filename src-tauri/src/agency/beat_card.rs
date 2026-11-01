@@ -145,7 +145,7 @@ pub struct EmotionBeat {
 
 /// 本拍必须改变的戏剧项（AI-drama-pound：每场至少改信息/关系/目标/风险/
 /// 情绪之一）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ChangeKind {
     Information,
     Relationship,
@@ -437,7 +437,7 @@ pub fn compile_beat_card_located_prev(
         protagonist,
         previous_conflict_line(previous_outline).as_deref(),
     );
-    let emotion_beat = compile_emotion(&chars, &cast, pool, story_id, protagonist);
+    let emotion_beat = compile_emotion(&chars, &cast, pool, story_id, protagonist, &conflict_move);
     let next_outline_node = compile_next_node(pool, story_id, current_content);
     let change_delta = compile_change_delta(&conflict_move, &next_outline_node, &emotion_beat);
     let expansion_quota_text = quota_text_for_beats(&debt);
@@ -630,7 +630,16 @@ fn compile_emotion(
     pool: &DbPool,
     story_id: &str,
     protagonist: &str,
+    conflict: &ConflictMove,
 ) -> EmotionBeat {
+    // v0.79.0：无情感契约时不再把角色档案当「情感」；改为最小因果链
+    // （事件 → 评估 → 行动 → 代价）。完整 OCC/载体仍由 emotion_circuit 提供。
+    let trigger = if conflict.action.trim().is_empty() {
+        "本场冲突"
+    } else {
+        conflict.action.trim()
+    };
+    let trigger_short: String = trigger.chars().take(60).collect();
     let cast_names: Vec<&str> = cast.iter().map(|c| c.name.as_str()).collect();
     for c in chars {
         if !cast_names.contains(&c.name.as_str()) && !cast_names.is_empty() {
@@ -653,7 +662,12 @@ fn compile_emotion(
             bits.push(format!("需求={}", need));
         }
         return EmotionBeat {
-            summary: format!("{}：{}", c.name, bits.join("，")),
+            summary: format!(
+                "{}：事件={}；评估=需求受阻；情绪=戒备→压力；行动=按性格对抗；代价露出（{}）",
+                c.name,
+                trigger_short,
+                bits.join("，")
+            ),
         };
     }
     let rels = CharacterRelationshipRepository::new(pool.clone())
@@ -675,18 +689,19 @@ fn compile_emotion(
             .unwrap_or_else(|| "对方".into());
         return EmotionBeat {
             summary: format!(
-                "{}→{}：{} vs {}→{}：{}",
+                "{}→{}：事件={}；评估=双方目标冲突（{} vs {}）；行动=关系试探；代价=关系变化",
                 src,
                 tgt,
+                trigger_short,
                 r.emotional_bond.as_deref().unwrap_or("未明"),
-                tgt,
-                src,
                 r.reverse_emotional_bond.as_deref().unwrap_or("未明"),
             ),
         };
     }
     EmotionBeat {
-        summary: format!("本拍必须让 {protagonist} 的需求受阻并露出情绪代价。"),
+        summary: format!(
+            "{protagonist}：事件={trigger_short}；评估=需求受阻；行动=正面推动；代价=关系或筹码变化"
+        ),
     }
 }
 
@@ -933,6 +948,35 @@ pub fn render_writer_user_prompt_with_emotion(
     emotion: Option<&crate::emotion_circuit::EmotionBeat>,
     contract: Option<&crate::emotion_circuit::EmotionContract>,
 ) -> String {
+    render_writer_user_prompt_with_emotion_and_contract(
+        bundle_prompt,
+        card,
+        instruction,
+        current_content,
+        state,
+        lock,
+        technique_index,
+        emotion,
+        contract,
+        None,
+    )
+}
+
+/// v0.79.0：可注入 P0 场契约。有契约时，writer 看到的是「一页场简报」而不是
+/// 4 行节拍卡；契约摘要放在末句锚点前，防止被末句压过。
+#[allow(clippy::too_many_arguments)]
+pub fn render_writer_user_prompt_with_emotion_and_contract(
+    bundle_prompt: &str,
+    card: &SceneBeatCard,
+    instruction: &str,
+    current_content: &str,
+    state: Option<&crate::agency::beat_state::BeatState>,
+    lock: Option<&crate::agency::continue_director::DirectorLock>,
+    technique_index: Option<usize>,
+    emotion: Option<&crate::emotion_circuit::EmotionBeat>,
+    contract: Option<&crate::emotion_circuit::EmotionContract>,
+    scene_contract: Option<&crate::agency::narrative_contract::SceneContract>,
+) -> String {
     let state_full = state
         .map(|s| format!("\n\n{}", s.render_full()))
         .unwrap_or_default();
@@ -962,6 +1006,17 @@ pub fn render_writer_user_prompt_with_emotion(
             card.dead.join("、")
         )
     };
+    // 前缀缓存契约：稳定资产/文档（bundle）放最前，场契约/状态/指令/锚点等
+    // 每拍变动内容依次靠后。Ds10 等模型的 prefix cache 只有在前半段完全不变
+    // 时才能复用；不要改回「card_full 在前」。
+    let card_full = match scene_contract {
+        Some(c) => crate::agency::narrative_contract::render_scene_brief(c),
+        None => card.render_full(),
+    };
+    let card_tail = match scene_contract {
+        Some(c) => crate::agency::narrative_contract::render_scene_tail(c),
+        None => card.render_tail_summary(),
+    };
     // v0.65.0：人类文笔基线（固定准则 + 按已写篇幅轮换的本章手法），放在末句
     // 锚点之前——锚点必须保持最后的高显著位置（v0.64.9 续写重演的修复依赖它）。
     // v0.69.0：手法可由作者裁决统计加权指定（P1-5）。
@@ -969,16 +1024,13 @@ pub fn render_writer_user_prompt_with_emotion(
         current_content.chars().count(),
         technique_index,
     );
-    // 前缀缓存契约：稳定资产/文档（bundle）放最前，节拍卡/状态/指令/锚点等
-    // 每拍变动内容依次靠后。Ds10 等模型的 prefix cache 只有在前半段完全不变
-    // 时才能复用；不要改回「card_full 在前」。
     format!(
         "{bundle}\n\n{card_full}{emotion_block}{lock_block}{state_full}\n\n【本次创作指令】\n{instruction}\n\n\
          须在节拍任务硬约束内落实指令核心意图。\n\n{card_tail}{state_tail}\n\n{voice}\n\n{ending}{facts}",
-        card_full = card.render_full(),
+        card_full = card_full,
         bundle = bundle_prompt,
         instruction = instruction,
-        card_tail = card.render_tail_summary(),
+        card_tail = card_tail,
         voice = voice,
         ending = ending_anchor(current_content),
     )

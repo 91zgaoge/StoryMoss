@@ -43,6 +43,7 @@ mod mcp;
 mod memory;
 mod migration;
 mod model_gateway;
+mod naming;
 mod narrative;
 mod pipeline;
 mod planner;

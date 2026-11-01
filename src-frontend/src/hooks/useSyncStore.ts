@@ -22,8 +22,8 @@ export interface SyncStoreOptions {
   onStoryUpdated?: (storyId: string, title?: string) => void;
   /** 故事删除回调 */
   onStoryDeleted?: (storyId: string) => void;
-  /** 故事选择回调 */
-  onStorySelected?: (storyId: string, title?: string) => void;
+  /** 故事选择回调（v0.79.0：带 seq/origin，供幕前丢弃过期选择） */
+  onStorySelected?: (storyId: string, title?: string, seq?: number, origin?: string) => void;
   /** 角色创建回调 */
   onCharacterCreated?: (storyId: string, characterId: string, name: string) => void;
   /** 角色更新回调 */
@@ -173,7 +173,12 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
             queryClient.invalidateQueries({
               queryKey: KEYS.characterRelationships(payload.story_id),
             });
-            optionsRef.current.onStorySelected?.(payload.story_id, payload.title ?? undefined);
+            optionsRef.current.onStorySelected?.(
+              payload.story_id,
+              payload.title ?? undefined,
+              payload.seq === undefined || payload.seq === null ? 0 : Number(payload.seq),
+              payload.origin ?? 'legacy'
+            );
             break;
           }
 

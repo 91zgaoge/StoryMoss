@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.78.0 项目完成状态
+# StoryMoss (草苔) v0.79.0 项目完成状态
 
+> 最后更新: 2026-11-02（**v0.79.0：叙事契约 P0 + 多作品切换 + 姓名校验**——新增 `agency/narrative_contract/`（SceneContract/StateDelta/EmotionChain、确定性编译、场简报、契约核对）；单拍/批量 writer prompt 注入场契约，GateRunner/evaluate_gate_impl 接契约，硬失败强制修订；情感最小链默认启用；后端 `set_active_story/get_active_story` + 幕前 StorySwitchController，删除生成中 toast-return 守卫、隔离旧故事事件；`naming` 模块校验重名/同用字/同姓/长度塌缩/陈词组合。Rust **1981 passed / 13 ignored**；vitest **653 passed / 3 skipped**；playwright **46 passed / 5 skipped**；tsc/clippy/fmt/guard 全绿。**未关闭**：章契约 LLM 生成、完整 NameLedger/称呼图、legacy 资产映射、人类 A/B。）
+>
 > 最后更新: 2026-11-01（**v0.78.0：图片语料接入视觉模型**——OpenAI 兼容适配器新增 `generate_with_images`（默认忽略图片，保持非视觉适配器兼容）；`CorpusService::distill`/`promote` 对图片语料优先选视觉 profile（deepseek-v4.1-flash），读 data URL 走视觉调用，失败回退摘要+标签。真机探针 3.9s 正确描述 logo.png。Rust **1953 passed / 13 ignored**；vitest 647 / 3；playwright 45 / 5；tsc/clippy/fmt/guard/IPC 全绿。**未关闭**：视觉仅 OpenAI 兼容 provider；图片提炼质量依赖模型视觉能力。）
 >
 > 最后更新: 2026-11-01（**v0.77.1：资产引导租约 + 图片语料可用化**——①`ensure_assets` 获取 `write:assets` 租约（TTL 600s），多 write run 同时启动时只让一个生成资产，其余等待/超时 `resource_busy`，不再重复生成。②图片导入纯 Rust 读取 PNG/GIF/JPEG/WebP/BMP 尺寸并生成可编辑摘要；`create(kind=image)` 无摘要也有兜底。③`distill`/`promote` 无正文时使用标题/摘要/标签/文件/类型/大小，明确「未启用视觉识别，不要编造画面」。Rust **1952 passed / 12 ignored**（+2）；vitest 647 / 3；playwright 45 / 5；tsc/clippy/fmt/guard/IPC 全绿。**未关闭**：未接入视觉模型/OCR，图片像素仍不可读；作者需填写摘要。）

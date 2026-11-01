@@ -1257,7 +1257,52 @@ body {
 /* ===== Chapter Header ===== */
 .chapter-header {
   text-align: center;
+  /* 固定顶栏约 48px 高，.frontstage-main 的 pt-11(44px) 不够；
+     标题行（含 AI 取名按钮）需要落在顶栏下方才能点击。 */
+  margin-top: 14px;
   margin-bottom: 30px;
+}
+
+.chapter-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.chapter-title-row .chapter-title {
+  margin-bottom: 0;
+}
+
+.chapter-auto-name-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--terracotta);
+  cursor: pointer;
+  opacity: 0.4;
+  transition:
+    opacity var(--transition-press),
+    background-color var(--transition-press),
+    color var(--transition-press);
+}
+
+.chapter-title-row:hover .chapter-auto-name-btn,
+.chapter-auto-name-btn:focus-visible {
+  opacity: 1;
+  background-color: var(--warm-sand);
+}
+
+.chapter-auto-name-btn:disabled {
+  cursor: wait;
+  opacity: 0.8;
 }
 
 .chapter-title {
