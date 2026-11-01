@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import FrontstageApp from '../FrontstageApp';
 import { useFrontstageStore } from '../store/frontstageStore';
 import { loggedInvoke } from '@/services/tauri';
+import { useGenerationStore } from '@/stores/generationStore';
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 const wrapper = ({ children }: { children: React.ReactNode }) => (
@@ -146,7 +147,14 @@ describe('FrontstageApp 多作品切换', () => {
     });
     expect(syncOptions?.onStorySelected).toBeTypeOf('function');
 
-    // 模拟生成中到达的 story-selected：旧代码会在 isGenerating 守卫里 toast-return。
+    // 真正模拟「生成中」：旧代码会在 isGenerating 守卫里 toast-return。
+    act(() => {
+      useGenerationStore.getState().setIsGenerating(true);
+    });
+    await waitFor(() => {
+      expect(useGenerationStore.getState().isGenerating).toBe(true);
+    });
+
     await act(async () => {
       syncOptions!.onStorySelected('story-b', '乙', 2, 'backstage_card');
     });

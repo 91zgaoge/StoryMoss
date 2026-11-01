@@ -1530,6 +1530,14 @@ npm test
 
 ---
 
+## v0.80.0 新增：章契约 / 1–3 场投影 / legacy 资产接线 / 回滚开关
+
+- **章契约**：`agency/narrative_contract/types.rs` 新增 `ChapterContract`；`compile_chapter_contract` 从节拍卡 + 章纲切 1–3 场，上一场 `outcome` 成为下一场 `entry_state`；`render_chapter_contract` 注入 stable pack。
+- **批量续写**：`write_chapter` 注入章契约 + 1–3 场简报，gate 取第一场核对。
+- **legacy 资产**：`render_continue_assets` stable pack 新增 `methodology_extension` / `narrative_quartet`。
+- **回滚开关**：`STORYMOSS_NARRATIVE_CONTRACT=0` / `STORYMOSS_NAMING=0`。
+- **E2E**：`mock-tauri.ts` 支持 `extraStories` + `emitSyncEvent`；新增 `frontstage-story-switch.spec.ts`。
+
 ## v0.79.0 新增：叙事契约 / 多作品切换 / 姓名校验
 
 - **叙事契约 P0**：`src-tauri/src/agency/narrative_contract/`（`types` / `compile` / `render` / `verify`）。`SceneContract` 由 `SceneBeatCard` + 章纲/近文确定性编译；单拍 writer prompt 注入场简报，批量 `write_chapter` 注入同一契约；`GateRunner` / `evaluate_gate_impl` 接收契约，具名阻力缺席、正文过短、契约无效触发硬修订。

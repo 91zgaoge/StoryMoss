@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.80.0（2026-11-02）
+
+**章契约 + 1–3 场投影 + legacy 资产接线 + 回滚开关 + 多故事切换 E2E。**
+
+- **章契约（确定性）**：`ChapterContract` 新增 `dramatic_question/protagonist/want/opposition/stakes/turning_point/irreversible_outcome/target_progress/scenes`；`compile_chapter_contract` 从节拍卡 + 章纲切出 1–3 场，上一场 `outcome` 成为下一场 `entry_state`；`render_chapter_contract` 注入 writer prompt。
+- **批量续写升级**：`write_chapter` 不再只注入一个场契约，而是章契约 + 1–3 场简报；gate 仍取第一场核对；`BatchChapterArtifacts` 保存第一场契约。
+- **legacy 资产真正消费**：`render_continue_assets` 稳定区新增 `methodology_extension`（本章方法论）与 `narrative_quartet`（叙事策略/幕结构）；此前这两项加载后只走 `to_prompt()`，Agency 主路径不消费。
+- **回滚开关**：`STORYMOSS_NARRATIVE_CONTRACT=0` 关闭契约编译/核对；`STORYMOSS_NAMING=0` 关闭姓名校验。默认开启，避免一次性不可回滚。
+- **多故事切换 E2E**：扩展 `e2e/mock-tauri.ts` 支持 `extraStories` 与 `sync-event` 发射；新增 `e2e/frontstage-story-switch.spec.ts`，验证幕前收到 `story-selected` 后从甲故事切到乙故事且不残留甲正文。
+- **验证**：Rust **1984 passed / 13 ignored**（+3：章契约 1–3 场/单场不伪造多幕/章简报）；vitest **653 passed / 3 skipped**；playwright **47 passed / 5 skipped**（+1 多故事切换）；tsc / clippy / fmt / guard 全绿。
+- **未关闭**：章契约仍是确定性编译（LLM 生成/校验在后续）；完整 `NameLedger`/称呼图/DB 落库仍在 M4；`SceneOutcome` 结构化落库、legacy 方法论/追读力全量映射、人类 A/B、真机样章待补。
+
 ## v0.79.0（2026-11-02）
 
 **叙事契约 P0 + 多作品切换 + 姓名校验。**

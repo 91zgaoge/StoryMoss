@@ -130,6 +130,53 @@ fn is_generic_sentence(s: &str) -> bool {
         || t == "写下一拍"
 }
 
+/// 章契约：本章的戏剧问题、赌注、转折与 1–3 场投影。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ChapterContract {
+    pub chapter_number: i32,
+    pub dramatic_question: String,
+    pub protagonist: String,
+    pub want: String,
+    pub opposition: String,
+    pub stakes: String,
+    pub turning_point: String,
+    pub irreversible_outcome: String,
+    pub target_progress: String,
+    pub scenes: Vec<SceneContract>,
+}
+
+impl ChapterContract {
+    pub fn validate(&self) -> Vec<String> {
+        let mut issues = Vec::new();
+        if self.dramatic_question.trim().is_empty() {
+            issues.push("dramatic_question 为空".into());
+        }
+        if self.want.trim().is_empty() {
+            issues.push("want 为空".into());
+        }
+        if self.opposition.trim().is_empty() {
+            issues.push("opposition 为空".into());
+        }
+        if self.stakes.trim().is_empty() {
+            issues.push("stakes 为空".into());
+        }
+        if self.irreversible_outcome.trim().is_empty() {
+            issues.push("irreversible_outcome 为空".into());
+        }
+        if self.scenes.is_empty() {
+            issues.push("scenes 为空".into());
+        }
+        for scene in &self.scenes {
+            issues.extend(scene.validate());
+        }
+        issues
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.validate().is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

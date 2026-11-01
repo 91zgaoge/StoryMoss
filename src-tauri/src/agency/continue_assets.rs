@@ -855,6 +855,31 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         })
         .unwrap_or_default();
 
+    // v0.79.1：把「加载了但没消费」的方法论 / 叙事策略接进稳定区。
+    // 这两项章内不变，放在世界观之后、下一节点之前，不打断前缀缓存。
+    let methodology = input
+        .bundle
+        .methodology_extension
+        .as_deref()
+        .map(|m| {
+            format!(
+                "【本章方法论（结构约束；不得违反）】\n{}",
+                truncate_chars(m, 600)
+            )
+        })
+        .unwrap_or_default();
+    let quartet = input
+        .bundle
+        .narrative_quartet
+        .as_deref()
+        .map(|q| {
+            format!(
+                "【叙事策略（本章节奏/幕结构）】\n{}",
+                truncate_chars(q, 500)
+            )
+        })
+        .unwrap_or_default();
+
     // 变动区从这里开始：下一节点每拍都变，必须排在稳定文档之后。
     let next_node = {
         let n = input.next_node.trim();
@@ -1009,13 +1034,16 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         ));
     }
 
-    // 前缀缓存契约：稳定区（红线/故事大纲/世界观/Logline/本章大纲）必须在
-    // 最前且逐字节稳定；下一节点之后的角色卡/名册/关系/进度/前文等每拍
-    // 变动内容全部靠后。不要把 next_node 或按本拍筛选的块移回稳定区。
+    // 前缀缓存契约：稳定区（红线/故事大纲/世界观/方法论/叙事策略/Logline/
+    // 本章大纲）必须在最前且逐字节稳定；下一节点之后的角色卡/名册/关系/
+    // 进度/前文等每拍变动内容全部靠后。不要把 next_node 或按本拍筛选的块
+    // 移回稳定区。
     let parts = [
         (redline, true),
         (outline, true),
         (world, true),
+        (methodology, true),
+        (quartet, true),
         (logline, true),
         (chapter, true),
         (next_node, true),

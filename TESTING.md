@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.79.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.80.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.80.0 变更说明
+
+- **章契约（Rust 1984 passed / 13 ignored，+3）**：`ChapterContract` 1–3 场投影；单场不伪造多幕；章契约简报渲染。
+- **前端/E2E**：vitest 653 / 3；playwright **47 / 5**（新增 `frontstage-story-switch.spec.ts`：幕前收到 story-selected 后切到乙故事且不残留甲正文）；tsc/prettier 全绿。
+- **legacy 资产**：`render_continue_assets` 稳定区新增 methodology / narrative_quartet；回滚开关 `STORYMOSS_NARRATIVE_CONTRACT` / `STORYMOSS_NAMING`。
+- **未关闭**：LLM 章契约、完整 NameLedger/称呼图、SceneOutcome 落库、人类 A/B。
 
 ### v0.79.0 变更说明
 

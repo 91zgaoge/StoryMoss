@@ -280,16 +280,18 @@ impl NovelCreationAgent {
             Ok(sets) => {
                 // v0.79.0：姓名校验（三层九维 P0）。Hard 问题落质量日志，
                 // Soft 问题提示分布/陈词；不阻断已有向导流程。
-                for (set_idx, set) in sets.iter().enumerate() {
-                    let names: Vec<&str> = set.iter().map(|c| c.name.as_str()).collect();
-                    for issue in crate::naming::validate_names(&names) {
-                        log::warn!(
-                            "novel_creation: 姓名校验 set={} code={} severity={:?} msg={}",
-                            set_idx,
-                            issue.code,
-                            issue.severity,
-                            issue.message
-                        );
+                if crate::naming::enabled() {
+                    for (set_idx, set) in sets.iter().enumerate() {
+                        let names: Vec<&str> = set.iter().map(|c| c.name.as_str()).collect();
+                        for issue in crate::naming::validate_names(&names) {
+                            log::warn!(
+                                "novel_creation: 姓名校验 set={} code={} severity={:?} msg={}",
+                                set_idx,
+                                issue.code,
+                                issue.severity,
+                                issue.message
+                            );
+                        }
                     }
                 }
                 Ok(sets)

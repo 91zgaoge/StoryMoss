@@ -4,7 +4,7 @@
 //! 输出是一页 writer 可直接执行的 `SceneContract`。缺具体目标或具名阻力时
 //! 返回 `ContractError`，不再产通用句。
 
-use super::types::{ContractError, EmotionChain, SceneContract, StateDelta};
+use super::types::{ChapterContract, ContractError, EmotionChain, SceneContract, StateDelta};
 use crate::agency::{
     beat_card::{ChangeKind, SceneBeatCard},
     continue_assets::strip_editor_markup,
@@ -180,6 +180,107 @@ pub fn compile_scene_contract(
     })
 }
 
+/// 章契约 + 1–3 场投影（确定性）。章契约本身不新增 LLM 调用：用同一张
+/// 节拍卡 + 章纲切出 1–3 场，上一场结果成为下一场前提。
+pub fn compile_chapter_contract(
+    card: &SceneBeatCard,
+    chapter_outline: &str,
+    current_content: &str,
+    chapter_number: i32,
+    total_scenes: usize,
+) -> Result<ChapterContract, ContractError> {
+    let total = total_scenes.clamp(1, 3);
+    let base = compile_scene_contract(card, chapter_outline, current_content, 0, total)?;
+    let segments = split_outline_segments(chapter_outline, total);
+    let n = segments.len().max(1);
+    let mut scenes: Vec<SceneContract> = Vec::new();
+    for (i, seg) in segments.iter().enumerate() {
+        let mut scene = base.clone();
+        scene.index = i;
+        scene.total = n;
+        let seg = seg.trim();
+        if !seg.is_empty() {
+            scene.goal = format!("{} 必须完成：{}", base.pov, seg);
+            scene.turn = format!(
+                "{} 反将一军：{}，逼 {} 当场选择：继续争夺，还是保人/保证据",
+                base.opposition, seg, base.pov
+            );
+            scene.emotion.trigger_event = seg.chars().take(60).collect();
+            scene.emotion.appraisal =
+                format!("事件与 {} 的目标直接相关，且触碰其伤口/底线", base.pov);
+        }
+        if i > 0 {
+            scene.entry_state = scenes[i - 1].outcome.clone();
+            scene.state_delta.from = scenes[i - 1].outcome.clone();
+        }
+        let outcome = outcome_for(card.change_delta.kind, &base.pov, &base.opposition, seg);
+        scene.outcome = format!(
+            "{}（本场结果：{}）",
+            outcome,
+            seg.chars().take(40).collect::<String>()
+        );
+        scene.state_delta.to = scene.outcome.clone();
+        scene.emotion.cost = scene.outcome.clone();
+        scene.hook_out = if i + 1 < segments.len() {
+            format!("本场结果引出下一场：{}", segments[i + 1].trim())
+        } else {
+            base.hook_out.clone()
+        };
+        scenes.push(scene);
+    }
+    let last = scenes.last().cloned().unwrap_or_else(|| base.clone());
+    Ok(ChapterContract {
+        chapter_number,
+        dramatic_question: format!(
+            "{} 能否在 {} 前完成「{}」？",
+            base.pov, base.place_time, base.goal
+        ),
+        protagonist: base.pov.clone(),
+        want: base.goal.clone(),
+        opposition: base.opposition.clone(),
+        stakes: base.outcome.clone(),
+        turning_point: base.turn.clone(),
+        irreversible_outcome: last.outcome.clone(),
+        target_progress: base.hook_out.clone(),
+        scenes,
+    })
+}
+
+fn split_outline_segments(outline: &str, total: usize) -> Vec<String> {
+    if total <= 1 {
+        let t = outline.trim();
+        return if t.is_empty() {
+            vec![]
+        } else {
+            vec![t.to_string()]
+        };
+    }
+    let mut parts: Vec<String> = outline
+        .split(['\n', '。', '！', '？', '；', ';'])
+        .map(str::trim)
+        .filter(|s| s.chars().count() >= 8)
+        .map(|s| s.to_string())
+        .collect();
+    if parts.is_empty() {
+        let t = outline.trim();
+        return if t.is_empty() {
+            vec![]
+        } else {
+            vec![t.to_string()]
+        };
+    }
+    // 尽量均匀分成 total 段；不足时保留实际段数。
+    let chunk = (parts.len() as f64 / total as f64).ceil() as usize;
+    let mut out: Vec<String> = Vec::new();
+    for group in parts.chunks(chunk.max(1)) {
+        out.push(group.join("；"));
+    }
+    if out.len() > total {
+        out.truncate(total);
+    }
+    out
+}
+
 fn first_concrete_line(text: &str) -> Option<String> {
     text.lines()
         .map(str::trim)
@@ -325,5 +426,33 @@ mod tests {
         card.change_delta.summary = String::new();
         let err = compile_scene_contract(&card, "", "", 0, 1).unwrap_err();
         assert_eq!(err, ContractError::MissingGoal);
+    }
+
+    #[test]
+    fn chapter_contract_projects_one_to_three_scenes() {
+        let cc = compile_chapter_contract(
+            &card(),
+            "沈砚拿到半本名册。王爷当众烧名册。证人被王爷的人带走。",
+            "前文。",
+            7,
+            3,
+        )
+        .unwrap();
+        assert!(cc.is_valid(), "{:?}", cc.validate());
+        assert!(cc.scenes.len() >= 1 && cc.scenes.len() <= 3);
+        assert_eq!(cc.chapter_number, 7);
+        assert!(cc.dramatic_question.contains("沈砚"));
+        assert!(cc.irreversible_outcome.contains("关系"));
+        if cc.scenes.len() > 1 {
+            assert_eq!(cc.scenes[1].entry_state, cc.scenes[0].outcome);
+        }
+    }
+
+    #[test]
+    fn chapter_contract_single_scene_does_not_fake_multi_act() {
+        let cc = compile_chapter_contract(&card(), "沈砚逼王爷承认名册。", "前文。", 1, 3).unwrap();
+        assert_eq!(cc.scenes.len(), 1);
+        assert_eq!(cc.scenes[0].index, 0);
+        assert_eq!(cc.scenes[0].total, 1);
     }
 }

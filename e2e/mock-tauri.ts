@@ -29,11 +29,20 @@ export interface MockFrontstageSeed {
   content?: string;
 }
 
+/** 额外的故事种子：用于多作品切换 E2E（默认种子仍是 frontstageSeed）。 */
+export interface MockExtraStory {
+  story: Record<string, unknown>;
+  chapters: Record<string, unknown>[];
+  scenes?: Record<string, unknown>[];
+}
+
 export interface MockTauriArgs {
   /** Enable sessionStorage-backed content persistence for chapter editing tests */
   enablePersistence?: boolean;
   /** 幕前续写测试种子：故事 / 章节 / 场景 / 初始正文 */
   frontstageSeed?: MockFrontstageSeed;
+  /** 额外故事（多作品切换）：list_stories 返回默认故事 + 这些故事 */
+  extraStories?: MockExtraStory[];
   /** classify_intent 返回值覆盖（不传则按 has_existing_story 推导） */
   classification?: Record<string, unknown>;
   /** check_preflight 返回值覆盖（不传则返回 ready） */
@@ -48,6 +57,7 @@ export function getMockTauriInitScript() {
   return ({
     enablePersistence = false,
     frontstageSeed,
+    extraStories = [],
     classification,
     preflight,
     smartExecuteSteps = [],
@@ -109,6 +119,22 @@ export function getMockTauriInitScript() {
       word_count: 0,
     };
     const mockScenes = frontstageSeed ? frontstageSeed.scenes || [defaultSeedScene] : [];
+    const extraStorySeeds = extraStories.map(s => ({
+      story: s.story,
+      chapters: s.chapters,
+      scenes: s.scenes || [],
+    }));
+    const storyIdOf = (story: Record<string, unknown>) => String(story.id ?? '');
+    const extraForStory = (storyId?: string) =>
+      storyId ? extraStorySeeds.find(s => storyIdOf(s.story) === storyId) : undefined;
+    const extraChapterFor = (chapterId?: string) =>
+      chapterId
+        ? extraStorySeeds.flatMap(s => s.chapters).find(c => String(c.id ?? '') === chapterId)
+        : undefined;
+    const extraScenesForChapter = (chapterId?: string) =>
+      chapterId
+        ? extraStorySeeds.flatMap(s => s.scenes).filter(sc => String(sc.chapter_id ?? '') === chapterId)
+        : [];
 
     // 调用记录 + smart_execute 应答队列（供 spec 断言与手动放行）
     const calls: Array<{ cmd: string; args: unknown; at: number }> = [];
@@ -131,6 +157,16 @@ export function getMockTauriInitScript() {
         messages: [step.finalContent ? '续写完成' : ''],
       });
     };
+    const eventListeners: Record<string, ((event: any) => void)[]> = {};
+    const emitEvent = (eventName: string, payload: any) => {
+      (eventListeners[eventName] || []).forEach(cb => {
+        try {
+          cb({ event: eventName, payload, id: Math.random().toString(36) });
+        } catch {
+          /* ignore */
+        }
+      });
+    };
     (window as any).__e2eMock = {
       calls,
       count: (cmd: string) => calls.filter(c => c.cmd === cmd).length,
@@ -139,6 +175,8 @@ export function getMockTauriInitScript() {
         const pending = pendingSmartExecute.splice(0);
         pending.forEach(p => settleSmartExecute(p.step).then(p.resolve, p.reject));
       },
+      /** 多作品切换测试用：发射任意 Tauri 事件（如 sync-event）。 */
+      emitSyncEvent: (eventName: string, payload: any) => emitEvent(eventName, payload),
     };
 
     const mockSettings = {
@@ -176,9 +214,13 @@ export function getMockTauriInitScript() {
         }
         switch (cmd) {
           case 'list_stories':
-            return [mockStory];
+            return [mockStory, ...extraStorySeeds.map(s => s.story)];
+          case 'get_active_story':
+            return null;
           case 'get_story_chapters':
-          case 'get_story_chapters_paged':
+          case 'get_story_chapters_paged': {
+            const extra = extraForStory(args?.story_id as string | undefined);
+            if (extra) return extra.chapters;
             mockContent = frontstageSeed
               ? mockContent
               : enablePersistence
@@ -186,14 +228,21 @@ export function getMockTauriInitScript() {
                 : '';
             mockChapter.content = mockContent;
             return [{ ...mockChapter, content: mockContent }];
+          }
           case 'get_story_scenes':
-          case 'get_story_scenes_paged':
-            return mockScenes;
+          case 'get_story_scenes_paged': {
+            const extra = extraForStory(args?.story_id as string | undefined);
+            return extra ? extra.scenes : mockScenes;
+          }
           // v0.59.0：v0.50.1 起幕前 selectChapter 先拉 get_chapter_scenes；旧 mock
           // 未实现该命令 → reload 后拿不到场景、编辑器空白，导致
           // frontstage-editing「自动保存持久化」用例长期假失败。
           case 'get_chapter_scenes': {
             const chapterId = (args?.chapter_id as string) || mockChapter.id;
+            const extraScenes = extraScenesForChapter(chapterId);
+            if (extraScenes.length > 0) {
+              return extraScenes;
+            }
             const persisted = enablePersistence
               ? sessionStorage.getItem(STORAGE_KEY) || ''
               : mockContent;
@@ -214,7 +263,9 @@ export function getMockTauriInitScript() {
               },
             ];
           }
-          case 'get_chapter':
+          case 'get_chapter': {
+            const extraChapter = extraChapterFor(args?.id as string | undefined);
+            if (extraChapter) return extraChapter;
             mockContent = frontstageSeed
               ? mockContent
               : enablePersistence
@@ -222,6 +273,7 @@ export function getMockTauriInitScript() {
                 : '';
             mockChapter.content = mockContent;
             return { ...mockChapter, content: mockContent };
+          }
           case 'get_chapter_aggregated_content':
             // 仅种子模式返回正文；旧行为保持 null（既有 spec 不受影响）
             return frontstageSeed ? mockContent : null;
@@ -355,8 +407,15 @@ export function getMockTauriInitScript() {
               latest_version: null,
               update_info: null,
             };
-          case 'plugin:event|listen':
+          case 'plugin:event|listen': {
+            const eventName = args?.event as string | undefined;
+            const handlerId = args?.handler as string | undefined;
+            if (eventName && handlerId && callbacks[handlerId]) {
+              if (!eventListeners[eventName]) eventListeners[eventName] = [];
+              eventListeners[eventName].push(callbacks[handlerId].callback);
+            }
             return Math.random().toString(36).substring(2);
+          }
           case 'plugin:event|unlisten':
             return null;
           case 'get_story_characters':

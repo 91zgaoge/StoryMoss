@@ -7,6 +7,13 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
+/// P0 回滚开关：`STORYMOSS_NAMING=0` 时关闭姓名校验。
+pub fn enabled() -> bool {
+    std::env::var("STORYMOSS_NAMING")
+        .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+        .unwrap_or(true)
+}
+
 /// 姓名问题严重度：Hard 会阻止落库，Soft 只告警/提示。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NameSeverity {

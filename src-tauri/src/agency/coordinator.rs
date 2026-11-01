@@ -5301,7 +5301,7 @@ impl AgencyCoordinator {
                     continuity_blocks.push(block);
                 }
             }
-            let assets = render_parts(
+            let mut assets = render_parts(
                 p,
                 &admitted,
                 &chapter_outline,
@@ -5311,21 +5311,47 @@ impl AgencyCoordinator {
                 &l2,
                 &continuity_blocks,
             );
+            let chapter_contract = if crate::agency::narrative_contract::enabled() {
+                crate::agency::narrative_contract::compile_chapter_contract(
+                    &card,
+                    &chapter_outline,
+                    current_content.unwrap_or(""),
+                    chapter_number,
+                    1,
+                )
+                .map_err(|e| {
+                    log::warn!("agency: 章契约编译降级 run={} err={}", run_id, e);
+                    e
+                })
+                .ok()
+            } else {
+                None
+            };
+            if let Some(cc) = &chapter_contract {
+                assets.push_str("\n\n");
+                assets.push_str(&crate::agency::narrative_contract::render_chapter_contract(
+                    cc,
+                ));
+            }
             let state = compile_continue_beat_state(&card, Some(p), current_content.unwrap_or(""));
             let emotion_beat = emotion_ctx.as_ref().map(|(plan, _)| &plan.beat);
             let emotion_contract = emotion_ctx.as_ref().and_then(|(_, c)| c.as_ref());
-            let scene_contract = crate::agency::narrative_contract::compile_scene_contract(
-                &card,
-                &chapter_outline,
-                current_content.unwrap_or(""),
-                0,
-                1,
-            )
-            .map_err(|e| {
-                log::warn!("agency: 场契约编译降级 run={} err={}", run_id, e);
-                e
-            })
-            .ok();
+            let scene_contract = if crate::agency::narrative_contract::enabled() {
+                crate::agency::narrative_contract::compile_scene_contract(
+                    &card,
+                    &chapter_outline,
+                    current_content.unwrap_or(""),
+                    0,
+                    1,
+                )
+                .map_err(|e| {
+                    log::warn!("agency: 场契约编译降级 run={} err={}", run_id, e);
+                    e
+                })
+                .ok()
+            } else {
+                None
+            };
             let user =
                 crate::agency::beat_card::render_writer_user_prompt_with_emotion_and_contract(
                     &assets,
@@ -5360,24 +5386,50 @@ impl AgencyCoordinator {
                 )
                 .await;
             crate::agency::continue_director::rewrite_card_cast(&mut card, &lock);
+            let mut assets = String::new();
+            let chapter_contract = if crate::agency::narrative_contract::enabled() {
+                crate::agency::narrative_contract::compile_chapter_contract(
+                    &card,
+                    &chapter_outline,
+                    current_content.unwrap_or(""),
+                    chapter_number,
+                    1,
+                )
+                .map_err(|e| {
+                    log::warn!("agency: 章契约编译降级 run={} err={}", run_id, e);
+                    e
+                })
+                .ok()
+            } else {
+                None
+            };
+            if let Some(cc) = &chapter_contract {
+                assets.push_str(&crate::agency::narrative_contract::render_chapter_contract(
+                    cc,
+                ));
+            }
             let state = compile_continue_beat_state(&card, None, current_content.unwrap_or(""));
             let emotion_beat = emotion_ctx.as_ref().map(|(plan, _)| &plan.beat);
             let emotion_contract = emotion_ctx.as_ref().and_then(|(_, c)| c.as_ref());
-            let scene_contract = crate::agency::narrative_contract::compile_scene_contract(
-                &card,
-                &chapter_outline,
-                current_content.unwrap_or(""),
-                0,
-                1,
-            )
-            .map_err(|e| {
-                log::warn!("agency: 场契约编译降级 run={} err={}", run_id, e);
-                e
-            })
-            .ok();
+            let scene_contract = if crate::agency::narrative_contract::enabled() {
+                crate::agency::narrative_contract::compile_scene_contract(
+                    &card,
+                    &chapter_outline,
+                    current_content.unwrap_or(""),
+                    0,
+                    1,
+                )
+                .map_err(|e| {
+                    log::warn!("agency: 场契约编译降级 run={} err={}", run_id, e);
+                    e
+                })
+                .ok()
+            } else {
+                None
+            };
             let user =
                 crate::agency::beat_card::render_writer_user_prompt_with_emotion_and_contract(
-                    "",
+                    &assets,
                     &card,
                     instr,
                     current_content.unwrap_or(""),
@@ -5963,17 +6015,24 @@ impl AgencyCoordinator {
         } else {
             String::new()
         };
-        // v0.79.0：批量续写不再只拿「章纲 + 资产 + 有起伏」。先编译本场契约，
-        // 注入 writer task；失败只降级，不阻断批量。
-        let scene_contract = crate::agency::narrative_contract::compile_scene_contract(
-            &card,
-            &chapter_outline,
-            &latest_content,
-            0,
-            1,
-        )
-        .map_err(|e| log::warn!("agency: 批量场契约编译降级 run={} err={}", run_id, e))
-        .ok();
+        // v0.79.1：批量续写按章契约 + 1–3 场投影写，不再只拿「章纲 + 资产 +
+        // 有起伏」。契约失败只降级，不阻断批量；gate 仍取第一场契约核对。
+        let chapter_contract = if crate::agency::narrative_contract::enabled() {
+            crate::agency::narrative_contract::compile_chapter_contract(
+                &card,
+                &chapter_outline,
+                &latest_content,
+                chapter_number,
+                3,
+            )
+            .map_err(|e| log::warn!("agency: 批量章契约编译降级 run={} err={}", run_id, e))
+            .ok()
+        } else {
+            None
+        };
+        let scene_contract = chapter_contract
+            .as_ref()
+            .and_then(|c| c.scenes.first().cloned());
         let writer_task = if assets_ctx.is_empty() && chapter_outline.is_empty() {
             format!("续写{}（1500-2500 字）。必须推进剧情到下一节点，不得原地踏步；遵循世界观规则与约束。禁止重复：同一段落/句子不得出现两次，不得复述前文段落。先 board_read 读资产区、asset_query(kind=scenes) 读最近场景保持连贯，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, key)
         } else if !chapter_outline.is_empty() {
@@ -5996,7 +6055,7 @@ impl AgencyCoordinator {
         } else {
             format!("续写{}（1500-2500 字）。必须推进剧情到故事大纲的下一节点，不得原地踏步、不得仅复述设定或复述前文；遵循世界观设定中的规则与约束。禁止重复：同一段落/句子不得出现两次，不得复述前文段落。\n资产已注入下方，无需 board_read 重复读取（如确有遗漏可补读）：\n{}\n完成后用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, assets_ctx, key)
         };
-        let writer_task = inject_batch_contract_block(writer_task, scene_contract.as_ref());
+        let writer_task = inject_batch_contract_block(writer_task, chapter_contract.as_ref());
         let writer_task = inject_batch_emotion_block(writer_task, &emotion_block);
         let writer_out = self
             .run_role_with_llm_and_budget(
@@ -8528,12 +8587,18 @@ fn format_chars_for_outline(parts: &ContinueContextParts, admitted: &[String]) -
 /// 「完成后用 board_write」前；空块原样返回，保证无契约时 task 逐字不变。
 fn inject_batch_contract_block(
     task: String,
-    contract: Option<&crate::agency::narrative_contract::SceneContract>,
+    contract: Option<&crate::agency::narrative_contract::ChapterContract>,
 ) -> String {
     let Some(contract) = contract else {
         return task;
     };
-    let block = crate::agency::narrative_contract::render_scene_brief(contract);
+    let mut block = crate::agency::narrative_contract::render_chapter_contract(contract);
+    for scene in &contract.scenes {
+        block.push_str("\n\n");
+        block.push_str(&crate::agency::narrative_contract::render_scene_brief(
+            scene,
+        ));
+    }
     for marker in ["写作要求：", "完成后用 board_write"] {
         if let Some(pos) = task.find(marker) {
             let (head, tail) = task.split_at(pos);

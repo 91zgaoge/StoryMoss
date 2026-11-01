@@ -1,6 +1,6 @@
 //! 场简报渲染：writer 最后看到的一页执行指令（不是资产转储）。
 
-use super::types::SceneContract;
+use super::types::{ChapterContract, SceneContract};
 
 /// 一页场简报。放在 writer prompt 的变动区末尾、末句锚点之前。
 pub fn render_scene_brief(c: &SceneContract) -> String {
@@ -49,6 +49,20 @@ pub fn render_scene_brief(c: &SceneContract) -> String {
     lines.join("\n")
 }
 
+/// 章契约（≤400 字）。放在稳定资产末尾、场简报之前。
+pub fn render_chapter_contract(c: &ChapterContract) -> String {
+    let mut lines = vec!["【本章契约】".to_string()];
+    lines.push(format!("本章戏剧问题：{}", c.dramatic_question));
+    lines.push(format!("主角想要：{}", c.want));
+    lines.push(format!("反对者：{}", c.opposition));
+    lines.push(format!("赌注：{}", c.stakes));
+    lines.push(format!("本章转折：{}", c.turning_point));
+    lines.push(format!("不可逆结果：{}", c.irreversible_outcome));
+    lines.push(format!("进度目标：{}", c.target_progress));
+    lines.push(format!("本场数：{}", c.scenes.len()));
+    lines.join("\n")
+}
+
 /// writer prompt 最末的四行锚定摘要（防止契约被末句锚点压过）。
 pub fn render_scene_tail(c: &SceneContract) -> String {
     format!(
@@ -70,7 +84,7 @@ mod tests {
     use super::*;
     use crate::agency::{
         beat_card::ChangeKind,
-        narrative_contract::types::{EmotionChain, SceneContract, StateDelta},
+        narrative_contract::types::{ChapterContract, EmotionChain, SceneContract, StateDelta},
     };
 
     fn contract() -> SceneContract {
@@ -119,6 +133,27 @@ mod tests {
         assert!(out.contains("不可逆"));
         assert!(out.contains("情感链：事件=名册被烧"));
         assert!(out.contains("代价=烫伤"));
+    }
+
+    #[test]
+    fn chapter_brief_keeps_dramatic_question_and_outcome() {
+        let cc = ChapterContract {
+            chapter_number: 7,
+            dramatic_question: "沈砚能否在散席前拿到名册？".into(),
+            protagonist: "沈砚".into(),
+            want: "拿到名册".into(),
+            opposition: "王爷".into(),
+            stakes: "失去证人".into(),
+            turning_point: "王爷烧名册".into(),
+            irreversible_outcome: "证人被带走".into(),
+            target_progress: "下一页：密诏败露".into(),
+            scenes: vec![contract()],
+        };
+        let out = render_chapter_contract(&cc);
+        assert!(out.contains("沈砚能否在散席前拿到名册"));
+        assert!(out.contains("赌注：失去证人"));
+        assert!(out.contains("不可逆结果：证人被带走"));
+        assert!(out.contains("本场数：1"));
     }
 
     #[test]
