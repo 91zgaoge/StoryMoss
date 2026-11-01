@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.77.0 项目完成状态
+# StoryMoss (草苔) v0.77.1 项目完成状态
 
+> 最后更新: 2026-11-01（**v0.77.1：资产引导租约 + 图片语料可用化**——①`ensure_assets` 获取 `write:assets` 租约（TTL 600s），多 write run 同时启动时只让一个生成资产，其余等待/超时 `resource_busy`，不再重复生成。②图片导入纯 Rust 读取 PNG/GIF/JPEG/WebP/BMP 尺寸并生成可编辑摘要；`create(kind=image)` 无摘要也有兜底。③`distill`/`promote` 无正文时使用标题/摘要/标签/文件/类型/大小，明确「未启用视觉识别，不要编造画面」。Rust **1952 passed / 12 ignored**（+2）；vitest 647 / 3；playwright 45 / 5；tsc/clippy/fmt/guard/IPC 全绿。**未关闭**：未接入视觉模型/OCR，图片像素仍不可读；作者需填写摘要。）
+>
 > 最后更新: 2026-11-01（**v0.77.0：多 write 并行 + 固定语料 + 真机端到端**——①V151 将 write lane 从单活跃放开为多活跃（命令层上限 3），`story_chapter_sequences` 原子分配互不重叠的章号区间；幕前 Append 对同一场景加租约；beat 计数器/资产历史改 `BEGIN IMMEDIATE` 读改写。②`CorpusRepository::list_pinned` + `pinned_context_block` 把作者固定语料只读注入单拍/批量 writer prompt（≤4 条、≤1200 字）。③新增真机导演规划与语料提炼探针；本机实跑：导演 5.1s（intent=repair、1 动作）、语料 66.1s（四类各 5 条并写回）。Rust **1950 passed / 12 ignored**；vitest 647 / 3；playwright 45 / 5；tsc/clippy/fmt/guard/IPC 全绿。**未关闭**：并行 write 的 ensure_assets 仍可能重复生成资产（幂等兜底）；固定语料仅文本摘要；探针样本单一。）
 >
 > 最后更新: 2026-11-01（**v0.76.0：批量续写接情感回路**——`ChapterEmotionPlan` 按章纲关键事件生成 1–3 幕；`write_chapter` 返回 `BatchChapterArtifacts` 并注入【本章情感回路（批量续写）】；GateRunner/evaluate_gate/run_rule_grader 使用同一计划，revision 保留情感弧；装配后 `persist_chapter_plan` 写 N 行 `scene_emotion_beats`/状态/张力/探针；`last_written_plan` 把上一章末幕 `to` 作为下一章起点。Rust **1946 passed / 10 ignored**（+11）；vitest 647 / 3；playwright 45 / 5；tsc/clippy/fmt/guard/IPC 全绿。**未关闭**：人类 A/B 与真实模型端到端批量情感目标达成率待复测。）

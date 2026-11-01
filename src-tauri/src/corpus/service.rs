@@ -77,7 +77,14 @@ impl CorpusService {
         let content = content.unwrap_or("");
         let summary = summary
             .map(|s| s.to_string())
-            .unwrap_or_else(|| make_summary(content));
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| {
+                if kind == "image" {
+                    image_summary_without_meta(title)
+                } else {
+                    make_summary(content)
+                }
+            });
         let id = CorpusRepository::new(self.pool.clone()).create(
             story_id,
             kind,
@@ -198,13 +205,17 @@ impl CorpusService {
                     .map(|s| s.to_string())
             })
             .unwrap_or_else(|| format!("语料-{}", &id[..8]));
-        let summary = make_summary(&content);
         let file_name = src
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("file")
             .to_string();
         let mime = mime_for(&ext);
+        let summary = if is_image {
+            image_corpus_summary(&title, &file_name, mime, &bytes)
+        } else {
+            make_summary(&content)
+        };
         let kind = if is_image { "image" } else { kind };
         let id = repo.create_file_item(
             story_id,
@@ -257,16 +268,14 @@ impl CorpusService {
         let detail = self.get(id)?;
         let brief = self.story_brief(&detail.story_id)?;
         let content = self.prepare_distill_source(app, &detail.content).await;
+        let source = if content.is_empty() {
+            image_context(&detail)
+        } else {
+            content
+        };
         let user = format!(
-            "故事上下文：\n{}\n\n语料标题：{}\n语料原文：\n{}\n\n{}",
-            brief,
-            detail.title,
-            if content.is_empty() {
-                "(图片语料，只有标题可供参考)"
-            } else {
-                content.as_str()
-            },
-            DISTILL_SCHEMA
+            "故事上下文：\n{}\n\n语料标题：{}\n语料原文/信息：\n{}\n\n{}",
+            brief, detail.title, source, DISTILL_SCHEMA
         );
         let llm = LlmService::new(app.clone());
         let (_rid, result) = llm
@@ -298,16 +307,14 @@ impl CorpusService {
         let detail = self.get(id)?;
         let brief = self.story_brief(&detail.story_id)?;
         let content: String = detail.content.chars().take(DISTILL_CONTENT_CHARS).collect();
+        let source = if content.is_empty() {
+            image_context(&detail)
+        } else {
+            content
+        };
         let user = format!(
-            "故事上下文：\n{}\n\n语料标题：{}\n语料原文：\n{}\n\n{}",
-            brief,
-            detail.title,
-            if content.is_empty() {
-                "(图片语料，只有标题可供参考)"
-            } else {
-                content.as_str()
-            },
-            DISTILL_SCHEMA
+            "故事上下文：\n{}\n\n语料标题：{}\n语料原文/信息：\n{}\n\n{}",
+            brief, detail.title, source, DISTILL_SCHEMA
         );
         Ok((DISTILL_SYSTEM.to_string(), user))
     }
@@ -327,16 +334,14 @@ impl CorpusService {
             .as_ref()
             .map(|d| serde_json::to_string(d).unwrap_or_default())
             .unwrap_or_default();
+        let source = if content.is_empty() {
+            image_context(&detail)
+        } else {
+            content
+        };
         let user = format!(
-            "语料标题：{}\n原文：\n{}\nAI 提炼：\n{}\n\n{}",
-            detail.title,
-            if content.is_empty() {
-                "(图片语料)"
-            } else {
-                content.as_str()
-            },
-            distilled,
-            schema
+            "语料标题：{}\n原文/信息：\n{}\nAI 提炼：\n{}\n\n{}",
+            detail.title, source, distilled, schema
         );
         let llm = LlmService::new(app.clone());
         let (_rid, result) = llm
@@ -518,6 +523,119 @@ fn chunk_fallback(chunk: &str, index: usize, total: usize) -> String {
     )
 }
 
+/// 图片语料没有文本正文时的结构化说明（当前模型未启用视觉识别）。
+fn image_context(detail: &CorpusDetail) -> String {
+    let tags = if detail.tags.is_empty() {
+        "（无）".to_string()
+    } else {
+        detail.tags.join("、")
+    };
+    format!(
+        "图片语料（无文本正文；当前模型未启用视觉识别）：标题={}；摘要={}；标签={}；文件={}；类型={}；大小={}。不要编造画面；只使用摘要/标签/标题中可用的信息。",
+        detail.title,
+        if detail.summary.trim().is_empty() { "（作者未填写）" } else { detail.summary.trim() },
+        tags,
+        detail.file_name.as_deref().unwrap_or("（未知）"),
+        detail.mime_type.as_deref().unwrap_or("（未知）"),
+        detail.file_size.map(|n| format!("{n} bytes")).unwrap_or_else(|| "（未知）".to_string()),
+    )
+}
+
+fn image_summary_without_meta(title: &str) -> String {
+    format!(
+        "图片语料《{}》：暂无画面描述；请作者补充摘要/标签。当前模型未启用视觉识别，AI 只能依据摘要与标签使用。",
+        title
+    )
+}
+
+fn image_corpus_summary(title: &str, file_name: &str, mime: &str, bytes: &[u8]) -> String {
+    let dims = image_dimensions(bytes)
+        .map(|(w, h)| format!("{w}×{h}"))
+        .unwrap_or_else(|| "尺寸未知".to_string());
+    format!(
+        "图片语料《{}》：{}，{}，文件 {}。当前模型未启用视觉识别，AI 只能依据本摘要、标签与标题使用；请作者补充画面描述。",
+        title, mime, dims, file_name
+    )
+}
+
+/// 纯 Rust 读取常见图片尺寸（PNG/GIF/JPEG/WebP/BMP），不引入图像依赖。
+fn image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() >= 24 && bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
+        let w = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
+        let h = u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
+        return Some((w, h));
+    }
+    if bytes.len() >= 10 && (bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a")) {
+        let w = u16::from_le_bytes([bytes[6], bytes[7]]) as u32;
+        let h = u16::from_le_bytes([bytes[8], bytes[9]]) as u32;
+        return Some((w, h));
+    }
+    if bytes.len() >= 4 && bytes[0] == 0xFF && bytes[1] == 0xD8 {
+        let mut i = 2usize;
+        while i + 9 < bytes.len() {
+            if bytes[i] != 0xFF {
+                i += 1;
+                continue;
+            }
+            let marker = bytes[i + 1];
+            if marker == 0xD8 || marker == 0x01 || (0xD0..=0xD7).contains(&marker) {
+                i += 2;
+                continue;
+            }
+            let len = u16::from_be_bytes([bytes[i + 2], bytes[i + 3]]) as usize;
+            if matches!(
+                marker,
+                0xC0 | 0xC1
+                    | 0xC2
+                    | 0xC3
+                    | 0xC5
+                    | 0xC6
+                    | 0xC7
+                    | 0xC9
+                    | 0xCA
+                    | 0xCB
+                    | 0xCD
+                    | 0xCE
+                    | 0xCF
+            ) {
+                let h = u16::from_be_bytes([bytes[i + 5], bytes[i + 6]]) as u32;
+                let w = u16::from_be_bytes([bytes[i + 7], bytes[i + 8]]) as u32;
+                return Some((w, h));
+            }
+            if len < 2 {
+                break;
+            }
+            i += 2 + len;
+        }
+        return None;
+    }
+    if bytes.len() >= 30 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        match &bytes[12..16] {
+            b"VP8X" => {
+                let w = 1 + (bytes[24] as u32 | (bytes[25] as u32) << 8 | (bytes[26] as u32) << 16);
+                let h = 1 + (bytes[27] as u32 | (bytes[28] as u32) << 8 | (bytes[29] as u32) << 16);
+                return Some((w, h));
+            }
+            b"VP8 " => {
+                let w = (u16::from_le_bytes([bytes[26], bytes[27]]) & 0x3FFF) as u32;
+                let h = (u16::from_le_bytes([bytes[28], bytes[29]]) & 0x3FFF) as u32;
+                return Some((w, h));
+            }
+            b"VP8L" => {
+                let b = u32::from_le_bytes([bytes[21], bytes[22], bytes[23], bytes[24]]);
+                return Some(((b & 0x3FFF) + 1, ((b >> 14) & 0x3FFF) + 1));
+            }
+            _ => {}
+        }
+    }
+    if bytes.len() >= 26 && bytes.starts_with(b"BM") {
+        let w = u32::from_le_bytes([bytes[18], bytes[19], bytes[20], bytes[21]]) as i32;
+        let h = u32::from_le_bytes([bytes[22], bytes[23], bytes[24], bytes[25]]) as i32;
+        return Some((w.unsigned_abs(), h.unsigned_abs()));
+    }
+    None
+}
+
 fn make_summary(content: &str) -> String {
     let text = content.trim();
     if text.is_empty() {
@@ -651,6 +769,32 @@ mod tests {
         let chunks = chunk_text(&content, 12, 8);
         assert_eq!(chunks.len(), 8);
         assert!(chunks.iter().all(|c| c.chars().count() == 12));
+    }
+
+    #[test]
+    fn image_dimensions_reads_png_and_gif_headers() {
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        png.extend_from_slice(&[0, 0, 0, 13, b'I', b'H', b'D', b'R']);
+        png.extend_from_slice(&800u32.to_be_bytes());
+        png.extend_from_slice(&600u32.to_be_bytes());
+        assert_eq!(image_dimensions(&png), Some((800, 600)));
+
+        let mut gif = b"GIF89a".to_vec();
+        gif.extend_from_slice(&320u16.to_le_bytes());
+        gif.extend_from_slice(&240u16.to_le_bytes());
+        assert_eq!(image_dimensions(&gif), Some((320, 240)));
+    }
+
+    #[test]
+    fn image_summary_is_not_just_title() {
+        let summary = image_corpus_summary("雨夜街道", "street.png", "image/png", &[]);
+        assert!(summary.contains("雨夜街道"));
+        assert!(summary.contains("image/png"));
+        assert!(summary.contains("尺寸未知"));
+        assert!(summary.contains("请作者补充画面描述"));
+        let fallback = image_summary_without_meta("参考图");
+        assert!(fallback.contains("参考图"));
+        assert!(fallback.contains("暂无画面描述"));
     }
 
     #[test]

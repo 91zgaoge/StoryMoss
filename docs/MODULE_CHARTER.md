@@ -78,6 +78,8 @@ Infrastructure (db / llm / vector / embeddings / model_gateway / config / router
 | `agency::repository::allocate_chapter_numbers` | V151 多 write 章号原子分配（`story_chapter_sequences`，IMMEDIATE 事务） | v0.77.0 |
 | `corpus::pinned_context_block` | 固定语料只读注入块（≤4 条、≤1200 字，提炼要点/摘要/短正文优先） | v0.77.0 |
 | `agency::real_machine_probes` | 真机端到端探针：导演规划、语料提炼（`#[ignore]`，手动跑） | v0.77.0 |
+| `agency::coordinator::acquire_asset_lease` | 多 write 资产引导租约（`write:assets`，TTL 600s；等待超时 `resource_busy`） | v0.77.1 |
+| `corpus::service::image_context` / `image_dimensions` | 图片语料元数据（PNG/GIF/JPEG/WebP/BMP 尺寸）与无正文时的结构化说明 | v0.77.1 |
 
 ---
 

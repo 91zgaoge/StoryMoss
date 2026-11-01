@@ -3656,7 +3656,7 @@ impl AgencyCoordinator {
                 None,
                 1800,
             )?;
-            Some(AppendLeaseGuard {
+            Some(LeaseGuard {
                 pool: self.pool.clone(),
                 lease_id: Some(lease.id),
             })
@@ -3909,6 +3909,50 @@ impl AgencyCoordinator {
     /// 资产确认/补齐（Task 4 run_continue_inner 第 1 步提取）：
     /// 先查 characters 表；为空则先从本 story 历史黑板条目落库，仍无再让
     /// producer 现场补齐。
+    /// 资产引导租约：多个 write run 同时启动时，只让一个 run 生成/补齐资产；
+    /// 其余 run 等待，拿到租约后 ensure_assets 会看到已就绪的资产并快速返回。
+    /// 等待超过 120s 则按当前资产继续（避免一个慢 Producer 拖死所有 run）。
+    async fn acquire_asset_lease(
+        &self,
+        run_id: &str,
+        story_id: &str,
+    ) -> Result<LeaseGuard, AppError> {
+        let deadline = std::time::Instant::now() + Duration::from_secs(120);
+        loop {
+            match crate::agency::lease::LeaseManager::new(self.pool.clone()).acquire(
+                story_id,
+                "write:assets",
+                Some(run_id),
+                None,
+                600,
+            ) {
+                Ok(lease) => {
+                    return Ok(LeaseGuard {
+                        pool: self.pool.clone(),
+                        lease_id: Some(lease.id),
+                    })
+                }
+                Err(AppError::ValidationFailed {
+                    field: Some(field), ..
+                }) if field == "resource_busy" => {
+                    if std::time::Instant::now() >= deadline {
+                        log::warn!(
+                            "agency: 等待资产租约超时（120s），避免重复生成资产 run={} story={}",
+                            run_id,
+                            story_id
+                        );
+                        return Err(AppError::validation_failed(
+                            "另一个创作任务正在准备资产，请稍后重试",
+                            Some("resource_busy"),
+                        ));
+                    }
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
     pub(crate) async fn ensure_assets(
         &self,
         budget: &Arc<AgencyBudget>,
@@ -3917,6 +3961,8 @@ impl AgencyCoordinator {
         story_id: &str,
         premise: &str,
     ) -> Result<(), AppError> {
+        // 多 write 并行：资产引导只由一个 run 执行；其余 run 等待后复用结果。
+        let _asset_lease = self.acquire_asset_lease(run_id, story_id).await?;
         {
             let pool = self.pool.clone();
             let sid = story_id.to_string();
@@ -7779,12 +7825,12 @@ pub(crate) struct BatchChapterArtifacts {
 
 /// 幕前 Append 的场景租约守卫：Drop 时释放，防止同一场景被两个 Append
 /// run 同时改写。释放失败由 TTL 兜底。
-struct AppendLeaseGuard {
+struct LeaseGuard {
     pool: DbPool,
     lease_id: Option<String>,
 }
 
-impl Drop for AppendLeaseGuard {
+impl Drop for LeaseGuard {
     fn drop(&mut self) {
         if let Some(id) = self.lease_id.take() {
             let _ = crate::agency::lease::LeaseManager::new(self.pool.clone()).release(&id);

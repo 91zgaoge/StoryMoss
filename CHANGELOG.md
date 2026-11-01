@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.77.1（2026-11-01）
+
+**并行 write 的资产引导租约 + 图片语料可用化。**
+
+- **资产引导租约**：`ensure_assets` 开头获取 `write:assets` 租约（TTL 600s）。多个 write run 同时启动时只允许一个 run 生成/补齐资产；其余 run 等待（最多 120s），拿到租约后 `ensure_assets` 会看到已就绪资产并快速返回。等待超时返回 `resource_busy`，不再“等不到就重复生成”。
+- **图片语料不再只有标题**：导入图片时纯 Rust 读取 PNG/GIF/JPEG/WebP/BMP 尺寸，生成可编辑摘要（`图片语料《标题》：MIME，W×H，文件…；请作者补充画面描述`）；`create(kind=image)` 无摘要时也生成兜底说明。`distill`/`promote` 在无正文时使用结构化图片信息（标题/摘要/标签/文件/类型/大小），并明确「当前模型未启用视觉识别，不要编造画面」；固定语料块沿用摘要/标签。
+- **验证**：Rust **1952 passed / 12 ignored**（+2 图片尺寸/摘要测试）；vitest **647 / 3**；playwright **45 / 5**；tsc / clippy / fmt / guard / IPC manifest 全绿。
+- **未关闭**：未接入视觉模型/OCR，图片像素内容仍不可读；作者需填写摘要才能让 AI 更具体地使用图片。真机探针样本仍单一。
+
 ## v0.77.0（2026-11-01）
 
 **多 write 并行、固定语料进续写、真机导演规划/语料提炼端到端。**

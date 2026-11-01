@@ -100,6 +100,12 @@
 - **固定语料**：`CorpusRepository::list_pinned` → `corpus::pinned_context_block`（≤4 条、≤1200 字，提炼要点优先）→ `write_beat_once` 的 continuity blocks / `write_chapter` 的 `render_parts` / `assemble_continue_user_prompt`。
 - **真机探针**：`real_machine_probe_director_planning`（CrewInspector → 导演提示词 → Tool 档 → `DirectorPlan`）与 `real_machine_probe_corpus_distill`（同源提示词 → Background 档 → `CorpusDistillation` → `distilled_json`）。
 
+### 资产引导租约与图片语料（v0.77.1）
+
+- `ensure_assets` 获取 `write:assets` 租约（TTL 600s）；多 write 同时启动时只让一个 run 生成资产，其余最多等 120s，超时返回 `resource_busy`。
+- 图片导入读取 PNG/GIF/JPEG/WebP/BMP 尺寸并生成可编辑摘要；`create(kind=image)` 无摘要也有兜底说明。
+- `distill`/`promote` 无正文时使用标题/摘要/标签/文件/类型/大小，并明确未启用视觉识别、不要编造画面；pinned 块沿用摘要/标签。
+
 ---
 
 ## 目录

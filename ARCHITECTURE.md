@@ -1173,6 +1173,8 @@ function assertUnreachable(x: never): never {
 - **Append 串行**：`run_continue_inner` 对 `PersistMode::Append` 获取 `append:{scene_id}` 租约（TTL 1800s），Drop 释放；同一场景不允许两个 Append 同时改写。
 - **计数一致性**：`increment_append_beat`、`touch_refresh_beats`、`append_asset_history` 改为 `BEGIN IMMEDIATE` 读改写，避免并行 write 丢更新。
 - **固定语料**：`CorpusRepository::list_pinned` 取 `pinned=1` 条目；`corpus::pinned_context_block` 渲染只读块（≤4 条、≤1200 字，优先提炼要点/摘要/短正文），注入 `write_beat_once` 的 continuity blocks、`write_chapter` 的 `render_parts` 与 `assemble_continue_user_prompt`。
+- **资产引导租约（v0.77.1）**：`ensure_assets` 获取 `write:assets` 租约（TTL 600s），多 write 同时启动时只让一个 run 生成资产；其余 run 最多等 120s，超时返回 `resource_busy`，避免重复生成世界/角色/关系/大纲。
+- **图片语料（v0.77.1）**：导入时纯 Rust 读取 PNG/GIF/JPEG/WebP/BMP 尺寸，生成可编辑摘要；`create(kind=image)` 无摘要也有兜底。`distill`/`promote` 无正文时使用标题/摘要/标签/文件/类型/大小，并明确「未启用视觉识别，不要编造画面」；pinned 块沿用摘要/标签。
 - **真机探针**：`real_machine_probe_director_planning`（CrewInspector → 导演提示词 → Tool 档 → `DirectorPlan`）与 `real_machine_probe_corpus_distill`（同源提示词 → Background 档 → `CorpusDistillation` → `distilled_json`）；均 `#[ignore]`，手动跑。
 
 ## 目录结构
