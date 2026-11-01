@@ -7,7 +7,7 @@
 关联文档：`docs/superpowers/plans/2026-08-09-emotional-attrs-relationships.md`、`docs/plans/2026-08-13-agency-only-continuation-design.md`、`docs/plans/2026-08-15-continue-quality-closure-design.md`、`docs/plans/2026-10-30-corpus-director-crew-chat-design.md`。
 参考实现：https://github.com/Aurora-cx/EmotionCircuits-LLM（GPL-3.0，本设计只借鉴方法论，不复制代码）。
 
-**实施结果（v0.75.0）**：新增 `src-tauri/src/emotion_circuit/` 与 V150 七张表；`write_beat_once` 接入压力场选拍与【本拍情感回路】；章纲情感目标、ingest 回流、编辑第 9 维、rule grader 情感分、代理工作室「情感」页签与 5 个 IPC 命令均已落地。Rust **1935 passed / 10 ignored**（+45）；vitest **647 passed / 3 skipped**（+1）；playwright **45 passed / 5 skipped**；tsc / clippy / fmt / guard / IPC manifest 全绿。**未关闭**：人类 A/B 尚未跑；读者面板只做代理指标；批量续写 `write_chapter` 尚未接；真实模型端到端情感目标达成率待复测。
+**实施结果（v0.75.0）**：新增 `src-tauri/src/emotion_circuit/` 与 V150 七张表；`write_beat_once` 接入压力场选拍与【本拍情感回路】；章纲情感目标、ingest 回流、编辑第 9 维、rule grader 情感分、代理工作室「情感」页签与 5 个 IPC 命令均已落地。Rust **1946 passed / 10 ignored**（v0.76.0 批量接入 +11）；vitest **647 passed / 3 skipped**；playwright **45 passed / 5 skipped**；tsc / clippy / fmt / guard / IPC manifest 全绿。**未关闭**：人类 A/B 尚未跑；读者面板只做代理指标；批量续写 `write_chapter` 已于 v0.76.0 接入章节级 1–3 幕；真实模型端到端情感目标达成率待复测。
 
 ---
 

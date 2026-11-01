@@ -2,8 +2,9 @@
 //!
 //! 只写本拍选中的载体；未选中的不是禁止，而是留白。
 
-use super::types::{
-    CharacterEmotionState, EmotionBeat, EmotionContract, EmotionDebt, EmotionTension,
+use super::{
+    circuit::ChapterEmotionPlan,
+    types::{CharacterEmotionState, EmotionBeat, EmotionContract, EmotionDebt, EmotionTension},
 };
 
 /// 渲染本拍情感回路块。目标 ≤600 字；超长时保留因果链与载体，删读者目标。
@@ -110,6 +111,173 @@ fn tension_line(beat: &EmotionBeat) -> Option<String> {
         "关系张力：{} → {}（本拍必须让这条张力升级、揭示、修复或破裂之一）",
         beat.source_name, beat.target_name
     ))
+}
+
+/// 批量续写的章节情感弧块（≤900 字）。无计划返回空串。
+pub fn render_batch_emotion_block(plan: &ChapterEmotionPlan) -> String {
+    if plan.is_empty() {
+        return String::new();
+    }
+    let n = plan.beats.len();
+    let mut lines: Vec<String> =
+        vec!["【本章情感回路（批量续写；硬约束：情感必须由事件引起，并改变下一步行动）】".into()];
+    let tension = plan
+        .tension
+        .as_ref()
+        .map(|t| {
+            format!(
+                "{}→{}「{}」压力{:.2}（积压{}拍{}）",
+                t.source_name,
+                t.target_name,
+                t.tension_type,
+                t.pressure,
+                t.accumulated_beats,
+                t.due_chapter
+                    .map(|d| format!("，最迟第{d}章兑现"))
+                    .unwrap_or_default()
+            )
+        })
+        .unwrap_or_else(|| "暂无关系张力，按角色需求推进".into());
+    lines.push(format!(
+        "本章情感弧：{} → {}；主张力：{}",
+        plan.chapter_from.render_compact(3),
+        plan.chapter_to.render_compact(3),
+        tension
+    ));
+    for (i, beat) in plan.beats.iter().enumerate() {
+        let label = act_label(i, n);
+        lines.push(format!("第{}幕（{}）：", i + 1, label));
+        lines.push(format!("  事件：{}", beat.trigger_event.trim()));
+        lines.push(format!(
+            "  评估：{}；{}；相关性{:.2}；{}",
+            beat.event_kind.label(),
+            beat.appraisal.agency.label(),
+            beat.appraisal.relevance,
+            if beat.appraisal.congruence >= 0.0 {
+                "与目标一致"
+            } else {
+                "与目标冲突"
+            }
+        ));
+        lines.push(format!(
+            "  情绪：{}；行动：{}",
+            beat.from.render_delta(&beat.to, 3),
+            beat.action_tendency.label()
+        ));
+        if let Some(ref d) = beat.dialogue_policy {
+            if !d.objective.trim().is_empty() {
+                lines.push(format!(
+                    "  台词：目标={}；潜台词={}",
+                    d.objective.trim(),
+                    d.subtext.trim()
+                ));
+            }
+        }
+        lines.push(format!("  代价：{}", beat.cost.trim()));
+        lines.push(format!(
+            "  载体：{}",
+            beat.carriers
+                .top_carriers(3)
+                .into_iter()
+                .map(|c| c.label())
+                .collect::<Vec<_>>()
+                .join(" / ")
+        ));
+    }
+    if let Some(last) = plan.beats.last() {
+        lines.push(format!(
+            "读者目标：{}{}；{}",
+            last.reader_target.primary.trim(),
+            last.reader_target
+                .secondary
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| format!("／{}", s.trim()))
+                .unwrap_or_default(),
+            last.reader_target.why.trim()
+        ));
+        lines.push(format!("叙述克制：{}", last.reader_target.restraint.trim()));
+    }
+    if let Some(contract) = plan.contract.as_ref() {
+        if !contract.forbidden.is_empty() {
+            lines.push(format!("禁忌：{}", contract.forbidden.join("、")));
+        }
+    }
+    lines.push(format!(
+        "强度：{}",
+        plan.beats
+            .iter()
+            .enumerate()
+            .map(|(i, b)| format!("第{}幕{:.1}", i + 1, b.scale))
+            .collect::<Vec<_>>()
+            .join(" / ")
+    ));
+    let mut block = lines.join("\n");
+    if block.chars().count() > 900 {
+        block = block
+            .lines()
+            .filter(|l| {
+                !l.starts_with("  评估：")
+                    && !l.starts_with("读者目标：")
+                    && !l.starts_with("叙述克制：")
+                    && !l.starts_with("禁忌：")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+    if block.chars().count() > 900 {
+        block = block.chars().take(900).collect::<String>() + "…";
+    }
+    block
+}
+
+/// 修订阶段用的短块（≤600 字）：只保留本章弧与每幕必须保留的事件/代价/载体。
+pub fn render_batch_revision_block(plan: &ChapterEmotionPlan) -> String {
+    if plan.is_empty() {
+        return String::new();
+    }
+    let n = plan.beats.len();
+    let mut lines = vec![
+        "【本章情感弧（修订必须保留；删改不得把情感线改平）】".to_string(),
+        format!(
+            "本章：{} → {}",
+            plan.chapter_from.render_compact(3),
+            plan.chapter_to.render_compact(3)
+        ),
+    ];
+    for (i, beat) in plan.beats.iter().enumerate() {
+        lines.push(format!(
+            "{}. {}：事件「{}」→ 情绪「{}」；代价「{}」；载体 {}",
+            i + 1,
+            act_label(i, n),
+            beat.trigger_event.trim(),
+            beat.from.render_delta(&beat.to, 2),
+            beat.cost.trim(),
+            beat.carriers
+                .top_carriers(3)
+                .into_iter()
+                .map(|c| c.label())
+                .collect::<Vec<_>>()
+                .join("/")
+        ));
+    }
+    let mut block = lines.join("\n");
+    if block.chars().count() > 600 {
+        block = block.chars().take(600).collect::<String>() + "…";
+    }
+    block
+}
+
+fn act_label(i: usize, n: usize) -> &'static str {
+    if n <= 1 {
+        "全章"
+    } else if i == 0 {
+        "开篇/加压"
+    } else if i + 1 == n {
+        "收束/余波"
+    } else {
+        "转折/升级"
+    }
 }
 
 /// 章纲规划用的情感回路块。没有契约/状态/张力/债务时返回空串，旧故事
@@ -282,6 +450,40 @@ mod tests {
     fn block_is_bounded() {
         let text = render_emotion_block(None, &beat());
         assert!(text.chars().count() <= 800, "len={}", text.chars().count());
+    }
+
+    #[test]
+    fn batch_block_renders_arc_and_acts_within_budget() {
+        let b1 = beat();
+        let mut b2 = beat();
+        b2.from = b1.to.clone();
+        b2.to = EmotionVector::from_pairs(&[("sadness", 0.5), ("hope", 0.3)]);
+        b2.scale = 1.2;
+        let plan = ChapterEmotionPlan {
+            chapter_number: 1,
+            contract: Some(EmotionContract {
+                forbidden: vec!["失忆".into()],
+                ..Default::default()
+            }),
+            beats: vec![b1.clone(), b2],
+            tension: None,
+            debt: None,
+            plot_nodes: vec!["当众承认".into()],
+            chapter_from: b1.from.clone(),
+            chapter_to: EmotionVector::from_pairs(&[("sadness", 0.5), ("hope", 0.3)]),
+        };
+        let block = render_batch_emotion_block(&plan);
+        assert!(block.contains("本章情感弧"));
+        assert!(block.contains("第1幕"));
+        assert!(block.contains("第2幕"));
+        assert!(
+            block.chars().count() <= 900,
+            "len={}",
+            block.chars().count()
+        );
+        let revision = render_batch_revision_block(&plan);
+        assert!(revision.contains("修订必须保留"));
+        assert!(revision.chars().count() <= 600);
     }
 
     #[test]

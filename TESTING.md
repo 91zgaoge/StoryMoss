@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.75.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.76.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.76.0 变更说明
+
+- **批量续写情感弧（Rust 1946 passed / 10 ignored，+11）**：
+  ①章弧 1/2/3 幕、无契约 None、峰值预算、上一章 plan 作为起点；②短/长文按幕切分；③批量提示词 ≤900 字、修订块 ≤600 字；④`persist_chapter_plan` 写 N 行 `scene_emotion_beats` + `source=batch` 状态 + 张力累积；⑤`run_chapter_emotion_probes` 多幕聚合；⑥批量 writer task 注入情感块并落库幕；⑦`build_revision_task_with_emotion` 保留本章弧。
+- **前端/E2E 无改动**：vitest 647 / 3；playwright 45 / 5；mock 无需新增命令。
+- **未关闭**：人类 A/B 与真实模型端到端批量情感目标达成率待复测；批量探针仍 advisory。
 
 ### v0.75.0 变更说明
 

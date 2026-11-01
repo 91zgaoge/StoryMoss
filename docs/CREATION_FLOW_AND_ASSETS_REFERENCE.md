@@ -87,6 +87,13 @@
 - 探针 P0/P1 只记录、不阻断；失败进质量债。
 - 读者面板是代理指标，不是人类读者实测；不进续写热路径。
 
+### 批量续写（v0.76.0）
+
+- `write_chapter` 用 `ChapterEmotionPlan` 把一章拆成 1–3 幕；每幕复用 `EmotionBeat`，无契约时返回 `None`。
+- 批量 writer task 注入【本章情感回路（批量续写）】≤900 字；`BatchChapterArtifacts` 携带 draft/card/plan/probes。
+- `GateRunner`/`evaluate_gate`/`run_rule_grader` 用同一计划；revision 追加本章弧；装配后 `persist_chapter_plan` 写 N 行 `scene_emotion_beats`/状态/张力/探针。
+- `run_batch_inner` 用 `last_written_plan` 把上一章末幕 `to` 作为下一章第 1 幕 `from`。
+
 ---
 
 ## 目录

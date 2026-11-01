@@ -88,6 +88,7 @@ pub async fn run_rule_grader(
     chapter_number: i32,
     content: &str,
     foreshadowing_hints: &[String],
+    emotion_plan: Option<&crate::emotion_circuit::ChapterEmotionPlan>,
 ) -> RuleGraderReport {
     // 合同兑现（无合同则合同分回退为追读力分）
     let pool_c = pool.clone();
@@ -129,35 +130,42 @@ pub async fn run_rule_grader(
     };
     let notes = crate::agents::subagents::run_subagent_review(&ctx, content).await;
     let subagent_issues = crate::agency::gate::merge_rule_issues(&notes);
-    // P2：情感维度。有本章计划节拍时跑确定性探针；没有时给中性 0.5，
-    // 不让旧故事因「没有情感资产」被扣分。
-    let pool_c = pool.clone();
-    let sid = story_id.to_string();
-    let planned_beat = tokio::task::spawn_blocking(move || {
-        crate::emotion_circuit::EmotionCircuitRepository::new(pool_c)
-            .latest_beat_for_chapter(&sid, chapter_number)
-            .ok()
-            .flatten()
-    })
-    .await
-    .ok()
-    .flatten();
-    let emotion_score = match planned_beat {
-        Some(beat) => {
-            let probes =
-                crate::emotion_circuit::run_emotion_probes(content, &beat.to_emotion_beat());
-            let penalty: f64 = probes
-                .iter()
-                .filter(|p| !p.passed)
-                .map(|p| match p.severity.id() {
-                    "high" => 0.25,
-                    "medium" => 0.12,
-                    _ => 0.05,
-                })
-                .sum();
-            (1.0 - penalty).clamp(0.0, 1.0)
+    // P2：情感维度。批量章节直接使用 gate 携带的章节计划；单拍/无计划
+    // 时回退 DB 最新拍；都没有时中性 0.5，不让旧故事被扣分。
+    let probe_penalty = |probes: &[crate::emotion_circuit::EmotionProbe]| -> f64 {
+        probes
+            .iter()
+            .filter(|p| !p.passed)
+            .map(|p| match p.severity.id() {
+                "high" => 0.25,
+                "medium" => 0.12,
+                _ => 0.05,
+            })
+            .sum()
+    };
+    let emotion_score = if let Some(plan) = emotion_plan {
+        let probes = crate::emotion_circuit::run_chapter_emotion_probes(content, plan);
+        (1.0 - probe_penalty(&probes)).clamp(0.0, 1.0)
+    } else {
+        let pool_c = pool.clone();
+        let sid = story_id.to_string();
+        let planned_beat = tokio::task::spawn_blocking(move || {
+            crate::emotion_circuit::EmotionCircuitRepository::new(pool_c)
+                .latest_beat_for_chapter(&sid, chapter_number)
+                .ok()
+                .flatten()
+        })
+        .await
+        .ok()
+        .flatten();
+        match planned_beat {
+            Some(beat) => {
+                let probes =
+                    crate::emotion_circuit::run_emotion_probes(content, &beat.to_emotion_beat());
+                (1.0 - probe_penalty(&probes)).clamp(0.0, 1.0)
+            }
+            None => 0.5,
         }
-        None => 0.5,
     };
     let score = contract_score * 0.4 + reading_power_score * 0.3 + emotion_score * 0.3;
     let mut issues = Vec::new();
@@ -322,7 +330,7 @@ mod tests {
         // 无故事资产 → 无合同；追读力特征取自内容本身
         let content = "他推开那扇门，门外竟是失踪十年的师父。「你怎么会在这里？」".to_string()
             + &"情节推进。".repeat(400);
-        let report = run_rule_grader(&pool, "story-x", 1, &content, &[]).await;
+        let report = run_rule_grader(&pool, "story-x", 1, &content, &[], None).await;
         assert!(report.score >= 0.0 && report.score <= 1.0);
         assert_eq!(report.contract_score, report.reading_power_score); // 无合同时回退
     }

@@ -3047,7 +3047,7 @@ impl AgencyCoordinator {
             .await;
             let result = evaluate_gate_impl(
                 &llm, &budget, &pool, &board, &registry, &run_id, &story_id, &premise, &draft, 1,
-                deadline,
+                None, deadline,
             )
             .await;
             // 取消后不再产出裁决/toast：用户已经终止这次生成，噪声反馈只会误导
@@ -3810,6 +3810,8 @@ impl AgencyCoordinator {
                 chapter_number,
                 draft.clone(),
                 Some(&card),
+                None,
+                &[],
             )
             .await?;
         // P1-5：落本拍手法（NextChapter 路径；best-effort）
@@ -5737,7 +5739,8 @@ impl AgencyCoordinator {
         story_id: &str,
         premise: &str,
         chapter_number: i32,
-    ) -> Result<BoardItem, AppError> {
+        previous_emotion: Option<&crate::emotion_circuit::ChapterEmotionPlan>,
+    ) -> Result<BatchChapterArtifacts, AppError> {
         let key = format!("第{}章", chapter_number);
         let pool = self.pool.clone();
         let sid = story_id.to_string();
@@ -5793,6 +5796,38 @@ impl AgencyCoordinator {
                 &chars_var,
             )
             .await;
+        // P0/P1：批量章节情感弧。只有作者设置契约才启用；无契约时 None，
+        // writer task / 后续 gate / 装配保持旧行为。
+        let cast_profiles = build_cast_profiles(&card, parts.as_ref());
+        let emotion_plan = if cast_profiles.is_empty() {
+            None
+        } else {
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            let outline = chapter_outline.clone();
+            let next_node = card.next_outline_node.clone();
+            let location = card.setting_location.clone();
+            let previous = previous_emotion.cloned();
+            self.db(move || {
+                Ok(load_chapter_emotion_plan(
+                    &pool,
+                    &sid,
+                    chapter_number,
+                    &cast_profiles,
+                    &outline,
+                    &next_node,
+                    location.as_deref(),
+                    previous.as_ref(),
+                ))
+            })
+            .await
+            .ok()
+            .flatten()
+        };
+        let emotion_block = emotion_plan
+            .as_ref()
+            .map(crate::emotion_circuit::render_batch_emotion_block)
+            .unwrap_or_default();
         let assets_ctx = if let Some(ref p) = parts {
             let (admitted, l2) = admit_for_continue(p, &card, &chapter_outline, "续写");
             render_parts(
@@ -5830,6 +5865,7 @@ impl AgencyCoordinator {
         } else {
             format!("续写{}（1500-2500 字）。必须推进剧情到故事大纲的下一节点，不得原地踏步、不得仅复述设定或复述前文；遵循世界观设定中的规则与约束。禁止重复：同一段落/句子不得出现两次，不得复述前文段落。\n资产已注入下方，无需 board_read 重复读取（如确有遗漏可补读）：\n{}\n完成后用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, assets_ctx, key)
         };
+        let writer_task = inject_batch_emotion_block(writer_task, &emotion_block);
         let writer_out = self
             .run_role_with_llm_and_budget(
                 budget,
@@ -5846,7 +5882,7 @@ impl AgencyCoordinator {
         // v0.30.30：writer 熔断降级取稿。MaxTurns/Deadline 前可能已 board_write
         // 产出草稿到黑板 Draft 区；连续解析失败黑板通常无稿 -> 直接散文回退。
         // 按约定 key 取稿：模型用错 key 时大声失败（错误文案含约定 key）
-        if writer_out.aborted {
+        let draft = if writer_out.aborted {
             let reason = circuit_break_reason(&writer_out);
             log::warn!(
                 "agency: 续写主创 tool_loop 熔断（{}），尝试降级取稿 run={}",
@@ -5879,7 +5915,29 @@ impl AgencyCoordinator {
         } else {
             self.latest_draft_by_key(board, run_id, &key, "主创未按约定 key 写入")
                 .await
+        };
+        let draft = draft?;
+        let emotion_probes = emotion_plan
+            .as_ref()
+            .map(|p| crate::emotion_circuit::run_chapter_emotion_probes(&draft.content, p))
+            .unwrap_or_default();
+        for probe in &emotion_probes {
+            if !probe.passed {
+                log::warn!(
+                    "agency: 批量情感探针未过 run={} probe={} severity={} detail={}",
+                    run_id,
+                    probe.code,
+                    probe.severity.id(),
+                    probe.detail
+                );
+            }
         }
+        Ok(BatchChapterArtifacts {
+            draft,
+            card,
+            emotion: emotion_plan,
+            emotion_probes,
+        })
     }
 
     /// 单章 gate 结果处理：修订（≤1 轮，总线记录 proposal）→ 装配 Scene。
@@ -5895,12 +5953,17 @@ impl AgencyCoordinator {
         story_id: &str,
         premise: &str,
         chapter_number: i32,
-        draft: BoardItem,
+        artifacts: BatchChapterArtifacts,
         mut revised: bool,
         outcome: GateOutcome,
         cancel: &Arc<AtomicBool>,
     ) -> Result<AgencyContinueResult, AppError> {
-        let mut draft = draft;
+        let BatchChapterArtifacts {
+            mut draft,
+            card,
+            emotion,
+            emotion_probes: _,
+        } = artifacts;
         let final_verdict = match outcome {
             GateOutcome::Passed { verdict } => verdict,
             GateOutcome::RevisionRequired { issues, .. } if !revised => {
@@ -5931,7 +5994,8 @@ impl AgencyCoordinator {
                     }),
                 );
                 self.update_phase(repo, run_id, "revision").await?;
-                let task = Self::build_revision_task(&draft, &issues);
+                let task =
+                    Self::build_revision_task_with_emotion(&draft, &issues, emotion.as_ref());
                 let revise_out = self
                     .run_role_with_llm_and_budget(
                         budget,
@@ -5960,7 +6024,15 @@ impl AgencyCoordinator {
                 self.check_cancel(cancel)?;
                 let second = self
                     .evaluate_gate(
-                        budget, board, registry, run_id, story_id, premise, &draft, 2,
+                        budget,
+                        board,
+                        registry,
+                        run_id,
+                        story_id,
+                        premise,
+                        &draft,
+                        2,
+                        emotion.as_ref(),
                     )
                     .await?;
                 match second {
@@ -5987,6 +6059,11 @@ impl AgencyCoordinator {
                 }
             }
         };
+        let final_probes = emotion
+            .as_ref()
+            .map(|p| crate::emotion_circuit::run_chapter_emotion_probes(&draft.content, p))
+            .unwrap_or_default();
+        let card_ref = emotion.as_ref().map(|_| &card);
         let mut assembled = self
             .assemble_next_chapter(
                 budget,
@@ -5996,7 +6073,9 @@ impl AgencyCoordinator {
                 story_id,
                 chapter_number,
                 draft,
-                None,
+                card_ref,
+                emotion.as_ref(),
+                &final_probes,
             )
             .await?;
         assembled.revised = revised;
@@ -6015,6 +6094,8 @@ impl AgencyCoordinator {
         chapter_number: i32,
         draft: BoardItem,
         card: Option<&crate::agency::beat_card::SceneBeatCard>,
+        emotion: Option<&crate::emotion_circuit::ChapterEmotionPlan>,
+        emotion_probes: &[crate::emotion_circuit::EmotionProbe],
     ) -> Result<AgencyContinueResult, AppError> {
         self.update_phase(repo, run_id, "assembly").await?;
         self.emit_activity(run_id, AgentRole::Producer, "start", "装配");
@@ -6108,6 +6189,40 @@ impl AgencyCoordinator {
             }
         })
         .await;
+        if let Some(plan) = emotion {
+            let plan = plan.clone();
+            let probes = emotion_probes.to_vec();
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            let scene_id = scene.id.clone();
+            let ch = chapter_number;
+            let _ = tokio::task::spawn_blocking(move || {
+                let repo = crate::emotion_circuit::EmotionCircuitRepository::new(pool.clone());
+                if let Err(e) = repo.persist_chapter_plan(&sid, &scene_id, ch, &plan, &probes) {
+                    log::warn!("[emotion] 批量情感回路落库失败（非阻塞）: {e}");
+                }
+                let failed: Vec<String> = probes
+                    .iter()
+                    .filter(|p| !p.passed)
+                    .map(|p| format!("{}：{}", p.code, p.detail))
+                    .collect();
+                if !failed.is_empty() {
+                    let detail = format!("批量情感探针：{}", failed.join("；"));
+                    if let Err(e) = crate::story_system::quality_debt::record_debt(
+                        &pool,
+                        &sid,
+                        None,
+                        Some(ch),
+                        "continue_emotion",
+                        "warning",
+                        &detail,
+                    ) {
+                        log::warn!("[emotion] 批量质量债记录失败（非阻塞）: {e}");
+                    }
+                }
+            })
+            .await;
+        }
         self.emit_activity(run_id, AgentRole::Producer, "done", "装配");
         if let Some(ref card) = loop_card {
             self.close_beat_loop(run_id, story_id, card, &ingest_text);
@@ -6281,7 +6396,8 @@ impl AgencyCoordinator {
         let registry = Arc::new(ToolRegistry::agency_default());
         let mut chapters: Vec<AgencyContinueResult> = Vec::new();
         let mut pending_gate: Option<tokio::task::JoinHandle<Result<GateOutcome, AppError>>> = None;
-        let mut pending_chapter: Option<(i32, BoardItem, bool)> = None; // (章号, 草稿, 是否已修订过)
+        let mut pending_chapter: Option<(i32, BatchChapterArtifacts, bool)> = None;
+        let mut last_written_plan: Option<crate::emotion_circuit::ChapterEmotionPlan> = None;
 
         for offset in 0..count {
             let chapter_number = start_chapter + offset as i32;
@@ -6315,21 +6431,23 @@ impl AgencyCoordinator {
                 story_id,
                 &premise,
                 chapter_number,
+                last_written_plan.as_ref(),
             );
-            let draft = match pending_gate.take() {
+            let artifacts = match pending_gate.take() {
                 Some(jh) => {
                     // gate(n-1) 与 writer(n) 并发
                     let (gate_res, write_res) = tokio::join!(jh, write_fut);
                     let outcome = gate_res
                         .map_err(|e| AppError::from(format!("gate join error: {}", e)))??;
-                    let draft = write_res?;
+                    let artifacts = write_res?;
+                    last_written_plan = artifacts.emotion.clone();
                     self.emit_activity(
                         run_id,
                         AgentRole::LeadWriter,
                         "done",
                         &format!("第{}章草稿", chapter_number),
                     );
-                    let (prev_num, prev_draft, prev_revised) = pending_chapter.take().unwrap();
+                    let (prev_num, prev_artifacts, prev_revised) = pending_chapter.take().unwrap();
                     // gate(n-1) 结果到手：与 spawn 前的 editor start 配对
                     self.emit_activity(
                         run_id,
@@ -6347,7 +6465,7 @@ impl AgencyCoordinator {
                             story_id,
                             &premise,
                             prev_num,
-                            prev_draft,
+                            prev_artifacts,
                             prev_revised,
                             outcome,
                             cancel,
@@ -6356,27 +6474,35 @@ impl AgencyCoordinator {
                     chapters.push(prev);
                     // 每章 gate 处理完：自动会话快照（best-effort）
                     self.snapshot_phase(run_id, "assembly", "auto").await;
-                    draft
+                    artifacts
                 }
                 None => {
-                    let draft = write_fut.await?;
+                    let artifacts = write_fut.await?;
+                    last_written_plan = artifacts.emotion.clone();
                     self.emit_activity(
                         run_id,
                         AgentRole::LeadWriter,
                         "done",
                         &format!("第{}章草稿", chapter_number),
                     );
-                    draft
+                    artifacts
                 }
             };
 
             // spawn gate(n)（'static，与下一轮 writer 并发）
-            let runner = self.gate_runner(run_id, story_id, budget, &board, &registry);
+            let runner = self.gate_runner(
+                run_id,
+                story_id,
+                budget,
+                &board,
+                &registry,
+                artifacts.emotion.clone().map(Arc::new),
+            );
             let (rid, sid, prem, d) = (
                 run_id.to_string(),
                 story_id.to_string(),
                 premise.clone(),
-                draft.clone(),
+                artifacts.draft.clone(),
             );
             self.emit_activity(
                 run_id,
@@ -6387,11 +6513,11 @@ impl AgencyCoordinator {
             pending_gate = Some(tokio::spawn(async move {
                 runner.evaluate(rid, sid, prem, d, 1).await
             }));
-            pending_chapter = Some((chapter_number, draft, false));
+            pending_chapter = Some((chapter_number, artifacts, false));
         }
 
         // 收尾：最后一章 gate
-        if let (Some(jh), Some((num, draft, revised))) =
+        if let (Some(jh), Some((num, artifacts, revised))) =
             (pending_gate.take(), pending_chapter.take())
         {
             let outcome = jh
@@ -6399,7 +6525,7 @@ impl AgencyCoordinator {
                 .map_err(|e| AppError::from(format!("gate join error: {}", e)))??;
             let last = self
                 .handle_gate(
-                    budget, &board, &registry, repo, run_id, story_id, &premise, num, draft,
+                    budget, &board, &registry, repo, run_id, story_id, &premise, num, artifacts,
                     revised, outcome, cancel,
                 )
                 .await?;
@@ -6584,6 +6710,7 @@ impl AgencyCoordinator {
         budget: &Arc<AgencyBudget>,
         board: &BlackboardService,
         registry: &Arc<ToolRegistry>,
+        emotion_plan: Option<Arc<crate::emotion_circuit::ChapterEmotionPlan>>,
     ) -> GateRunner {
         GateRunner {
             llm: self.llm_for_run(run_id, AgentRole::EditorAuditor, story_id),
@@ -6593,6 +6720,7 @@ impl AgencyCoordinator {
             pool: self.pool.clone(),
             app_handle: self.app_handle.clone(),
             deadline: self.current_deadline(),
+            emotion_plan,
         }
     }
 
@@ -6632,12 +6760,23 @@ impl AgencyCoordinator {
         premise: &str,
         draft: &BoardItem,
         round: u32,
+        emotion_plan: Option<&crate::emotion_circuit::ChapterEmotionPlan>,
     ) -> Result<GateOutcome, AppError> {
         // 质量门恒为编辑审计角色档（模型路由 + 定点取消注册）
         let llm = self.llm_for_run(run_id, AgentRole::EditorAuditor, story_id);
         let deadline = self.current_deadline();
         let (outcome, gate_score) = evaluate_gate_impl(
-            &llm, budget, &self.pool, board, registry, run_id, story_id, premise, draft, round,
+            &llm,
+            budget,
+            &self.pool,
+            board,
+            registry,
+            run_id,
+            story_id,
+            premise,
+            draft,
+            round,
+            emotion_plan,
             deadline,
         )
         .await?;
@@ -6667,6 +6806,22 @@ impl AgencyCoordinator {
             "修订「{}」。先用 board_revise 直接修订该条目（item_id={}, expected_version={}），content 为完整修订稿。修订时不得引入重复段落或复述原文。审查阻断问题：{}",
             draft.key, draft.id, draft.version, issues.join("；")
         )
+    }
+
+    /// 批量修订：在既有修订指令后追加本章情感弧，防止修订把情感线改平。
+    pub(crate) fn build_revision_task_with_emotion(
+        draft: &BoardItem,
+        issues: &[String],
+        plan: Option<&crate::emotion_circuit::ChapterEmotionPlan>,
+    ) -> String {
+        let base = Self::build_revision_task(draft, issues);
+        if let Some(plan) = plan {
+            let block = crate::emotion_circuit::render_batch_revision_block(plan);
+            if !block.trim().is_empty() {
+                return format!("{base}\n\n{block}");
+            }
+        }
+        base
     }
 
     /// 质量门 Failed 降级放行（v0.30.30）：editor 完全失败（tool_loop 熔断 +
@@ -6990,6 +7145,7 @@ pub(crate) async fn evaluate_gate_impl(
     premise: &str,
     draft: &BoardItem,
     round: u32,
+    emotion_plan: Option<&crate::emotion_circuit::ChapterEmotionPlan>,
     deadline: Option<std::time::Instant>,
 ) -> Result<(GateOutcome, Option<crate::agency::gate::GateScore>), AppError> {
     // 1) editor 裁决（解析失败重试一次）。
@@ -7002,6 +7158,7 @@ pub(crate) async fn evaluate_gate_impl(
     // v0.30.31: editor 预注入参照资产（世界观红线/世界观设定/故事大纲），与
     // writer 同源。此前 editor 只见草稿正文、无参照物，"合同兑现/连续性/世界观
     // 一致性/推进方向"维度无法校验。构建一次供两次 attempt 复用。
+    let plan_for_assets = emotion_plan.cloned();
     let editor_assets = {
         let pool_c = pool.clone();
         let sid = story_id.to_string();
@@ -7099,6 +7256,14 @@ pub(crate) async fn evaluate_gate_impl(
                 if let Some(block) =
                     crate::story_system::human_voice::render_audit_block(&report, 6)
                 {
+                    ctx.push_str(&block);
+                    ctx.push_str("\n\n");
+                }
+            }
+            if let Some(plan) = plan_for_assets.as_ref() {
+                let block = crate::emotion_circuit::render_batch_emotion_block(plan);
+                if !block.trim().is_empty() {
+                    ctx.push_str("【本章情感计划（用于核对情感因果与兑现）】\n");
                     ctx.push_str(&block);
                     ctx.push_str("\n\n");
                 }
@@ -7220,6 +7385,7 @@ pub(crate) async fn evaluate_gate_impl(
         chapter_number,
         &draft.content,
         &hints,
+        emotion_plan,
     )
     .await;
     let gate_score = crate::agency::gate::GateScore::new(
@@ -7399,6 +7565,7 @@ pub struct GateRunner {
     pool: DbPool,
     app_handle: Option<AppHandle>,
     deadline: Option<std::time::Instant>,
+    emotion_plan: Option<Arc<crate::emotion_circuit::ChapterEmotionPlan>>,
 }
 
 impl GateRunner {
@@ -7421,6 +7588,7 @@ impl GateRunner {
             &premise,
             &draft,
             round,
+            self.emotion_plan.as_deref(),
             self.deadline,
         )
         .await?;
@@ -7568,6 +7736,15 @@ pub(crate) struct EmotionBeatOutcome {
     pub probes: Vec<crate::emotion_circuit::EmotionProbe>,
 }
 
+/// 批量一章从写作到装配需要携带的全部产物。
+#[derive(Debug, Clone)]
+pub(crate) struct BatchChapterArtifacts {
+    pub draft: BoardItem,
+    pub card: crate::agency::beat_card::SceneBeatCard,
+    pub emotion: Option<crate::emotion_circuit::ChapterEmotionPlan>,
+    pub emotion_probes: Vec<crate::emotion_circuit::EmotionProbe>,
+}
+
 fn build_cast_profiles(
     card: &crate::agency::beat_card::SceneBeatCard,
     parts: Option<&ContinueContextParts>,
@@ -7679,6 +7856,56 @@ fn load_emotion_plan(
         peak_used,
     };
     Some((crate::emotion_circuit::select_next_beat(&input), contract))
+}
+
+/// 批量章节情感弧：只有契约存在才返回 Some。
+fn load_chapter_emotion_plan(
+    pool: &DbPool,
+    story_id: &str,
+    chapter_number: i32,
+    cast: &[crate::emotion_circuit::CastEmotionProfile],
+    chapter_outline: &str,
+    next_node: &str,
+    location: Option<&str>,
+    previous_plan: Option<&crate::emotion_circuit::ChapterEmotionPlan>,
+) -> Option<crate::emotion_circuit::ChapterEmotionPlan> {
+    use crate::emotion_circuit::EmotionCircuitRepository;
+    let repo = EmotionCircuitRepository::new(pool.clone());
+    let contract = repo.get_contract(story_id).ok().flatten()?;
+    let _ = repo.seed_tensions_from_relationships(story_id, chapter_number);
+    let cast_names: std::collections::HashSet<&str> =
+        cast.iter().map(|c| c.name.as_str()).collect();
+    let tensions: Vec<_> = repo
+        .list_tensions(story_id)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|t| {
+            cast_names.contains(t.source_name.as_str())
+                && (t.target_name.is_empty() || cast_names.contains(t.target_name.as_str()))
+        })
+        .collect();
+    let debts = repo.list_debts(story_id).unwrap_or_default();
+    let states: Vec<_> = repo
+        .latest_states(story_id)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| cast_names.contains(s.character_name.as_str()))
+        .collect();
+    let peak_used = repo.peak_used(story_id, chapter_number).unwrap_or(0);
+    let input = crate::emotion_circuit::ChapterPlanInput {
+        chapter_number,
+        contract: Some(&contract),
+        cast,
+        tensions: &tensions,
+        debts: &debts,
+        states: &states,
+        chapter_outline,
+        next_node,
+        location,
+        peak_used,
+        previous_plan,
+    };
+    crate::emotion_circuit::plan_chapter_emotion(&input)
 }
 
 /// 情感压力优先：若最高压关系对已在本拍阵容里，替换掉按敌意关键词选的冲突。
@@ -7947,6 +8174,21 @@ fn format_chars_for_outline(parts: &ContinueContextParts, admitted: &[String]) -
         s.push_str(&line);
     }
     s
+}
+
+/// 批量 writer task 注入情感块：优先放在「写作要求」前，其次放在
+/// 「完成后用 board_write」前；空块原样返回，保证无契约时 task 逐字不变。
+fn inject_batch_emotion_block(task: String, block: &str) -> String {
+    if block.trim().is_empty() {
+        return task;
+    }
+    for marker in ["写作要求：", "完成后用 board_write"] {
+        if let Some(pos) = task.find(marker) {
+            let (head, tail) = task.split_at(pos);
+            return format!("{head}{block}\n\n{tail}");
+        }
+    }
+    format!("{task}\n\n{block}")
 }
 
 pub(crate) fn continue_short_retry_user(user: &str) -> String {

@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.76.0（2026-11-01）
+
+**批量续写接情感回路：一章 1–3 幕的章节情感弧。**
+
+- **章节级计划**：新增 `ChapterEmotionPlan` / `plan_chapter_emotion` / `split_chapter_into_acts`。按章纲关键事件生成 1–3 幕，每幕复用 `EmotionBeat`（事件→评估→情绪→行动/台词→代价→载体）；无契约时返回 `None`，旧批量路径不变。
+- **writer task 注入**：`write_chapter` 返回 `BatchChapterArtifacts`，在「写作要求」前注入【本章情感回路（批量续写）】≤900 字；无计划时 task 逐字不变。
+- **gate/revision 同一计划**：`GateRunner`/`evaluate_gate`/`evaluate_gate_impl`/`run_rule_grader` 接收章节计划；editor 参照资产追加情感计划；`build_revision_task_with_emotion` 让修订保留本章弧与每幕代价。
+- **写回**：装配后 `persist_chapter_plan` 写 N 行 `scene_emotion_beats`、角色最终状态（source=batch）、张力累积、探针日志；探针失败进质量债。card 仅在情感启用时回传，补齐批量章 scene 元数据。
+- **批内连续**：`run_batch_inner` 维护 `last_written_plan`，下一章第 1 幕 `from` 取上一章末幕 `to`，不依赖尚未 commit 的 DB 状态。
+- **验证**：Rust **1946 passed / 10 ignored**（+11）；vitest **647 passed / 3 skipped**；playwright **45 passed / 5 skipped**；tsc / clippy / fmt / guard / IPC manifest 全绿。
+- **未关闭**：人类 A/B 与真实模型端到端批量情感目标达成率待复测；批量章探针仍 advisory，不硬阻断。
+
 ## v0.75.0（2026-10-31）
 
 **情感回路（Story Emotion Circuit）：把 EmotionCircuits-LLM 的机制发现落成情感驱动的情节发动机。**

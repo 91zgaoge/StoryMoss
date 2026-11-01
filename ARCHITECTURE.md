@@ -1162,6 +1162,7 @@ function assertUnreachable(x: never): never {
   - `adaptation` / `whitebox`：题材契约建议；本地 HF 白盒适配端口（默认 noop）。
 - **数据表（V150）**：`story_emotion_contracts`、`character_emotion_states`、`scene_emotion_beats`、`emotion_tensions`、`emotion_debts`、`reader_resonance_reviews`、`emotion_probe_log`。全部 additive。
 - **续写接线**：`AgencyCoordinator::write_beat_once` 在章纲生成后加载契约/张力/债务/状态，选本拍回路；若最高压关系对已在本拍阵容，替换按敌意关键词选的冲突（保留 `ConflictStage` 阶梯）；`render_writer_user_prompt_with_emotion` 把情感块放在节拍卡之后、人物锁/状态网之前；落库后 `persist_emotion_beat` 写回。
+- **批量续写（v0.76.0）**：`write_chapter` 用 `plan_chapter_emotion` 生成 1–3 幕的 `ChapterEmotionPlan`，返回 `BatchChapterArtifacts`；`GateRunner`/`evaluate_gate`/`run_rule_grader` 使用同一计划；`handle_gate` revision 保留情感弧；`assemble_next_chapter` 调 `persist_chapter_plan` 写 N 行 `scene_emotion_beats`/状态/张力/探针；`run_batch_inner` 用 `last_written_plan` 做批内续接。
 - **门禁**：编辑审查第 9 维 `emotion`；`run_rule_grader` 规则分 = 合同 0.4 + 追读 0.3 + 情感 0.3（无计划节拍时情感 0.5）；Gate 顶层权重 0.2/0.3/0.5 与阈值 0.75 不变。
 - **不变量**：P0/P1 情感探针只记录不阻断；作者设置契约后启用，旧故事无契约时提示词逐字不变；稳定 bundle 仍在最前，情感块属于动态区；不在远程 API 上做激活级干预。
 

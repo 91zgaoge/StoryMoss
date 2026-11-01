@@ -23,11 +23,15 @@ pub use appraisal::{
     Agency, Appraisal, EventKind, Sensitivities,
 };
 pub use carriers::{select_carriers, Carrier, CarrierPlan};
-pub use circuit::{select_next_beat, BeatSelectionInput, CastEmotionProfile, EmotionPlan};
-pub use modulation::{
-    render_chapter_emotion_plan, render_emotion_block, render_emotion_state_block,
+pub use circuit::{
+    plan_chapter_emotion, select_next_beat, split_chapter_into_acts, BeatSelectionInput,
+    CastEmotionProfile, ChapterEmotionPlan, ChapterPlanInput, EmotionPlan,
 };
-pub use probe::{run_emotion_probes, EmotionProbe, ProbeSeverity};
+pub use modulation::{
+    render_batch_emotion_block, render_batch_revision_block, render_chapter_emotion_plan,
+    render_emotion_block, render_emotion_state_block,
+};
+pub use probe::{run_chapter_emotion_probes, run_emotion_probes, EmotionProbe, ProbeSeverity};
 pub use reader::{
     aggregate_reviews, build_reader_panel_prompt, parse_reader_review, ReaderAggregate,
     ReaderReview, ReaderScores, READER_PERSONAS,

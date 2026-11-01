@@ -749,6 +749,7 @@ async fn real_machine_probe_continue_retrieval_technique_agreement() {
                     "续写《帝国的烟火》第3章",
                     &draft,
                     1,
+                    None,
                 )
                 .await
             {

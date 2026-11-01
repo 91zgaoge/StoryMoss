@@ -4,7 +4,11 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{types::EmotionBeat, vector::EmotionVector};
+use super::{
+    circuit::{split_chapter_into_acts, ChapterEmotionPlan},
+    types::EmotionBeat,
+    vector::EmotionVector,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -50,6 +54,126 @@ impl EmotionProbe {
             detail: detail.into(),
         }
     }
+}
+
+/// 批量章节探针：按幕切分后逐幕跑单拍探针，再按章节聚合。
+pub fn run_chapter_emotion_probes(text: &str, plan: &ChapterEmotionPlan) -> Vec<EmotionProbe> {
+    if plan.is_empty() || text.trim().is_empty() {
+        return Vec::new();
+    }
+    let segments = split_chapter_into_acts(text, plan.beats.len());
+    let mut all: Vec<EmotionProbe> = Vec::new();
+    for (i, beat) in plan.beats.iter().enumerate() {
+        let seg = segments.get(i).map(String::as_str).unwrap_or(text);
+        all.extend(run_emotion_probes(seg, beat));
+    }
+    let n = plan.beats.len();
+    let mut out: Vec<EmotionProbe> = Vec::new();
+
+    let causality: Vec<&EmotionProbe> = all
+        .iter()
+        .filter(|p| p.code == "emotion_causality")
+        .collect();
+    let causality_pass = causality.iter().filter(|p| p.passed).count();
+    if causality_pass * 2 >= n {
+        out.push(EmotionProbe::pass(
+            "emotion_causality",
+            format!("{causality_pass}/{n} 幕有行动或代价支撑"),
+        ));
+    } else {
+        out.push(EmotionProbe::fail(
+            "emotion_causality",
+            ProbeSeverity::High,
+            format!("仅 {causality_pass}/{n} 幕有行动或代价支撑；整章情感停在标签层"),
+        ));
+    }
+
+    let actual = EmotionVector::from_text(text);
+    if actual.is_zero() {
+        out.push(EmotionProbe::fail(
+            "emotion_target",
+            ProbeSeverity::Low,
+            "正文未提取到明确情绪词，无法核对目标情感（低置信）",
+        ));
+    } else {
+        let sim = 1.0 - plan.chapter_to.distance(&actual);
+        if sim < 0.35 {
+            out.push(EmotionProbe::fail(
+                "emotion_target",
+                ProbeSeverity::Medium,
+                format!(
+                    "目标情感 {} 与正文实际 {} 偏离较大（相似度 {:.2}）",
+                    plan.chapter_to.render_compact(2),
+                    actual.render_compact(2),
+                    sim
+                ),
+            ));
+        } else if sim < 0.50 {
+            out.push(EmotionProbe::fail(
+                "emotion_target",
+                ProbeSeverity::Low,
+                format!(
+                    "目标情感 {} 与正文实际 {} 部分偏离（相似度 {:.2}）",
+                    plan.chapter_to.render_compact(2),
+                    actual.render_compact(2),
+                    sim
+                ),
+            ));
+        } else {
+            out.push(EmotionProbe::pass(
+                "emotion_target",
+                format!("目标情感达成相似度 {:.2}", sim),
+            ));
+        }
+        let moved = plan.chapter_from.distance(&actual);
+        if moved < 0.10 {
+            out.push(EmotionProbe::fail(
+                "emotion_delta",
+                ProbeSeverity::High,
+                format!(
+                    "本章情绪从 {} 到 {} 没有实质变化（位移 {:.2}）",
+                    plan.chapter_from.render_compact(2),
+                    actual.render_compact(2),
+                    moved
+                ),
+            ));
+        } else {
+            out.push(EmotionProbe::pass(
+                "emotion_delta",
+                format!("情感位移 {:.2}", moved),
+            ));
+        }
+    }
+
+    if let Some(fail) = all
+        .iter()
+        .find(|p| p.code == "voice_consistency" && !p.passed)
+    {
+        out.push(fail.clone());
+    } else {
+        out.push(EmotionProbe::pass("voice_consistency", "未出现台词禁忌"));
+    }
+
+    if plan.tension.is_some() {
+        if all.iter().any(|p| p.code == "tension_payoff" && p.passed) {
+            out.push(EmotionProbe::pass("tension_payoff", "张力有推进动作"));
+        } else {
+            out.push(EmotionProbe::fail(
+                "tension_payoff",
+                ProbeSeverity::Medium,
+                "本章有选定关系张力，但正文没有升级/揭示/修复/破裂的可见动作",
+            ));
+        }
+    }
+
+    for code in ["melodrama", "reader_restraint", "carrier_sparsity"] {
+        if let Some(fail) = all.iter().find(|p| p.code == code && !p.passed) {
+            out.push(fail.clone());
+        } else {
+            out.push(EmotionProbe::pass(code, "未触发"));
+        }
+    }
+    out
 }
 
 pub fn run_emotion_probes(text: &str, beat: &EmotionBeat) -> Vec<EmotionProbe> {
@@ -394,5 +518,33 @@ mod tests {
         let probes = run_emotion_probes(text, &beat());
         let failed = probes.iter().filter(|p| !p.passed).count();
         assert!(failed <= 2, "probes={probes:?}");
+    }
+
+    #[test]
+    fn chapter_probes_aggregate_multi_act() {
+        let b1 = beat();
+        let mut b2 = beat();
+        b2.from = b1.to.clone();
+        b2.to = EmotionVector::from_pairs(&[("sadness", 0.5), ("hope", 0.3)]);
+        b2.scale = 1.2;
+        let plan = ChapterEmotionPlan {
+            chapter_number: 1,
+            contract: None,
+            beats: vec![b1.clone(), b2],
+            tension: None,
+            debt: None,
+            plot_nodes: vec![],
+            chapter_from: b1.from.clone(),
+            chapter_to: EmotionVector::from_pairs(&[("sadness", 0.5), ("hope", 0.3)]),
+        };
+        let text = format!(
+            "{} {}",
+            "林雪把伞推回去，阿岩失去了解释的机会，她难过又愤怒。".repeat(20),
+            "她转身离开，他沉默地站在原地，她心里发冷。".repeat(20)
+        );
+        let probes = run_chapter_emotion_probes(&text, &plan);
+        assert!(probes.iter().any(|p| p.code == "emotion_causality"));
+        assert!(probes.iter().any(|p| p.code == "emotion_target"));
+        assert!(probes.iter().any(|p| p.code == "emotion_delta"));
     }
 }

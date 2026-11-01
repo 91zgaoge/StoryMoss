@@ -493,7 +493,7 @@ async fn test_editor_verdict_prose_fallback() {
     let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
     let outcome = coordinator
         .evaluate_gate(
-            &budget, &board, &registry, "rg-fb", &story.id, "续写", &draft, 1,
+            &budget, &board, &registry, "rg-fb", &story.id, "续写", &draft, 1, None,
         )
         .await
         .unwrap();
@@ -1119,6 +1119,50 @@ fn test_build_revision_task_contains_item_ref() {
     assert!(task.contains(&format!("item_id={}", draft.id)));
     assert!(task.contains("expected_version=1"));
     assert!(task.contains("动机缺失"));
+}
+
+#[test]
+fn test_build_revision_task_with_emotion_keeps_arc() {
+    let draft = BoardItem::new(
+        "r",
+        "s",
+        BoardZone::Draft,
+        "chapter",
+        "第一章",
+        "初稿。",
+        "初稿",
+        AgentRole::LeadWriter,
+        "active",
+    );
+    let from = crate::emotion_circuit::EmotionVector::from_pairs(&[("shame", 0.6)]);
+    let to = crate::emotion_circuit::EmotionVector::from_pairs(&[("anger", 0.6)]);
+    let beat = crate::emotion_circuit::EmotionBeat {
+        from: from.clone(),
+        to: to.clone(),
+        trigger_event: "阿岩当众替林雪承认".into(),
+        cost: "她推开他".into(),
+        source_name: "林雪".into(),
+        target_name: "阿岩".into(),
+        ..Default::default()
+    };
+    let plan = crate::emotion_circuit::ChapterEmotionPlan {
+        chapter_number: 1,
+        contract: None,
+        beats: vec![beat],
+        tension: None,
+        debt: None,
+        plot_nodes: vec![],
+        chapter_from: from,
+        chapter_to: to,
+    };
+    let task = AgencyCoordinator::build_revision_task_with_emotion(
+        &draft,
+        &["动机缺失".to_string()],
+        Some(&plan),
+    );
+    assert!(task.contains("动机缺失"));
+    assert!(task.contains("本章情感弧"));
+    assert!(task.contains("阿岩当众替林雪承认"));
 }
 
 #[tokio::test]
@@ -2505,7 +2549,7 @@ async fn test_gate_rule_recheck_blocks_repeated_opening() {
     let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
     let outcome = coordinator
         .evaluate_gate(
-            &budget, &board, &registry, "rg-1", &story.id, "续写", &draft, 1,
+            &budget, &board, &registry, "rg-1", &story.id, "续写", &draft, 1, None,
         )
         .await
         .unwrap();
@@ -2528,6 +2572,7 @@ struct RoutingMock {
     editor: Mutex<VecDeque<String>>,
     producer: Mutex<VecDeque<String>>,
     intervals: Mutex<Vec<(String, std::time::Instant, std::time::Instant)>>,
+    writer_prompts: Mutex<Vec<String>>,
     delay_ms: u64,
 }
 
@@ -2538,6 +2583,7 @@ impl RoutingMock {
             editor: Mutex::new(VecDeque::new()),
             producer: Mutex::new(VecDeque::new()),
             intervals: Mutex::new(Vec::new()),
+            writer_prompts: Mutex::new(Vec::new()),
             delay_ms,
         })
     }
@@ -2558,7 +2604,7 @@ impl LoopLlm for RoutingMock {
     async fn complete(
         &self,
         system: &str,
-        _u: &str,
+        u: &str,
         _t: crate::router::TaskType,
         _m: i32,
     ) -> Result<String, AppError> {
@@ -2571,6 +2617,9 @@ impl LoopLlm for RoutingMock {
         } else {
             "producer"
         };
+        if role == "writer" {
+            self.writer_prompts.lock().unwrap().push(u.to_string());
+        }
         let start = std::time::Instant::now();
         tokio::time::sleep(std::time::Duration::from_millis(self.delay_ms)).await;
         let out = {
@@ -2684,6 +2733,61 @@ async fn test_batch_parallel_two_chapters() {
         .unwrap()
         .unwrap();
     assert_eq!(run.status, "completed");
+}
+
+#[tokio::test]
+async fn test_batch_injects_emotion_plan_and_persists_acts() {
+    let pool = create_test_pool().unwrap();
+    let story_id = seed_story_with_assets(&pool);
+    crate::emotion_circuit::EmotionCircuitRepository::new(pool.clone())
+        .upsert_contract(&crate::emotion_circuit::EmotionContract {
+            story_id: story_id.clone(),
+            core_question: "能否在失去中保住自己".into(),
+            reader_promise: "看一个人如何在背叛后继续走".into(),
+            peak_budget: 2,
+            version: 1,
+            ..Default::default()
+        })
+        .unwrap();
+    let mock = RoutingMock::new(0);
+    mock.push(
+        "producer",
+        vec![
+            "戏剧目标：阿苔追查星环。\n关键事件：\n1. 阿苔在禁区发现星环线索\n2. 盟友在关键时刻背叛她\n3. 阿苔与盟友决裂并独自深入\n出场角色：阿苔\n场景设定：禁区\n与故事大纲的衔接：承接上一节点",
+        ],
+    );
+    let write = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"一"}}}}"#,
+        pass_grade_content("阿苔在禁区发现星环线索。盟友背叛，她推开他。")
+    );
+    mock.push(
+        "writer",
+        vec![write.as_str(), r#"{"type":"final","content":"第一章完成"}"#],
+    );
+    mock.push(
+        "editor",
+        vec![
+            r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
+        ],
+    );
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), mock.clone());
+    let result = coordinator
+        .run_continue_batch("rb-emo", &story_id, 1, 1)
+        .await
+        .unwrap();
+    assert_eq!(result.chapters.len(), 1);
+    let prompts = mock.writer_prompts.lock().unwrap();
+    assert!(
+        prompts.iter().any(|p| p.contains("本章情感回路")),
+        "批量 writer task 应注入情感块: {:?}",
+        *prompts
+    );
+    let scene_id = result.chapters[0].scene_id.clone();
+    let beats = crate::emotion_circuit::EmotionCircuitRepository::new(pool.clone())
+        .list_scene_beats(&story_id, &scene_id)
+        .unwrap();
+    assert!(!beats.is_empty(), "批量章应落库情感幕");
+    assert!(beats.len() <= 3, "批量章最多 3 幕: {}", beats.len());
 }
 
 #[tokio::test]
@@ -3131,7 +3235,9 @@ async fn test_write_chapter_wrong_key_fails_loudly() {
     let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
     // 单章续写不再回落到 write_chapter；本契约直接打 tool_loop 路径。
     let err = coordinator
-        .write_chapter(&budget, &board, &registry, "rw-1", &story_id, "续写", 1)
+        .write_chapter(
+            &budget, &board, &registry, "rw-1", &story_id, "续写", 1, None,
+        )
         .await
         .unwrap_err();
     assert!(
@@ -3303,7 +3409,7 @@ async fn test_gate_v2_subagent_high_blocks_despite_high_weighted() {
     let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
     let outcome = coordinator
         .evaluate_gate(
-            &budget, &board, &registry, "rg-5", &story.id, "续写", &draft, 1,
+            &budget, &board, &registry, "rg-5", &story.id, "续写", &draft, 1, None,
         )
         .await
         .unwrap();

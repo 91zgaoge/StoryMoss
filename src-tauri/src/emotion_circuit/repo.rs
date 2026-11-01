@@ -5,6 +5,7 @@ use rusqlite::{params, OptionalExtension};
 use uuid::Uuid;
 
 use super::{
+    circuit::ChapterEmotionPlan,
     probe::{EmotionProbe, ProbeSeverity},
     reader::ReaderReview,
     types::{
@@ -610,6 +611,63 @@ impl EmotionCircuitRepository {
         rows.collect()
     }
 
+    /// 批量章节落库：N 个 act + 主角最终状态 + 张力累积 + 探针日志。
+    /// 逐行 best-effort；任一失败由调用方告警，不影响正文落库。
+    pub fn persist_chapter_plan(
+        &self,
+        story_id: &str,
+        scene_id: &str,
+        chapter_number: i32,
+        plan: &ChapterEmotionPlan,
+        probes: &[EmotionProbe],
+    ) -> Result<(), rusqlite::Error> {
+        if plan.is_empty() {
+            return Ok(());
+        }
+        for (i, beat) in plan.beats.iter().enumerate() {
+            let row = SceneEmotionBeat::from_beat(story_id, scene_id, i as i32 + 1, beat);
+            self.insert_scene_beat(&row)?;
+        }
+        if let Some(last) = plan.beats.last() {
+            if let Some(character_id) = self.find_character_id(story_id, &last.source_name)? {
+                let state = CharacterEmotionState {
+                    id: String::new(),
+                    story_id: story_id.to_string(),
+                    character_id,
+                    character_name: last.source_name.clone(),
+                    scene_id: Some(scene_id.to_string()),
+                    chapter_number: Some(chapter_number),
+                    beat_index: Some(plan.beats.len() as i32),
+                    vector: plan.chapter_to.clone(),
+                    intensity: plan.chapter_to.dominant().1.clamp(0.0, 1.0),
+                    active_goal: None,
+                    defense: None,
+                    cause_event: Some(last.trigger_event.clone()),
+                    source: "batch".into(),
+                    created_at: Local::now().to_rfc3339(),
+                };
+                self.insert_state(&state)?;
+            }
+        }
+        if let Some(tension) = plan.tension.as_ref() {
+            let conn = self.conn()?;
+            conn.execute(
+                "UPDATE emotion_tensions SET pressure = MIN(1.0, pressure + 0.05), \
+                 accumulated_beats = accumulated_beats + ?1, last_escalated_chapter = ?2, \
+                 updated_at = ?3 WHERE story_id = ?4 AND id = ?5",
+                params![
+                    plan.beats.len() as i64,
+                    chapter_number,
+                    Local::now().to_rfc3339(),
+                    story_id,
+                    tension.id,
+                ],
+            )?;
+        }
+        self.insert_probe_logs(story_id, Some(scene_id), None, probes)?;
+        Ok(())
+    }
+
     /// 本拍落库后的状态更新：场景情感链 + 主角情绪状态 + 张力累积。
     pub fn persist_after_beat(
         &self,
@@ -941,6 +999,85 @@ mod tests {
         assert!(tensions[0].tension_type.contains("欺骗"));
         assert_eq!(tensions[0].due_chapter, Some(6));
         assert_eq!(repo.seed_tensions_from_relationships(&sid, 4).unwrap(), 0);
+    }
+
+    #[test]
+    fn persist_chapter_plan_writes_acts_state_and_tension() {
+        let (pool, sid, cid) = setup();
+        let scene = {
+            let repo = crate::db::repositories::SceneRepository::new(pool.clone());
+            let mut conn = pool.get().unwrap();
+            let tx = conn.transaction().unwrap();
+            let scene = repo.create_in_tx(&tx, &sid, 1, Some("第1章")).unwrap();
+            tx.commit().unwrap();
+            scene
+        };
+        let repo = EmotionCircuitRepository::new(pool.clone());
+        repo.upsert_tension(&EmotionTension {
+            id: "t1".into(),
+            story_id: sid.clone(),
+            source_character_id: cid.clone(),
+            target_character_id: None,
+            source_name: "林雪".into(),
+            target_name: "阿岩".into(),
+            tension_type: "未揭穿的欺骗".into(),
+            pressure: 0.6,
+            accumulated_beats: 0,
+            due_chapter: Some(3),
+            status: "open".into(),
+            ..Default::default()
+        })
+        .unwrap();
+        let from = crate::emotion_circuit::EmotionVector::from_pairs(&[("shame", 0.6)]);
+        let mid = crate::emotion_circuit::EmotionVector::from_pairs(&[("anger", 0.7)]);
+        let to =
+            crate::emotion_circuit::EmotionVector::from_pairs(&[("anger", 0.5), ("hope", 0.3)]);
+        let b1 = crate::emotion_circuit::EmotionBeat {
+            from: from.clone(),
+            to: mid.clone(),
+            trigger_event: "阿岩当众承认".into(),
+            cost: "她推开他".into(),
+            source_name: "林雪".into(),
+            target_name: "阿岩".into(),
+            tension_id: Some("t1".into()),
+            scale: 0.8,
+            ..Default::default()
+        };
+        let b2 = crate::emotion_circuit::EmotionBeat {
+            from: mid,
+            to: to.clone(),
+            trigger_event: "她拒绝他的解释".into(),
+            cost: "他沉默离开".into(),
+            source_name: "林雪".into(),
+            target_name: "阿岩".into(),
+            tension_id: Some("t1".into()),
+            scale: 1.2,
+            ..Default::default()
+        };
+        let plan = crate::emotion_circuit::ChapterEmotionPlan {
+            chapter_number: 1,
+            contract: None,
+            beats: vec![b1, b2],
+            tension: Some(EmotionTension {
+                id: "t1".into(),
+                story_id: sid.clone(),
+                source_character_id: cid,
+                ..Default::default()
+            }),
+            debt: None,
+            plot_nodes: vec!["当众承认".into(), "拒绝解释".into()],
+            chapter_from: from,
+            chapter_to: to,
+        };
+        repo.persist_chapter_plan(&sid, &scene.id, 1, &plan, &[])
+            .unwrap();
+        let beats = repo.list_scene_beats(&sid, &scene.id).unwrap();
+        assert_eq!(beats.len(), 2);
+        assert_eq!(beats[1].beat_index, 2);
+        let states = repo.latest_states(&sid).unwrap();
+        assert!(states.iter().any(|s| s.source == "batch"));
+        let tensions = repo.list_tensions(&sid).unwrap();
+        assert_eq!(tensions[0].accumulated_beats, 2);
     }
 
     #[test]

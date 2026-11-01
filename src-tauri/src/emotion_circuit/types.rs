@@ -192,6 +192,32 @@ pub struct SceneEmotionBeat {
 }
 
 impl SceneEmotionBeat {
+    /// 从计划对象构造待落库行。
+    pub fn from_beat(story_id: &str, scene_id: &str, beat_index: i32, beat: &EmotionBeat) -> Self {
+        Self {
+            id: String::new(),
+            story_id: story_id.to_string(),
+            scene_id: scene_id.to_string(),
+            beat_index,
+            from: beat.from.clone(),
+            to: beat.to.clone(),
+            trigger_event: beat.trigger_event.clone(),
+            appraisal: beat.appraisal.clone(),
+            action_tendency: beat.action_tendency,
+            dialogue_policy: beat.dialogue_policy.clone(),
+            cost: beat.cost.clone(),
+            carriers: beat.carriers.clone(),
+            reader_target: beat.reader_target.clone(),
+            scale: beat.scale,
+            event_kind: beat.event_kind,
+            source_name: beat.source_name.clone(),
+            target_name: beat.target_name.clone(),
+            tension_id: beat.tension_id.clone(),
+            debt_id: beat.debt_id.clone(),
+            created_at: String::new(),
+        }
+    }
+
     /// 还原为探针/提示词使用的计划对象。
     pub fn to_emotion_beat(&self) -> EmotionBeat {
         EmotionBeat {
