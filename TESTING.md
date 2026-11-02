@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.80.2)
+# 🧪 StoryMoss 自动化测试环境 (v0.80.3)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.80.3 变更说明
+
+- **LLM 章契约（Rust 1991 passed / 13 ignored）**：`generate_chapter_contract_llm` + chapter_contract 提示词；批量 writer 接入，确定性契约兜底；测试环境不额外调用。
+- **前端**：tsc/prettier 全绿；vitest 653 / 3；playwright 47 / 5。
+- **未关闭**：人类 A/B、设置页灰度、真机样章、LLM 契约质量复测。
 
 ### v0.80.2 变更说明
 

@@ -1530,6 +1530,12 @@ npm test
 
 ---
 
+## v0.80.3 新增：LLM 章契约
+
+- **提示词**：`resources/prompts/planner/chapter_contract.md`。
+- **生成**：`AgencyCoordinator::generate_chapter_contract_llm`；只在批量 `write_chapter` 调用（每章 1 次），失败/通用/空字段回退确定性 `compile_chapter_contract`。
+- **开关**：生产默认开启（有 app_handle），测试默认关闭；`STORYMOSS_LLM_CHAPTER_CONTRACT=0/1` 覆盖。
+
 ## v0.80.2 新增：复合姓 / 候选池 / 作者称呼编辑
 
 - **复合姓**：`naming/repository.rs::split_formal_name` 按复姓表切分账本。

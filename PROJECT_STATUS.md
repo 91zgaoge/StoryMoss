@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.80.2 项目完成状态
+# StoryMoss (草苔) v0.80.3 项目完成状态
 
+> 最后更新: 2026-11-02（**v0.80.3：批量续写接入 LLM 章契约（确定性兜底）**——新增 chapter_contract 提示词；`generate_chapter_contract_llm` 生成 JSON 并覆盖确定性章契约，失败/通用/空字段回退；仅批量 `write_chapter` 调用（每章 1 次），生产默认开启、测试默认关闭，`STORYMOSS_LLM_CHAPTER_CONTRACT` 可强制开关。Rust **1991 passed / 13 ignored**；vitest **653 / 3**；playwright **47 / 5**；tsc/clippy/fmt/guard 全绿。**未关闭**：人类 A/B、设置页灰度开关、真机样章、LLM 契约质量复测。）
+>
 > 最后更新: 2026-11-02（**v0.80.2：复合姓解析 + 姓名候选池 + 作者编辑称呼规则**——账本按复姓表切分；`suggest_candidates` 按语义域生成候选；新增 `get_character_name`/`update_character_name`，`CharacterEditModal` 可编辑字/号/小名/绰号/公开/私下/敌对称呼/取名故事。Rust **1991 passed / 13 ignored**；vitest **653 / 3**；playwright **47 / 5**；tsc/clippy/fmt/guard 全绿。**未关闭**：LLM 章契约、称呼 UI 仅一条规则、候选池小样本、人类 A/B。）
 >
 > 最后更新: 2026-11-02（**v0.80.1：SceneOutcome 结构化落库 + 姓名账本/称呼块**——V152 `scene_outcomes` + 仓库，Append/NextChapter/批量装配后写回，进度块优先读最近 3 章结果；V153 `character_names` + 仓库，角色创建同事务落账、旧故事按需从 characters 回填，`render_parts` 注入【本场称呼】。Rust **1988 passed / 13 ignored**；vitest **653 / 3**；playwright **47 / 5**；tsc/clippy/fmt/guard 全绿。**未关闭**：LLM 章契约、称呼规则仍默认全名、候选池/作者编辑 UI、人类 A/B。）

@@ -4990,6 +4990,177 @@ impl AgencyCoordinator {
         text
     }
 
+    /// v0.80.3：LLM 章契约生成默认只在生产（有 app_handle）启用；测试环境
+    /// 不额外调用 LLM。显式环境变量可覆盖：
+    /// `STORYMOSS_LLM_CHAPTER_CONTRACT=0` 关闭，`=1` 强制开启。
+    fn llm_chapter_contract_enabled(&self) -> bool {
+        match std::env::var("STORYMOSS_LLM_CHAPTER_CONTRACT") {
+            Ok(v) => v != "0" && !v.eq_ignore_ascii_case("false"),
+            Err(_) => self.app_handle.is_some(),
+        }
+    }
+
+    /// 用 LLM 生成章级契约字段；失败/不合格返回 None，调用方保留确定性契约。
+    #[allow(clippy::too_many_arguments)]
+    async fn generate_chapter_contract_llm(
+        &self,
+        budget: &Arc<AgencyBudget>,
+        run_id: &str,
+        story_id: &str,
+        chapter_outline: &str,
+        current_content: &str,
+        card: &crate::agency::beat_card::SceneBeatCard,
+        parts: Option<&ContinueContextParts>,
+        chapter_number: i32,
+        total_scenes: usize,
+    ) -> Option<crate::agency::narrative_contract::ChapterContract> {
+        if chapter_outline.trim().is_empty() {
+            return None;
+        }
+        use std::collections::HashMap;
+        let plain = crate::agency::continue_assets::strip_editor_markup(current_content);
+        let plain = plain.trim();
+        let tail: String = if plain.chars().count() > 600 {
+            plain
+                .chars()
+                .rev()
+                .take(600)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect()
+        } else {
+            plain.to_string()
+        };
+        let (characters, relationships, foreshadowing) = if let Some(parts) = parts {
+            let chars = parts
+                .bundle
+                .core_characters
+                .iter()
+                .take(6)
+                .map(|c| {
+                    format!(
+                        "- {}：身份={}；性格={}；需求={}",
+                        c.name,
+                        c.identity.as_deref().unwrap_or("-"),
+                        c.personality.as_deref().unwrap_or("-"),
+                        c.emotional_need.as_deref().unwrap_or("-")
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let rels = parts
+                .bundle
+                .relationship_lines
+                .iter()
+                .take(6)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n");
+            let mut fores: Vec<String> = parts
+                .bundle
+                .pending_foreshadowings
+                .iter()
+                .take(3)
+                .cloned()
+                .collect();
+            fores.extend(parts.bundle.overdue_foreshadowings.iter().take(2).cloned());
+            (chars, rels, fores.join("；"))
+        } else {
+            (String::new(), String::new(), String::new())
+        };
+        let mut vars = HashMap::new();
+        vars.insert("chapter_outline".to_string(), chapter_outline.to_string());
+        vars.insert("previous_tail".to_string(), tail);
+        vars.insert("characters".to_string(), characters);
+        vars.insert("relationships".to_string(), relationships);
+        vars.insert("foreshadowing".to_string(), foreshadowing);
+        vars.insert("next_node".to_string(), card.next_outline_node.clone());
+        let tpl = crate::prompts::registry::resolve_prompt(&self.pool, "chapter_contract")
+            .ok()
+            .or_else(|| crate::prompts::registry::resolve_prompt_default("chapter_contract"))?;
+        let prompt = crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars);
+        if prompt.trim().is_empty() {
+            return None;
+        }
+        let llm = BudgetedLlm::new(
+            self.llm_for_run(run_id, AgentRole::Producer, story_id),
+            budget.clone(),
+            AgentRole::Producer,
+        );
+        let text = match llm
+            .complete(
+                "你是小说章契约规划师。只输出 JSON，不要解释。",
+                &prompt,
+                TaskType::Analysis,
+                1024,
+            )
+            .await
+        {
+            Ok(t) => t,
+            Err(e) => {
+                log::warn!("agency: LLM 章契约生成失败 run={} err={}", run_id, e);
+                return None;
+            }
+        };
+        let sanitized =
+            crate::narrative::extract_and_sanitize_json(&text).unwrap_or_else(|_| text.clone());
+        let parsed: serde_json::Value = serde_json::from_str(&sanitized).ok()?;
+        let get = |key: &str| {
+            parsed
+                .get(key)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        };
+        let generic = |s: &str| {
+            s.is_empty()
+                || s.contains("推进剧情")
+                || s.contains("按场景结构推进")
+                || s.contains("制造冲突")
+                || s.contains("展现情感")
+        };
+        let fields = [
+            get("dramatic_question"),
+            get("want"),
+            get("opposition"),
+            get("stakes"),
+            get("turning_point"),
+            get("irreversible_outcome"),
+            get("target_progress"),
+        ];
+        if fields.iter().any(|f| generic(f)) {
+            log::warn!("agency: LLM 章契约不合格（通用/空字段）run={}", run_id);
+            return None;
+        }
+        let mut contract = crate::agency::narrative_contract::compile_chapter_contract(
+            card,
+            chapter_outline,
+            current_content,
+            chapter_number,
+            total_scenes,
+        )
+        .ok()?;
+        contract.dramatic_question = fields[0].clone();
+        contract.want = fields[1].clone();
+        contract.opposition = fields[2].clone();
+        contract.stakes = fields[3].clone();
+        contract.turning_point = fields[4].clone();
+        contract.irreversible_outcome = fields[5].clone();
+        contract.target_progress = fields[6].clone();
+        if contract.scenes.is_empty() {
+            return None;
+        }
+        log::info!(
+            "agency: LLM 章契约已生成 run={} chapter={} scenes={}",
+            run_id,
+            chapter_number,
+            contract.scenes.len()
+        );
+        Some(contract)
+    }
+
     async fn maybe_enrich_director_lock(
         &self,
         budget: &Arc<AgencyBudget>,
@@ -5325,7 +5496,7 @@ impl AgencyCoordinator {
                 &l2,
                 &continuity_blocks,
             );
-            let chapter_contract = if crate::agency::narrative_contract::enabled() {
+            let deterministic = if crate::agency::narrative_contract::enabled() {
                 crate::agency::narrative_contract::compile_chapter_contract(
                     &card,
                     &chapter_outline,
@@ -5341,6 +5512,7 @@ impl AgencyCoordinator {
             } else {
                 None
             };
+            let chapter_contract = deterministic;
             if let Some(cc) = &chapter_contract {
                 assets.push_str("\n\n");
                 assets.push_str(&crate::agency::narrative_contract::render_chapter_contract(
@@ -5401,7 +5573,7 @@ impl AgencyCoordinator {
                 .await;
             crate::agency::continue_director::rewrite_card_cast(&mut card, &lock);
             let mut assets = String::new();
-            let chapter_contract = if crate::agency::narrative_contract::enabled() {
+            let deterministic = if crate::agency::narrative_contract::enabled() {
                 crate::agency::narrative_contract::compile_chapter_contract(
                     &card,
                     &chapter_outline,
@@ -5417,6 +5589,7 @@ impl AgencyCoordinator {
             } else {
                 None
             };
+            let chapter_contract = deterministic;
             if let Some(cc) = &chapter_contract {
                 assets.push_str(&crate::agency::narrative_contract::render_chapter_contract(
                     cc,
@@ -6060,7 +6233,7 @@ impl AgencyCoordinator {
         };
         // v0.79.1：批量续写按章契约 + 1–3 场投影写，不再只拿「章纲 + 资产 +
         // 有起伏」。契约失败只降级，不阻断批量；gate 仍取第一场契约核对。
-        let chapter_contract = if crate::agency::narrative_contract::enabled() {
+        let deterministic = if crate::agency::narrative_contract::enabled() {
             crate::agency::narrative_contract::compile_chapter_contract(
                 &card,
                 &chapter_outline,
@@ -6072,6 +6245,23 @@ impl AgencyCoordinator {
             .ok()
         } else {
             None
+        };
+        let chapter_contract = if self.llm_chapter_contract_enabled() {
+            self.generate_chapter_contract_llm(
+                budget,
+                run_id,
+                story_id,
+                &chapter_outline,
+                &latest_content,
+                &card,
+                parts.as_ref(),
+                chapter_number,
+                3,
+            )
+            .await
+            .or(deterministic)
+        } else {
+            deterministic
         };
         let scene_contract = chapter_contract
             .as_ref()

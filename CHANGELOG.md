@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.80.3（2026-11-02）
+
+**批量续写接入 LLM 章契约（确定性兜底）。**
+
+- **LLM 章契约**：新增 `resources/prompts/planner/chapter_contract.md`（戏剧问题/欲望/反对者/赌注/转折/不可逆结果/进度目标）；`generate_chapter_contract_llm` 用章纲、上一章末段、角色目标、关系、伏笔、下一节点生成 JSON，解析后覆盖确定性章契约。失败/通用字段/空字段自动回退确定性契约。
+- **调用边界**：只在批量续写 `write_chapter` 调用（每章 1 次）；单拍 Append 仍用确定性契约，避免每拍额外 LLM。生产环境（有 app_handle）默认开启，测试环境默认关闭；`STORYMOSS_LLM_CHAPTER_CONTRACT=0/1` 可强制关闭/开启。
+- **验证**：Rust **1991 passed / 13 ignored**；vitest **653 passed / 3 skipped**；playwright **47 passed / 5 skipped**；tsc / clippy / fmt / guard 全绿。
+- **未关闭**：人类 A/B；设置页正式灰度开关；真机样章；LLM 契约生成质量仍需多题材复测。
+
 ## v0.80.2（2026-11-02）
 
 **复合姓解析 + 姓名候选池 + 作者编辑称呼规则。**
