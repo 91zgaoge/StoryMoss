@@ -3269,7 +3269,7 @@ async fn test_write_chapter_wrong_key_fails_loudly() {
     // 单章续写不再回落到 write_chapter；本契约直接打 tool_loop 路径。
     let err = coordinator
         .write_chapter(
-            &budget, &board, &registry, "rw-1", &story_id, "续写", 1, None,
+            &budget, &board, &registry, "rw-1", &story_id, "续写", 1, None, "",
         )
         .await
         .unwrap_err();
@@ -3312,6 +3312,166 @@ async fn test_gate_record_keys_have_round_suffix() {
         .map(|i| i.key.as_str())
         .collect();
     assert_eq!(keys, vec!["gate-第1章-r1", "gate-第1章-r2"]);
+}
+
+/// v0.80.5：导演派发指令必须进入批量 writer prompt，且仍走 GateRunner
+/// 与装配，不得用黑板草稿直接写库。
+#[tokio::test]
+async fn test_director_directive_injected_and_gate_assembles() {
+    let pool = create_test_pool().unwrap();
+    let story_id = seed_story_with_assets(&pool);
+    let mock = RoutingMock::new(0);
+    let write_line = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"一"}}}}"#,
+        pass_grade_content("第一章正文：阿苔穿过星环。")
+    );
+    mock.push(
+        "writer",
+        vec![write_line.as_str(), r#"{"type":"final","content":"完成"}"#],
+    );
+    mock.push("editor", vec![
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过\"}"}"#,
+    ]);
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), mock.clone());
+    let directive = "强化血浆、暴力美学与戏剧冲突；本章只设一个主对抗关系。";
+    let batch = coordinator
+        .run_continue_batch_with_instruction("rb-directive", &story_id, 1, 1, directive)
+        .await
+        .unwrap();
+    assert_eq!(batch.chapters.len(), 1, "应产出一章");
+    assert_eq!(batch.chapters[0].chapter_number, 1);
+    let prompts = mock.writer_prompts.lock().unwrap();
+    assert!(
+        prompts
+            .iter()
+            .any(|p| p.contains("导演派发指令") && p.contains("强化血浆")),
+        "writer prompt 应含导演指令: {:?}",
+        prompts
+    );
+    let scenes = crate::db::repositories::SceneRepository::new(pool.clone())
+        .get_by_story(&story_id)
+        .unwrap();
+    assert_eq!(scenes.len(), 1, "应装配为故事 scene");
+    let board = crate::agency::board::BlackboardService::new(pool.clone());
+    let reviews = board.list_zone("rb-directive", BoardZone::Review).unwrap();
+    assert!(
+        reviews.iter().any(|i| i.item_type == "gate"),
+        "质量门必须实际执行，审查区应有 gate 条目"
+    );
+}
+
+/// v0.80.5：导演派发 LeadWriter 的任务必须由调度器原子分配章号，并走
+/// gate + 装配；任务最终报 completed，而不是只写黑板草稿。
+#[tokio::test]
+async fn test_directed_lead_writer_dispatch_allocates_chapter_and_gates() {
+    let pool = create_test_pool().unwrap();
+    let story_id = seed_story_with_assets(&pool);
+    // 预置第三章，验证调度器用原子分配器给下一章（第4章），而不是猜 MAX+1
+    // 或直接覆盖已有章。
+    let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
+    let existing = scene_repo.create(&story_id, 3, Some("第三章")).unwrap();
+    scene_repo
+        .update(
+            &existing.id,
+            &crate::db::repositories::SceneUpdate {
+                content: Some("已有的第三章正文。".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let mock = RoutingMock::new(0);
+    let write_line = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第4章","content":"{}","summary":"一"}}}}"#,
+        pass_grade_content("第四章正文：阿苔穿过星环。")
+    );
+    mock.push(
+        "writer",
+        vec![write_line.as_str(), r#"{"type":"final","content":"完成"}"#],
+    );
+    mock.push("editor", vec![
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过\"}"}"#,
+    ]);
+    let coordinator = Arc::new(AgencyCoordinator::for_test(pool.clone(), mock.clone()));
+    let scheduler = crate::agency::scheduler::TaskScheduler::new(pool.clone(), coordinator, None);
+    let meta = serde_json::json!({
+        "chat_session_id": "s1",
+        "chat_message_id": "m1",
+        "premise": "前提",
+        "directed_chapter": true,
+    })
+    .to_string();
+    let task_id = scheduler
+        .dispatch_sub_agent(
+            &story_id,
+            "chat:s1",
+            crate::agency::models::AgentRole::LeadWriter,
+            "前提",
+            "强化血浆与戏剧冲突，续写下一章",
+            None,
+            None,
+            meta,
+        )
+        .await
+        .unwrap();
+    let mut task = None;
+    for _ in 0..60 {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        task = crate::agency::task_repository::TaskRepository::new(pool.clone())
+            .get_task(&task_id)
+            .unwrap();
+        if task
+            .as_ref()
+            .map(|t| matches!(t.status.as_str(), "completed" | "failed" | "cancelled"))
+            .unwrap_or(false)
+        {
+            break;
+        }
+    }
+    let task = task.expect("任务应落库");
+    assert_eq!(
+        task.status, "completed",
+        "导演派发的 LeadWriter 应完成续写并装配: {:?}",
+        task.error
+    );
+    let scenes = crate::db::repositories::SceneRepository::new(pool.clone())
+        .get_by_story(&story_id)
+        .unwrap();
+    assert_eq!(scenes.len(), 2, "原有第三章 + 新装配的一章");
+    let new_scene = scenes
+        .iter()
+        .find(|s| s.sequence_number == 4)
+        .expect("应装配为第4章 scene");
+    assert!(
+        new_scene
+            .content
+            .as_deref()
+            .unwrap_or("")
+            .contains("阿苔穿过星环"),
+        "新章正文应来自质量门通过后的装配"
+    );
+    let existing_scene = scenes
+        .iter()
+        .find(|s| s.sequence_number == 3)
+        .expect("既有第三章不得被覆盖");
+    assert_eq!(
+        existing_scene.content.as_deref(),
+        Some("已有的第三章正文。"),
+        "章号分配不得覆盖既有章"
+    );
+    let board = crate::agency::board::BlackboardService::new(pool.clone());
+    let reviews = board.list_zone(&task_id, BoardZone::Review).unwrap();
+    assert!(
+        reviews.iter().any(|i| i.item_type == "gate"),
+        "质量门必须执行，审查区应有 gate 条目"
+    );
+    assert!(
+        mock.writer_prompts
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|p| p.contains("强化血浆")),
+        "writer prompt 应含导演指令"
+    );
 }
 
 /// resume_run story 级护栏：旧 run 的 story 存在其他 pending/running run

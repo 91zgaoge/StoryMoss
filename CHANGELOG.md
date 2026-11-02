@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.80.5（2026-11-03）
+
+**导演派发 LeadWriter 自动续写并装配：原子章号 + GateRunner 质量门，不绕过门禁。**
+
+- **派发语义**：`DirectorExecutor` 对 `lead_writer` 的 dispatch 在 meta 里写入 `directed_chapter=true`；`TaskScheduler` 识别后不再走黑板 ToolLoop，而是检查 write lane 上限、用 `story_chapter_sequences` 原子分配下一章章号，再调用批量续写的单章管线（`run_continue_batch_with_cancel`，count=1）。
+- **质量门不绕过**：单章也走 `run_batch_inner` 的 GateRunner → 修订/复审 → `handle_gate` 装配；质量门失败时任务 failed、不落库。章号分配同样由 `allocate_chapter_numbers` 原子完成，不猜 MAX+1、不覆盖既有章。
+- **导演指令进 writer**：新增 `run_continue_batch_with_instruction` / `with_cancel`；`write_chapter` 接受 directive，并在章契约、情感块之后、board_write 之前注入【导演派发指令】，明确不得违反世界观/本章大纲/情感契约。普通批量续写 instruction 为空时逐字不变。
+- **任务与回报**：导演派发的 LeadWriter 任务记录章节号/scene/verdict 摘要；成功追加聊天 follow-up，失败/取消回落占位消息原因；`cancel_task` 同步置位续写 run 的 cancel flag。
+- **导演提示词**：明确「派发主创 = 原子分配下一章章号 + GateRunner + 装配」，instruction 只作为本章额外写作要求。
+- **验证**：Rust **1998 passed / 13 ignored**（+2：导演指令注入+gate 装配 1、调度器原子章号+gate 1）；vitest **653 passed / 3 skipped**；playwright **47 passed / 5 skipped**；tsc / clippy / fmt / guard 全绿。
+- **未关闭**：导演派发仍无显式目标章参数字段，`lead_writer` 派发当前按「新下一章」处理；若要修订既有章需后续增加 `target_chapter` 动作语义。真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。
+
 ## v0.80.4（2026-11-02）
 
 **按本机多代理日志修复：熔断不丢稿、状态语义、网关工具回合、ingest 宽容解析。**

@@ -228,14 +228,20 @@ impl DirectorExecutor {
                         .depends_on_action
                         .as_ref()
                         .and_then(|a| task_by_action.get(a).cloned());
-                    let meta = serde_json::json!({
+                    let mut meta_obj = serde_json::json!({
                         "chat_session_id": session_id,
                         "chat_message_id": message_id,
                         "append_mode": "follow_up",
                         "premise": premise,
                         "corpus_ids": action.corpus_ids,
-                    })
-                    .to_string();
+                    });
+                    // v0.80.5: 导演派发的主创任务走「章号分配 → 续写 →
+                    // GateRunner → 装配」；黑板 ToolLoop 只用于 Producer/
+                    // Editor 等资产/审查角色。
+                    if role == AgentRole::LeadWriter {
+                        meta_obj["directed_chapter"] = serde_json::Value::Bool(true);
+                    }
+                    let meta = meta_obj.to_string();
                     scheduler
                         .dispatch_sub_agent(
                             story_id,

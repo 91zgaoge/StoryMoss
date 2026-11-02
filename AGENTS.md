@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.80.4
+- **版本**: v0.80.5
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -112,7 +112,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1996 passed / 13 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 / 空正文冷却·上下文自动探测 / 续写跨档兜底 / 角色身份·改名去重·实体链接 / v0.74 语料仓储·V149 lane/task/lease·导演角色/分区·异步调度·租约·聊天/动作·IPC 契约 / v0.74.1 导演 ToolLoop 拒绝·动作校验·空正文候选剔除·capability 归一化·关系别名 / v0.74.2 大提示词超时豁免·稳定前缀排序·语料分段摘要 / v0.74.3 stable/dynamic 前缀拆分·冷预填充超时校准 / v0.75.0 情感回路·V150·OCC·压力场·读者面板 / v0.76.0 批量续写章节情感弧·gate/revision 同计划·persist_chapter_plan / v0.77.0 多 write 并行·V151 章号序列·pinned 语料·真机导演/语料探针 / v0.77.1 资产引导租约·图片语料元数据/摘要 / v0.78.0 视觉多模态·图片提炼/转资产·真机视觉探针 / v0.79.0 叙事契约 P0·场简报·契约门禁·情感最小链·active story 切换·姓名校验 / v0.80.0 章契约·1–3 场投影·legacy 方法论/叙事策略接线·回滚开关·多故事切换 E2E / v0.80.1 SceneOutcome 落库·姓名账本/称呼块 / v0.80.2 复合姓·候选池·作者称呼规则 / v0.80.3 批量 LLM 章契约·确定性兜底·环境开关 / v0.80.4 多代理熔断 salvage·调度器状态语义·网关 tool_calls·ingest 宽容解析 ·共 13 ignored）
+- `cargo test -p storymoss` ✅ 1998 passed / 13 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 / 空正文冷却·上下文自动探测 / 续写跨档兜底 / 角色身份·改名去重·实体链接 / v0.74 语料仓储·V149 lane/task/lease·导演角色/分区·异步调度·租约·聊天/动作·IPC 契约 / v0.74.1 导演 ToolLoop 拒绝·动作校验·空正文候选剔除·capability 归一化·关系别名 / v0.74.2 大提示词超时豁免·稳定前缀排序·语料分段摘要 / v0.74.3 stable/dynamic 前缀拆分·冷预填充超时校准 / v0.75.0 情感回路·V150·OCC·压力场·读者面板 / v0.76.0 批量续写章节情感弧·gate/revision 同计划·persist_chapter_plan / v0.77.0 多 write 并行·V151 章号序列·pinned 语料·真机导演/语料探针 / v0.77.1 资产引导租约·图片语料元数据/摘要 / v0.78.0 视觉多模态·图片提炼/转资产·真机视觉探针 / v0.79.0 叙事契约 P0·场简报·契约门禁·情感最小链·active story 切换·姓名校验 / v0.80.0 章契约·1–3 场投影·legacy 方法论/叙事策略接线·回滚开关·多故事切换 E2E / v0.80.1 SceneOutcome 落库·姓名账本/称呼块 / v0.80.2 复合姓·候选池·作者称呼规则 / v0.80.3 批量 LLM 章契约·确定性兜底·环境开关 / v0.80.4 多代理熔断 salvage·调度器状态语义·网关 tool_calls·ingest 宽容解析 / v0.80.5 导演 LeadWriter 派发接续写管线·原子章号·GateRunner 装配·导演指令注入 ·共 13 ignored）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 653 passed / 3 skipped（v0.79.0 +3：story-selected seq/origin 契约 2、生成中切换集成 1；v0.75.0 +1：代理工作室情感页签契约/张力/债务/读者面板；v0.74.3 徽章文案改为冷缓存预估（断言更新，数量不变）；v0.74.2 +2：大提示词徽章显示/阈值以下不显示；v0.74.0 +3：语料页列表/详情/AI 提炼与交给导演；AgencyStudio +11：四角色/黑板/时间线/run 选择/错误提示/去重/观察/资产跳转/发送消息/审批确认；v0.73.14 +5：`StyleDnaModal` 单一风格先选后确认 / 关闭不落库 / 弹窗限高 / 混合面板固定按钮与保存 / 混合配置异步回填；v0.73.13 +7：`useExecutionState` 取数与降级 3、`loggedInvoke` 失败日志 4；v0.73.12 +2：文思活跃火焰/被动静态图标契约；+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
 - `npx playwright test` ✅ 47 passed / 5 skipped（v0.80.0 +1：多故事切换 E2E；v0.74.0 +2：语料页加载/选中/AI 提炼；代理工作室剧组/对话/现场与 `agency_chat_send`；v0.73.9 +1：故事卡片点击同步 `notify_frontstage_story_selected`；v0.73.5 +1：日志页「复制」按钮不被幕前悬浮启动器遮挡（1680px trial click）；v0.73.1 +2：模型页签「超时」子页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃；v0.72.3 修掉一处既有 flake：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version` handler——`useUpdater(true)` 挂载 5s 后自动检查，mock 未实现时慢机/并行负载下页面加载类用例会在「无 console 错误」断言上偶发红；门禁仍非阻塞，见未关闭）
@@ -125,6 +125,27 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.73.13 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 起瘦身，v0.77.0 归档 v0.74.2；根文件只保留最近 5 个版本与关键教训）。
+
+### v0.80.5 - 导演派发 LeadWriter 接入质量门与装配
+
+**为什么**：v0.80.4 修好了熔断不丢稿与状态语义，但导演派发的 LeadWriter 仍只写黑板草稿，
+用户看不到故事正文；若直接落库又会绕过 GateRunner 与章号分配。
+
+**改动**：①`DirectorExecutor` 对 lead_writer dispatch 写入 `directed_chapter=true`；
+`TaskScheduler` 识别后走 `run_directed_chapter_task`：检查 write lane 上限 →
+`story_chapter_sequences::allocate_chapter_numbers` 原子分配下一章 → 调用
+`run_continue_batch_with_cancel`（count=1）走 GateRunner/handle_gate/装配。
+②新增
+`run_continue_batch_with_instruction`/`with_cancel`；`write_chapter` 接受 director directive，
+在章契约与情感块之后注入【导演派发指令】，不得覆盖世界观/本章大纲/情感契约；空指令时
+普通批量 prompt 逐字不变。③任务摘要带章号/scene/verdict，成功 follow-up；失败/取消回填
+聊天并同步 cancel flag。④导演提示词明确「派发主创 = 原子章号 + GateRunner + 装配」。
+
+**验证**：Rust **1998 passed / 13 ignored**（+2：导演指令注入+gate 装配、调度器原子章号+gate）；
+vitest **653 / 3**；playwright **47 / 5**；tsc / clippy / fmt / guard 全绿。
+
+**未关闭**：导演派发尚无显式目标章参数字段，lead_writer 派发按「下一章」处理；修订既有章需
+后续 `target_chapter` 语义。真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。
 
 ### v0.80.4 - 按本机多代理日志修复熔断/状态语义
 
@@ -144,8 +165,8 @@ MaxTurns/Deadline/ParseFailures 落 failed 并带熔断主因，失败/取消回
 **验证**：Rust **1996 passed / 13 ignored**（+5）；vitest **653 / 3**；playwright **47 / 5**；
 tsc / clippy / fmt / guard 全绿。
 
-**未关闭**：导演派发的 LeadWriter 仍只写黑板草稿，未自动装配进故事正文（需后续
-materialize/续写管线接线）；真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。
+**未关闭**：导演派发的 LeadWriter 仍只写黑板草稿，未自动装配进故事正文——**v0.80.5 已闭环**；
+真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。
 
 ### v0.80.3 - 批量续写接入 LLM 章契约（确定性兜底）
 

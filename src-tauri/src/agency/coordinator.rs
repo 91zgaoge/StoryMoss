@@ -6216,6 +6216,7 @@ impl AgencyCoordinator {
         premise: &str,
         chapter_number: i32,
         previous_emotion: Option<&crate::emotion_circuit::ChapterEmotionPlan>,
+        directive: &str,
     ) -> Result<BatchChapterArtifacts, AppError> {
         let key = format!("第{}章", chapter_number);
         let pool = self.pool.clone();
@@ -6381,6 +6382,9 @@ impl AgencyCoordinator {
         };
         let writer_task = inject_batch_contract_block(writer_task, chapter_contract.as_ref());
         let writer_task = inject_batch_emotion_block(writer_task, &emotion_block);
+        // v0.80.5：导演派发的指令作为额外写作要求注入；它不能覆盖世界观/
+        // 本章大纲/情感契约的硬约束，只调整这一章的写法。
+        let writer_task = inject_director_directive(writer_task, directive);
         let writer_out = self
             .run_role_with_llm_and_budget(
                 budget,
@@ -6890,8 +6894,54 @@ impl AgencyCoordinator {
         start_chapter: i32,
         count: usize,
     ) -> Result<AgencyBatchResult, AppError> {
-        let repo = AgencyRepository::new(self.pool.clone());
+        self.run_continue_batch_with_instruction(run_id, story_id, start_chapter, count, "")
+            .await
+    }
+
+    /// v0.80.5：带导演派发指令的批量续写入口。指令只作为 writer 的额外写作
+    /// 要求注入（不得绕过世界/本章大纲/情感契约），后续 gate + 装配仍走
+    /// `run_batch_inner` 的同一质量门与章号流程。
+    pub async fn run_continue_batch_with_instruction(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        start_chapter: i32,
+        count: usize,
+        instruction: &str,
+    ) -> Result<AgencyBatchResult, AppError> {
         let cancel = register_agency_cancel(run_id);
+        let result = self
+            .run_continue_batch_body(run_id, story_id, start_chapter, count, instruction, &cancel)
+            .await;
+        unregister_agency_cancel(run_id);
+        result
+    }
+
+    /// v0.80.5：调度器直连版本——使用任务级 cancel flag，不在全局 run
+    /// 取消表里注册/注销；`TaskScheduler::cancel_task` 直接置位同一个 flag。
+    pub async fn run_continue_batch_with_cancel(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        start_chapter: i32,
+        count: usize,
+        instruction: &str,
+        cancel: Arc<AtomicBool>,
+    ) -> Result<AgencyBatchResult, AppError> {
+        self.run_continue_batch_body(run_id, story_id, start_chapter, count, instruction, &cancel)
+            .await
+    }
+
+    async fn run_continue_batch_body(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        start_chapter: i32,
+        count: usize,
+        instruction: &str,
+        cancel: &Arc<AtomicBool>,
+    ) -> Result<AgencyBatchResult, AppError> {
+        let repo = AgencyRepository::new(self.pool.clone());
         // run 级并发预算：外层创建，收尾 run_final 检查点可读取 tokens_used
         let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
         // v0.30.20: 批量续写也设 run 级 deadline（与创世一致），tool_loop 每轮
@@ -6903,12 +6953,12 @@ impl AgencyCoordinator {
                 story_id,
                 start_chapter,
                 count,
+                instruction,
                 &repo,
-                &cancel,
+                cancel,
                 &budget,
             )
             .await;
-        unregister_agency_cancel(run_id);
         match &result {
             Ok(r) => {
                 let json = serde_json::to_string(r).unwrap_or_default();
@@ -6981,6 +7031,7 @@ impl AgencyCoordinator {
         story_id: &str,
         start_chapter: i32,
         count: usize,
+        instruction: &str,
         repo: &AgencyRepository,
         cancel: &Arc<AtomicBool>,
         budget: &Arc<AgencyBudget>,
@@ -7072,6 +7123,7 @@ impl AgencyCoordinator {
                 &premise,
                 chapter_number,
                 last_written_plan.as_ref(),
+                instruction,
             );
             let artifacts = match pending_gate.take() {
                 Some(jh) => {
@@ -9020,6 +9072,24 @@ fn inject_batch_emotion_block(task: String, block: &str) -> String {
             let (head, tail) = task.split_at(pos);
             return format!("{head}{block}\n\n{tail}");
         }
+    }
+    format!("{task}\n\n{block}")
+}
+
+/// 导演派发指令块：放在「完成后用 board_write」之前（离 writer 的最终动作
+/// 最近），提示词与资产/章契约冲突时以硬约束为先。
+fn inject_director_directive(task: String, directive: &str) -> String {
+    let directive = directive.trim();
+    if directive.is_empty() {
+        return task;
+    }
+    let directive: String = directive.chars().take(1200).collect();
+    let block = format!(
+        "【导演派发指令（须落实到本章；不得违反世界观、本章大纲与情感契约）】\n{directive}"
+    );
+    if let Some(pos) = task.find("完成后用 board_write") {
+        let (head, tail) = task.split_at(pos);
+        return format!("{head}{block}\n\n{tail}");
     }
     format!("{task}\n\n{block}")
 }

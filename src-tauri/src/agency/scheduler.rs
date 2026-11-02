@@ -17,6 +17,7 @@ use crate::{
         coordinator::AgencyCoordinator,
         models::{AgencyAgentTask, AgentRole},
         reporter::TaskReporter,
+        repository::{AgencyRepository, MAX_ACTIVE_WRITE_RUNS_PER_STORY},
         task_repository::TaskRepository,
     },
     db::DbPool,
@@ -127,8 +128,22 @@ impl TaskScheduler {
 
         let sched = self.clone();
         let premise = premise.to_string();
+        let instruction = instruction.to_string();
+        let directed_chapter = role == AgentRole::LeadWriter
+            && matches!(
+                serde_json::from_str::<serde_json::Value>(&task.meta_json)
+                    .ok()
+                    .and_then(|v| v.get("directed_chapter").and_then(|x| x.as_bool())),
+                Some(true)
+            );
         tokio::spawn(async move {
-            sched.run_task(task, premise, depends_on_task_id).await;
+            if directed_chapter {
+                sched
+                    .run_directed_chapter_task(task, instruction, depends_on_task_id)
+                    .await;
+            } else {
+                sched.run_task(task, premise, depends_on_task_id).await;
+            }
         });
         Ok(task_id)
     }
@@ -170,6 +185,10 @@ impl TaskScheduler {
 
     pub fn cancel_task(&self, task_id: &str) -> Result<(), AppError> {
         cancel_task_flag(task_id);
+        // v0.80.5: 导演派发的 LeadWriter 以 task.id 作为续写 run id；主流程
+        // 共享本次的 cancel flag，这里再清一次同 id 的附属后台任务
+        // （资产回流/后台质检等）。
+        crate::agency::coordinator::cancel_agency_run(task_id);
         let pool = self.pool.clone();
         let id = task_id.to_string();
         TaskRepository::new(pool)
@@ -278,6 +297,214 @@ impl TaskScheduler {
             // v0.80.4: 失败/取消也要回填聊天占位消息，否则 @主创 等直达派发
             // 的占位消息会一直停在 acting，作者看不到失败原因。
             self.update_chat_task_status(&task, status, error.as_deref());
+        }
+    }
+
+    /// v0.80.5：导演派发的 LeadWriter 任务走「章号分配 → 批量续写(1 章)
+    /// → GateRunner/handle_gate → 装配」管线。章号由
+    /// `story_chapter_sequences` 原子分配；质量门与装配复用批量续写同一
+    /// 路径，不把黑板草稿直接写库。
+    async fn run_directed_chapter_task(
+        &self,
+        task: AgencyAgentTask,
+        instruction: String,
+        depends_on_task_id: Option<String>,
+    ) {
+        if let Some(parent) = depends_on_task_id {
+            if !self.wait_for_parent(&parent).await {
+                let reporter = TaskReporter::new(
+                    self.pool.clone(),
+                    &task.id,
+                    &task.story_id,
+                    &task.run_id,
+                    task.role,
+                    self.app.clone(),
+                );
+                self.finish_directed_task(
+                    &task,
+                    &reporter,
+                    "failed",
+                    None,
+                    Some("父任务未完成或超时".to_string()),
+                )
+                .await;
+                return;
+            }
+        }
+
+        let story_sem = self.story_sem_for(&task.story_id);
+        let _story_permit = match story_sem.acquire().await {
+            Ok(p) => p,
+            Err(_) => return,
+        };
+        let role_sem = self
+            .role_sems
+            .get(&task.role)
+            .cloned()
+            .unwrap_or_else(|| Arc::new(Semaphore::new(1)));
+        let _role_permit = match role_sem.acquire().await {
+            Ok(p) => p,
+            Err(_) => return,
+        };
+
+        let cancel = register_task_cancel(&task.id);
+        let reporter = TaskReporter::new(
+            self.pool.clone(),
+            &task.id,
+            &task.story_id,
+            &task.run_id,
+            task.role,
+            self.app.clone(),
+        );
+        if reporter.start().await.is_err() {
+            unregister_task_cancel(&task.id);
+            return;
+        }
+        if cancel.load(Ordering::SeqCst) {
+            self.finish_directed_task(
+                &task,
+                &reporter,
+                "cancelled",
+                Some("已取消".to_string()),
+                None,
+            )
+            .await;
+            return;
+        }
+
+        // 与 agency_continue_chapter 同一上限；超过时任务失败而不是静默排队。
+        let pool = self.pool.clone();
+        let sid = task.story_id.clone();
+        let active = match tokio::task::spawn_blocking(move || {
+            AgencyRepository::new(pool)
+                .count_active_write_runs(&sid)
+                .map_err(AppError::from)
+        })
+        .await
+        {
+            Ok(Ok(n)) => n,
+            Ok(Err(e)) => {
+                self.finish_directed_task(&task, &reporter, "failed", None, Some(e.to_string()))
+                    .await;
+                return;
+            }
+            Err(e) => {
+                self.finish_directed_task(
+                    &task,
+                    &reporter,
+                    "failed",
+                    None,
+                    Some(format!("并发上限检查失败: {e}")),
+                )
+                .await;
+                return;
+            }
+        };
+        if active >= MAX_ACTIVE_WRITE_RUNS_PER_STORY {
+            self.finish_directed_task(
+                &task,
+                &reporter,
+                "failed",
+                None,
+                Some(format!(
+                    "该故事并行创作任务已达上限（{MAX_ACTIVE_WRITE_RUNS_PER_STORY}）"
+                )),
+            )
+            .await;
+            return;
+        }
+
+        // 章号分配：唯一写者 story_chapter_sequences，禁止猜 MAX+1。
+        let pool = self.pool.clone();
+        let sid = task.story_id.clone();
+        let chapter = match tokio::task::spawn_blocking(move || {
+            AgencyRepository::new(pool)
+                .allocate_chapter_numbers(&sid, 1)
+                .map_err(AppError::from)
+        })
+        .await
+        {
+            Ok(Ok(mut chapters)) => match chapters.pop() {
+                Some(n) => n,
+                None => {
+                    self.finish_directed_task(
+                        &task,
+                        &reporter,
+                        "failed",
+                        None,
+                        Some("章号分配失败".to_string()),
+                    )
+                    .await;
+                    return;
+                }
+            },
+            Ok(Err(e)) => {
+                self.finish_directed_task(&task, &reporter, "failed", None, Some(e.to_string()))
+                    .await;
+                return;
+            }
+            Err(e) => {
+                self.finish_directed_task(
+                    &task,
+                    &reporter,
+                    "failed",
+                    None,
+                    Some(format!("章号分配 join error: {e}")),
+                )
+                .await;
+                return;
+            }
+        };
+
+        let result = self
+            .coordinator
+            .run_continue_batch_with_cancel(
+                &task.id,
+                &task.story_id,
+                chapter,
+                1,
+                &instruction,
+                cancel.clone(),
+            )
+            .await;
+        let cancelled = cancel.load(Ordering::SeqCst);
+        let (status, summary, error) = match result {
+            Ok(batch) if !cancelled => match batch.chapters.first() {
+                Some(ch) => (
+                    "completed",
+                    Some(format!(
+                        "第{}章已续写并通过质量门并装配（scene={}，verdict={}）",
+                        ch.chapter_number, ch.scene_id, ch.verdict.verdict
+                    )),
+                    None,
+                ),
+                None => ("failed", None, Some("质量门/装配未产出章节".to_string())),
+            },
+            Ok(_) => ("cancelled", Some("已取消".to_string()), None),
+            Err(e) if cancelled => ("cancelled", Some("已取消".to_string()), Some(e.to_string())),
+            Err(e) => ("failed", None, Some(e.to_string())),
+        };
+        self.finish_directed_task(&task, &reporter, status, summary, error)
+            .await;
+    }
+
+    async fn finish_directed_task(
+        &self,
+        task: &AgencyAgentTask,
+        reporter: &TaskReporter,
+        status: &str,
+        summary: Option<String>,
+        error: Option<String>,
+    ) {
+        let _ = reporter
+            .finish(status, summary.as_deref(), error.as_deref())
+            .await;
+        self.notify_waiters(&task.id);
+        unregister_task_cancel(&task.id);
+        if status == "completed" {
+            self.append_chat_follow_up(task, summary.as_deref());
+        } else {
+            self.update_chat_task_status(task, status, error.as_deref());
         }
     }
 

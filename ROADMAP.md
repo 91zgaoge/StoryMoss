@@ -1,6 +1,8 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-11-02（v0.80.4：按本机多代理日志修复——LeadWriter/Writer 熔断从黑板取回草稿并标 completed；调度器只在 cancel 令牌命中时标 cancelled，MaxTurns/Deadline/ParseFailures 落 failed 并带熔断主因；`gateway_content_is_empty` 认可空 content + tool_calls；ingest `Companion`/浮点整数宽容解析。Rust **1996 / 13**；vitest **653 / 3**；playwright **47 / 5**。**未关闭**：导演派发的 LeadWriter 仍只写黑板草稿，未自动装配进故事正文；真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。）
+> 最后更新: 2026-11-03（v0.80.5：导演派发 LeadWriter 自动续写并装配——`directed_chapter` 派发语义、write lane 上限、`story_chapter_sequences` 原子章号、`run_continue_batch_with_cancel`（count=1）走 GateRunner/handle_gate/装配；导演指令经 `write_chapter` directive 注入 writer prompt，不覆盖世界观/章大纲/情感契约。Rust **1998 / 13**；vitest **653 / 3**；playwright **47 / 5**。**未关闭**：导演派发尚无显式目标章参数，lead_writer 派发按「下一章」处理；真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。）
+>
+> 最后更新: 2026-11-02（v0.80.4：按本机多代理日志修复——LeadWriter/Writer 熔断从黑板取回草稿并标 completed；调度器只在 cancel 令牌命中时标 cancelled，MaxTurns/Deadline/ParseFailures 落 failed 并带熔断主因；`gateway_content_is_empty` 认可空 content + tool_calls；ingest `Companion`/浮点整数宽容解析。Rust **1996 / 13**；vitest **653 / 3**；playwright **47 / 5**。**未关闭**：导演派发的 LeadWriter 仍只写黑板草稿，未自动装配进故事正文（v0.80.5 已闭环）；真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。）
 >
 > 最后更新: 2026-11-02（v0.80.3：批量续写接入 LLM 章契约（确定性兜底）——chapter_contract 提示词；`generate_chapter_contract_llm` 生成 JSON 并覆盖确定性章契约，失败/通用/空字段回退；仅批量 `write_chapter` 调用，生产默认开启、测试默认关闭，`STORYMOSS_LLM_CHAPTER_CONTRACT` 可强制开关。Rust **1991 / 13**；vitest **653 / 3**；playwright **47 / 5**。**未关闭**：人类 A/B、设置页灰度、真机样章、LLM 契约质量复测。）
 >
@@ -32,6 +34,15 @@
 
 ## ✅ v0.27.x–v0.58.x 已实施完成
 
+### ✨ v0.80.5 - 导演派发 LeadWriter 自动续写并装配 ✅ (2026-11-03)
+
+- **派发语义**：`DirectorExecutor` 对 lead_writer dispatch 写入 `directed_chapter=true`；`TaskScheduler` 检查 write lane 上限后，用 `story_chapter_sequences` 原子分配下一章，调用 `run_continue_batch_with_cancel`（count=1）走 GateRunner/handle_gate/装配。
+- **质量门不绕过**：单章同样经 GateRunner → 修订/复审 → handle_gate；质量门失败任务 failed、不落库。
+- **导演指令注入**：`write_chapter` 新增 directive 参数，在章契约/情感块后注入【导演派发指令】，不得覆盖世界观/本章大纲/情感契约；空指令时普通批量 prompt 逐字不变。
+- **任务回报**：摘要带章号/scene/verdict，成功 follow-up；失败/取消回填聊天并同步 cancel flag。
+- 验证：Rust **1998 / 13**；vitest **653 / 3**；playwright **47 / 5**；tsc/clippy/fmt/guard 全绿。
+- **未关闭**：导演派发尚无显式目标章参数字段，lead_writer 派发按「下一章」处理；真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。
+
 ### ✨ v0.80.4 - 按多代理日志修复熔断/状态语义 ✅ (2026-11-02)
 
 - **熔断不丢稿**：`run_role_task_reported` 对 LeadWriter/Writer 的 MaxTurns/Deadline/ParseFailures 熔断，从黑板 Draft 区取回 ≥200 字草稿，任务标 completed 并回报聊天。
@@ -40,7 +51,7 @@
 - **网关工具回合**：`gateway_content_is_empty` 认可「空 content + 非空 tool_calls」，减少候选冷却与旧路径二次调用。
 - **ingest 宽容解析**：`Companion` 归一为 Ally；importance/age 接受浮点与数字字符串。
 - 验证：Rust **1996 / 13**；vitest **653 / 3**；playwright **47 / 5**；tsc/clippy/fmt/guard 全绿。
-- **未关闭**：导演派发的 LeadWriter 仍只写黑板草稿，未自动装配进故事正文；真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。
+- **未关闭**：导演派发的 LeadWriter 仍只写黑板草稿，未自动装配进故事正文（v0.80.5 已闭环）；真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。
 
 ### ✨ v0.80.3 - 批量续写接入 LLM 章契约 ✅ (2026-11-02)
 
