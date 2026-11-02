@@ -1,14 +1,20 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.80.5)
+# 🧪 StoryMoss 自动化测试环境 (v0.80.6)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
 
+### v0.80.6 变更说明
+
+- **导演修订既有章（Rust 1999 passed / 13 ignored，+1）**：target_chapter 修订既有章且 gate 装配 1；校验用例补 3 断言（lead_writer 合法、非 lead_writer 拒绝、章号≥1）。
+- **前端/E2E**：tsc / prettier 全绿；vitest 653 / 3；playwright 47 / 5。
+- **未关闭**：target_chapter 仅章级；修订后不重新 ingest KG；真机复测需重启安装包；人类 A/B。
+
 ### v0.80.5 变更说明
 
 - **导演派发 LeadWriter（Rust 1998 passed / 13 ignored，+2）**：导演指令注入批量 writer prompt 且 gate 装配 1；调度器原子章号（既有第3章 → 新第4章）+ gate 装配 1。
 - **前端/E2E**：tsc / prettier 全绿；vitest 653 / 3；playwright 47 / 5。
-- **未关闭**：导演派发尚无显式目标章参数字段，lead_writer 派发按「下一章」处理；真机复测需重启安装包；人类 A/B。
+- **未关闭**：导演派发尚无显式目标章参数字段，lead_writer 派发按「下一章」处理（v0.80.6 已闭环）；真机复测需重启安装包；人类 A/B。
 
 ### v0.80.4 变更说明
 

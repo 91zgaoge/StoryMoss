@@ -6460,6 +6460,145 @@ impl AgencyCoordinator {
         })
     }
 
+    /// v0.80.6：导演修订既有章的 writer 路径。以目标章现有正文为修订基底，
+    /// 不生成新章纲/新章号；gate/revision/装配仍复用批量管线。
+    async fn write_revision_chapter(
+        &self,
+        budget: &Arc<AgencyBudget>,
+        board: &BlackboardService,
+        registry: &Arc<ToolRegistry>,
+        run_id: &str,
+        story_id: &str,
+        premise: &str,
+        chapter_number: i32,
+        directive: &str,
+    ) -> Result<BatchChapterArtifacts, AppError> {
+        let key = format!("第{}章修订", chapter_number);
+        let pool = self.pool.clone();
+        let sid = story_id.to_string();
+        let (parts, card, existing, outline, prior) = self
+            .db({
+                let pool = pool.clone();
+                let sid = sid.clone();
+                move || {
+                    let parts = load_continue_context_parts(&pool, &sid)
+                        .ok_or_else(|| AppError::from("修订章缺少故事上下文"))?;
+                    let target = parts
+                        .scenes
+                        .iter()
+                        .find(|s| s.sequence_number == chapter_number)
+                        .ok_or_else(|| {
+                            AppError::validation_failed(
+                                format!("目标章不存在: 第{}章", chapter_number),
+                                Some("target_chapter"),
+                            )
+                        })?;
+                    let existing = target.content.clone().unwrap_or_default();
+                    if existing.trim().is_empty() {
+                        return Err(AppError::from(format!(
+                            "第{}章正文为空，无法修订",
+                            chapter_number
+                        )));
+                    }
+                    let outline = target.outline_content.clone().unwrap_or_default();
+                    let prior = parts
+                        .scenes
+                        .iter()
+                        .filter(|s| s.sequence_number < chapter_number)
+                        .max_by_key(|s| s.sequence_number)
+                        .and_then(|s| s.content.clone())
+                        .unwrap_or_default();
+                    let card = crate::agency::beat_card::compile_beat_card_located_prev(
+                        &pool,
+                        &sid,
+                        &prior,
+                        None,
+                        target.outline_content.as_deref(),
+                    )?;
+                    Ok((parts, card, existing, outline, prior))
+                }
+            })
+            .await?;
+        let admitted: Vec<String> = if !card.cast.is_empty() {
+            card.cast.iter().map(|c| c.name.clone()).collect()
+        } else {
+            parts.table_names.clone()
+        };
+        let assets_ctx = render_parts(
+            &parts,
+            &admitted,
+            &outline,
+            &card.next_outline_node,
+            card.setting_location.as_deref(),
+            Some(&prior),
+            &[],
+            &[],
+        );
+        let existing_chars = existing.chars().count();
+        let writer_task = format!(
+            "修订第{ch}章正文（原正文约 {existing_chars} 字；只修订这一章，不新增章节、\
+             不覆盖手写资产）。\n\
+             【本章现有正文（修订基底；保留既有事实、人物关系、时间线与未兑现伏笔，\
+             按导演指令改写冲突、节奏与情感）】\n{existing}\n\n\
+             【本章大纲】\n{outline}\n\n\
+             【世界观、角色、故事大纲与前文】\n{assets_ctx}\n\n\
+             写作要求：\n\
+             - 输出完整修订后的正文，不保留原稿的重复段落/句子；\n\
+             - 保留本章既有事件结果，不引入与资产冲突的新设定；\n\
+             - 按导演指令强化要求的部分，但不得改变既有章号与章节边界；\n\
+             - 禁止空正文；\n\
+             完成后用 board_write 把完整修订稿写入 draft 区（item_type=chapter, key={key}）。",
+            ch = chapter_number,
+            existing_chars = existing_chars,
+            existing = existing,
+            outline = outline,
+            assets_ctx = assets_ctx,
+            key = key
+        );
+        let writer_task = inject_director_directive(writer_task, directive);
+        let writer_out = self
+            .run_role_with_llm_and_budget(
+                budget,
+                AgentRole::LeadWriter,
+                board,
+                registry,
+                run_id,
+                story_id,
+                premise,
+                &writer_task,
+            )
+            .await
+            .map_err(|e| AppError::from(format!("主创修订阶段失败: {}", e)))?;
+        let draft = if writer_out.aborted {
+            let reason = circuit_break_reason(&writer_out);
+            log::warn!(
+                "agency: 修订主创 tool_loop 熔断（{}），尝试按 key 取稿 run={}",
+                reason,
+                run_id
+            );
+            match self
+                .latest_draft_by_key(board, run_id, &key, "主创未按约定 key 写入修订稿")
+                .await
+            {
+                Ok(d) if d.content.chars().count() >= 200 => Ok(d),
+                _ => Err(AppError::from(format!(
+                    "修订主创熔断（{}），且黑板无「{}」修订稿",
+                    reason, key
+                ))),
+            }
+        } else {
+            self.latest_draft_by_key(board, run_id, &key, "主创未按约定 key 写入修订稿")
+                .await
+        }?;
+        Ok(BatchChapterArtifacts {
+            draft,
+            card,
+            emotion: None,
+            emotion_probes: Vec::new(),
+            contract: None,
+        })
+    }
+
     /// 单章 gate 结果处理：修订（≤1 轮，总线记录 proposal）→ 装配 Scene。
     /// 返回该章的 AgencyContinueResult。
     #[allow(clippy::too_many_arguments)]
@@ -6477,6 +6616,7 @@ impl AgencyCoordinator {
         mut revised: bool,
         outcome: GateOutcome,
         cancel: &Arc<AtomicBool>,
+        existing_scene_id: Option<String>,
     ) -> Result<AgencyContinueResult, AppError> {
         let BatchChapterArtifacts {
             mut draft,
@@ -6590,8 +6730,20 @@ impl AgencyCoordinator {
             .map(|p| crate::emotion_circuit::run_chapter_emotion_probes(&draft.content, p))
             .unwrap_or_default();
         let card_ref = emotion.as_ref().map(|_| &card);
-        let mut assembled = self
-            .assemble_next_chapter(
+        let mut assembled = if let Some(scene_id) = existing_scene_id {
+            // v0.80.6：导演修订既有章——gate 通过后更新原 scene，不创建新章。
+            self.assemble_existing_chapter(
+                run_id,
+                story_id,
+                chapter_number,
+                scene_id,
+                draft,
+                budget,
+                board,
+            )
+            .await?
+        } else {
+            self.assemble_next_chapter(
                 budget,
                 board,
                 repo,
@@ -6603,7 +6755,8 @@ impl AgencyCoordinator {
                 emotion.as_ref(),
                 &final_probes,
             )
-            .await?;
+            .await?
+        };
         assembled.revised = revised;
         assembled.verdict = final_verdict;
         self.record_scene_outcome(
@@ -6614,6 +6767,94 @@ impl AgencyCoordinator {
         )
         .await;
         Ok(assembled)
+    }
+
+    /// v0.80.6：修订既有章的装配——gate 通过后更新原 scene 内容，不创建
+    /// 新章、不分配章号、不推进 beat 计数。outline_content 仍取黑板
+    /// `outline-第N章`（若本 run 生成过），否则保留原值。
+    async fn assemble_existing_chapter(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        chapter_number: i32,
+        scene_id: String,
+        draft: BoardItem,
+        budget: &Arc<AgencyBudget>,
+        board: &BlackboardService,
+    ) -> Result<AgencyContinueResult, AppError> {
+        self.emit_progress(
+            run_id,
+            "assembly",
+            "running",
+            &format!("正在更新第{}章修订稿", chapter_number),
+        );
+        self.emit_activity(run_id, AgentRole::Producer, "start", "修订装配");
+        let content = self.cleanup_prose_for_revision(&draft.content).await;
+        if content.trim().is_empty() {
+            return Err(AppError::from(format!(
+                "第{}章修订内容为空，拒绝覆盖原正文",
+                chapter_number
+            )));
+        }
+        let outline_key = format!("outline-第{}章", chapter_number);
+        let board_c = board.clone();
+        let rid = run_id.to_string();
+        let outline_content = self
+            .db(move || -> Result<Option<String>, AppError> {
+                let drafts = board_c.list_zone(&rid, BoardZone::Draft)?;
+                Ok(drafts
+                    .into_iter()
+                    .rev()
+                    .find(|d| d.status == "active" && !d.content.is_empty() && d.key == outline_key)
+                    .map(|d| d.content))
+            })
+            .await
+            .unwrap_or(None);
+        let pool = self.pool.clone();
+        let scene_c = scene_id.clone();
+        let content_c = content.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), AppError> {
+            SceneRepository::new(pool)
+                .update(
+                    &scene_c,
+                    &SceneUpdate {
+                        content: Some(content_c),
+                        outline_content,
+                        ..Default::default()
+                    },
+                )
+                .map(|_| ())
+                .map_err(AppError::from)
+        })
+        .await
+        .map_err(|e| AppError::from(format!("revision assembly join error: {e}")))??;
+        self.emit_activity(run_id, AgentRole::Producer, "done", "修订装配");
+        self.checkpoint_auto(run_id, story_id, "chapter", Some(chapter_number), budget)
+            .await;
+        Ok(AgencyContinueResult {
+            run_id: run_id.to_string(),
+            story_id: story_id.to_string(),
+            scene_id,
+            chapter_number,
+            increment: String::new(),
+            revised: true,
+            verdict: EditorVerdict::pending(),
+        })
+    }
+
+    /// 修订稿清理：不执行 `strip_existing_overlap`——目标章正文就是修订
+    /// 基底，与自身做重叠剥离会把整章删空。
+    async fn cleanup_prose_for_revision(&self, raw: &str) -> String {
+        let raw = raw.to_string();
+        let fallback = raw.clone();
+        tokio::task::spawn_blocking(move || {
+            use crate::utils::text::TextUtils;
+            let mut t = TextUtils::trim_self_repetition(&raw);
+            t = TextUtils::merge_hanging_closing_punct(&t);
+            TextUtils::trim_dangling_tail(&t)
+        })
+        .await
+        .unwrap_or(fallback)
     }
 
     /// NextChapter 装配：create+update 单事务写入新 scenes 行。不含质检。
@@ -6911,7 +7152,15 @@ impl AgencyCoordinator {
     ) -> Result<AgencyBatchResult, AppError> {
         let cancel = register_agency_cancel(run_id);
         let result = self
-            .run_continue_batch_body(run_id, story_id, start_chapter, count, instruction, &cancel)
+            .run_continue_batch_body(
+                run_id,
+                story_id,
+                start_chapter,
+                count,
+                instruction,
+                None,
+                &cancel,
+            )
             .await;
         unregister_agency_cancel(run_id);
         result
@@ -6928,8 +7177,45 @@ impl AgencyCoordinator {
         instruction: &str,
         cancel: Arc<AtomicBool>,
     ) -> Result<AgencyBatchResult, AppError> {
-        self.run_continue_batch_body(run_id, story_id, start_chapter, count, instruction, &cancel)
-            .await
+        self.run_continue_batch_body(
+            run_id,
+            story_id,
+            start_chapter,
+            count,
+            instruction,
+            None,
+            &cancel,
+        )
+        .await
+    }
+
+    /// v0.80.6：导演修订既有章——不分配新章号，writer 以目标章现有正文为
+    /// 修订基底；gate/revision/装配仍走 `run_batch_inner` 同一路径，最终更新
+    /// 原 scene，不创建新章。
+    pub async fn run_revise_chapter_with_cancel(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        chapter_number: i32,
+        instruction: &str,
+        cancel: Arc<AtomicBool>,
+    ) -> Result<AgencyContinueResult, AppError> {
+        let result = self
+            .run_continue_batch_body(
+                run_id,
+                story_id,
+                chapter_number,
+                1,
+                instruction,
+                Some(chapter_number),
+                &cancel,
+            )
+            .await?;
+        result
+            .chapters
+            .into_iter()
+            .next()
+            .ok_or_else(|| AppError::internal("修订管线未产出章节".to_string()))
     }
 
     async fn run_continue_batch_body(
@@ -6939,6 +7225,7 @@ impl AgencyCoordinator {
         start_chapter: i32,
         count: usize,
         instruction: &str,
+        revision: Option<i32>,
         cancel: &Arc<AtomicBool>,
     ) -> Result<AgencyBatchResult, AppError> {
         let repo = AgencyRepository::new(self.pool.clone());
@@ -6954,6 +7241,7 @@ impl AgencyCoordinator {
                 start_chapter,
                 count,
                 instruction,
+                revision,
                 &repo,
                 cancel,
                 &budget,
@@ -7032,6 +7320,7 @@ impl AgencyCoordinator {
         start_chapter: i32,
         count: usize,
         instruction: &str,
+        revision: Option<i32>,
         repo: &AgencyRepository,
         cancel: &Arc<AtomicBool>,
         budget: &Arc<AgencyBudget>,
@@ -7042,7 +7331,44 @@ impl AgencyCoordinator {
             .story_title(story_id)
             .await
             .unwrap_or_else(|| "未命名".to_string());
-        let premise = format!("续写《{}》第{}章起", title, start_chapter);
+        let premise = if let Some(ch) = revision {
+            format!("修订《{}》第{}章", title, ch)
+        } else {
+            format!("续写《{}》第{}章起", title, start_chapter)
+        };
+        let revision_scene_id: Option<String> = if let Some(ch) = revision {
+            if count != 1 || start_chapter != ch {
+                return Err(AppError::validation_failed(
+                    "修订模式只接受 count=1 且 start_chapter=target_chapter",
+                    Some("revision"),
+                ));
+            }
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            let scene = tokio::task::spawn_blocking(move || {
+                SceneRepository::new(pool)
+                    .get_by_story(&sid)
+                    .map(|scenes| {
+                        scenes
+                            .into_iter()
+                            .find(|s| s.sequence_number == ch)
+                            .map(|s| s.id)
+                    })
+                    .map_err(AppError::from)
+            })
+            .await
+            .map_err(|e| AppError::from(format!("revision scene lookup join error: {e}")))??
+            .ok_or_else(|| {
+                AppError::validation_failed(
+                    format!("目标章不存在: 第{ch}章"),
+                    Some("target_chapter"),
+                )
+            })?;
+            Some(scene)
+        } else {
+            None
+        };
+
         // 护栏原子化：story_id 随 create 落库，V109 部分唯一索引在 INSERT
         // 即拦截并发 run。
         // resume_prepare 已把同 id 同 story 的 pending 行落库（resume
@@ -7114,17 +7440,34 @@ impl AgencyCoordinator {
                 &format!("第{}章", chapter_number),
             );
 
-            let write_fut = self.write_chapter(
-                budget,
-                &board,
-                &registry,
-                run_id,
-                story_id,
-                &premise,
-                chapter_number,
-                last_written_plan.as_ref(),
-                instruction,
-            );
+            let write_fut = async {
+                if revision.is_some() {
+                    self.write_revision_chapter(
+                        budget,
+                        &board,
+                        &registry,
+                        run_id,
+                        story_id,
+                        &premise,
+                        chapter_number,
+                        instruction,
+                    )
+                    .await
+                } else {
+                    self.write_chapter(
+                        budget,
+                        &board,
+                        &registry,
+                        run_id,
+                        story_id,
+                        &premise,
+                        chapter_number,
+                        last_written_plan.as_ref(),
+                        instruction,
+                    )
+                    .await
+                }
+            };
             let artifacts = match pending_gate.take() {
                 Some(jh) => {
                     // gate(n-1) 与 writer(n) 并发
@@ -7161,6 +7504,7 @@ impl AgencyCoordinator {
                             prev_revised,
                             outcome,
                             cancel,
+                            revision_scene_id.clone(),
                         )
                         .await?;
                     chapters.push(prev);
@@ -7218,8 +7562,19 @@ impl AgencyCoordinator {
                 .map_err(|e| AppError::from(format!("gate join error: {}", e)))??;
             let last = self
                 .handle_gate(
-                    budget, &board, &registry, repo, run_id, story_id, &premise, num, artifacts,
-                    revised, outcome, cancel,
+                    budget,
+                    &board,
+                    &registry,
+                    repo,
+                    run_id,
+                    story_id,
+                    &premise,
+                    num,
+                    artifacts,
+                    revised,
+                    outcome,
+                    cancel,
+                    revision_scene_id.clone(),
                 )
                 .await?;
             // 末章 gate 处理完：与循环内 spawn 前的 editor start 配对

@@ -52,9 +52,14 @@ pub struct DirectorActionSpec {
     pub reason: Option<String>,
     #[serde(default)]
     pub overwrite: bool,
+    /// v0.80.6：主创修订既有章的目标章号（1-based，对应
+    /// scenes.sequence_number）。 仅 `dispatch lead_writer`
+    /// 可用；缺省表示续写下一章。
+    #[serde(default)]
+    pub target_chapter: Option<i32>,
 }
 
-const DIRECTOR_FALLBACK_SYSTEM: &str = "你是「导演」，代理工作室总控。你的职责是巡检、调度、修复、汇报；不写正文/资产。只输出严格 JSON：{\"reply\":\"...\",\"intent\":\"inspect|dispatch|repair|chat|corpus|none\",\"actions\":[{\"id\":\"a1\",\"type\":\"dispatch\",\"role\":\"producer\",\"instruction\":\"...\",\"corpus_ids\":[],\"depends_on_action\":null,\"reason\":\"...\"}],\"needs_confirmation\":false,\"confirmation\":null}。target_id 只能来自巡检快照 tasks[].id / runs[].id；没有对应 id 就不要生成动作。覆盖手写资产、主创续写/修订、批量、取消/恢复必须 needs_confirmation=true。";
+const DIRECTOR_FALLBACK_SYSTEM: &str = "你是「导演」，代理工作室总控。你的职责是巡检、调度、修复、汇报；不写正文/资产。只输出严格 JSON：{\"reply\":\"...\",\"intent\":\"inspect|dispatch|repair|chat|corpus|none\",\"actions\":[{\"id\":\"a1\",\"type\":\"dispatch\",\"role\":\"producer\",\"instruction\":\"...\",\"corpus_ids\":[],\"depends_on_action\":null,\"reason\":\"...\"}],\"needs_confirmation\":false,\"confirmation\":null}。target_id 只能来自巡检快照 tasks[].id / runs[].id；没有对应 id 就不要生成动作。target_chapter 仅用于 lead_writer 修订既有章：填已有章号则修订该章，留空则续写下一章。覆盖手写资产、主创续写/修订、批量、取消/恢复必须 needs_confirmation=true。";
 
 /// 导演规划：巡检快照 + 用户消息 + 会话历史 → 严格 JSON。
 pub struct DirectorPlanner;
@@ -146,6 +151,14 @@ fn validate_action(action: &DirectorActionSpec) -> Option<String> {
                 .is_empty()
             {
                 return Some("dispatch 缺少 instruction".to_string());
+            }
+            if let Some(ch) = action.target_chapter {
+                if role != AgentRole::LeadWriter {
+                    return Some("target_chapter 仅用于 lead_writer 修订".to_string());
+                }
+                if ch < 1 {
+                    return Some("target_chapter 必须 >= 1".to_string());
+                }
             }
             None
         }
@@ -240,6 +253,9 @@ impl DirectorExecutor {
                     // Editor 等资产/审查角色。
                     if role == AgentRole::LeadWriter {
                         meta_obj["directed_chapter"] = serde_json::Value::Bool(true);
+                        if let Some(ch) = action.target_chapter {
+                            meta_obj["target_chapter"] = serde_json::Value::from(ch);
+                        }
                     }
                     let meta = meta_obj.to_string();
                     scheduler
@@ -692,5 +708,32 @@ mod tests {
             ..Default::default()
         })
         .is_none());
+        // v0.80.6：lead_writer 修订既有章可带 target_chapter
+        assert!(validate_action(&DirectorActionSpec {
+            action_type: "dispatch".into(),
+            role: Some("lead_writer".into()),
+            instruction: Some("修订第9章".into()),
+            target_chapter: Some(9),
+            ..Default::default()
+        })
+        .is_none());
+        // target_chapter 只允许 lead_writer
+        assert!(validate_action(&DirectorActionSpec {
+            action_type: "dispatch".into(),
+            role: Some("producer".into()),
+            instruction: Some("补资产".into()),
+            target_chapter: Some(9),
+            ..Default::default()
+        })
+        .is_some());
+        // 章号必须 >= 1
+        assert!(validate_action(&DirectorActionSpec {
+            action_type: "dispatch".into(),
+            role: Some("lead_writer".into()),
+            instruction: Some("修订第0章".into()),
+            target_chapter: Some(0),
+            ..Default::default()
+        })
+        .is_some());
     }
 }

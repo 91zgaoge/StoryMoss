@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.80.5 架构文档
+# StoryMoss (草苔) v0.80.6 架构文档
 
+> **v0.80.6**：**导演修订既有章（target_chapter）**——`DirectorActionSpec.target_chapter` 仅 lead_writer 可用且 ≥1；`TaskScheduler::run_directed_chapter_task` 在存在目标章时跳过 `allocate_chapter_numbers`，调用 `AgencyCoordinator::run_revise_chapter_with_cancel`。修订管线仍走 `run_batch_inner` 的 GateRunner/handle_gate，但 `write_revision_chapter` 以目标章现有正文为修订基底（board key `第N章修订`），`handle_gate` 收到 `existing_scene_id` 后走 `assemble_existing_chapter`：只更新原 scene 的 content/outline，不创建新 scene、不推进 beat、不分配章号；gate 失败不覆盖原正文。
+>
 > **v0.80.5**：**导演派发 LeadWriter 接入质量门与装配**——`DirectorExecutor` 对 lead_writer dispatch 写入 `directed_chapter=true`；`TaskScheduler::dispatch_sub_agent` 识别后走 `run_directed_chapter_task`：write lane 上限检查 → `AgencyRepository::allocate_chapter_numbers` 原子分配下一章 → `run_continue_batch_with_cancel`（count=1）→ `run_batch_inner` 内 GateRunner/handle_gate/装配。`run_continue_batch_with_instruction`/`with_cancel` 与 `write_chapter` 的 `directive` 参数把导演指令注入 writer task（章契约/情感块之后），不得覆盖世界观/本章大纲/情感契约；空指令时普通批量 prompt 逐字不变。任务摘要带章号/scene/verdict，成功追加聊天 follow-up，失败/取消回填占位消息。
 >
 > **v0.80.4**：**多代理熔断语义与工具回合修复**——`agency/coordinator.rs::run_role_task_reported` 在 LeadWriter/Writer 的 MaxTurns/Deadline/ParseFailures 熔断后从黑板 Draft 区取回 ≥200 字 active 草稿，标 completed 并回报聊天；`agency/scheduler.rs::run_task` 只在 cancel 令牌命中时标 cancelled，自动熔断落 failed 并带 `circuit_break_reason`，失败/取消回填聊天占位消息；`run_role_task`（auto_write/auto_revise）熔断时取回完整草稿，取不到返回 Err，避免把占位串拼进正文；`model_gateway/executor.rs::gateway_content_is_empty` 认可「空 content + 非空 tool_calls」的原生 function calling 回合；`db/models.rs::RelationType::Ally` 加 `Companion` 别名，`memory/ingest.rs` 的 `importance`/`age` 接受浮点与数字字符串。

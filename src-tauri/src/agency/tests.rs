@@ -3474,6 +3474,117 @@ async fn test_directed_lead_writer_dispatch_allocates_chapter_and_gates() {
     );
 }
 
+/// v0.80.6：target_chapter 表示修订既有章——不分配新章号、不创建新 scene，
+/// 但仍过 GateRunner 后更新原 scene。
+#[tokio::test]
+async fn test_director_target_chapter_revises_existing_scene_with_gate() {
+    let pool = create_test_pool().unwrap();
+    let story_id = seed_story_with_assets(&pool);
+    let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
+    let existing = scene_repo.create(&story_id, 1, Some("第一章")).unwrap();
+    let original = pass_grade_content("第一章旧稿：阿苔尚未穿过星环。");
+    scene_repo
+        .update(
+            &existing.id,
+            &crate::db::repositories::SceneUpdate {
+                content: Some(original.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let mock = RoutingMock::new(0);
+    let revised = pass_grade_content("第一章修订稿：阿苔穿过星环，冲突升级。");
+    let revise_line = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章修订","content":"{}","summary":"修订"}}}}"#,
+        revised
+    );
+    mock.push(
+        "writer",
+        vec![
+            revise_line.as_str(),
+            r#"{"type":"final","content":"修订完成"}"#,
+        ],
+    );
+    mock.push("editor", vec![
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过\"}"}"#,
+    ]);
+    let coordinator = Arc::new(AgencyCoordinator::for_test(pool.clone(), mock.clone()));
+    let scheduler = crate::agency::scheduler::TaskScheduler::new(pool.clone(), coordinator, None);
+    let meta = serde_json::json!({
+        "chat_session_id": "s1",
+        "chat_message_id": "m1",
+        "premise": "前提",
+        "directed_chapter": true,
+        "target_chapter": 1,
+    })
+    .to_string();
+    let task_id = scheduler
+        .dispatch_sub_agent(
+            &story_id,
+            "chat:s1",
+            crate::agency::models::AgentRole::LeadWriter,
+            "前提",
+            "加强冲突与情感冲击，修订第1章",
+            None,
+            None,
+            meta,
+        )
+        .await
+        .unwrap();
+    let mut task = None;
+    for _ in 0..60 {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        task = crate::agency::task_repository::TaskRepository::new(pool.clone())
+            .get_task(&task_id)
+            .unwrap();
+        if task
+            .as_ref()
+            .map(|t| matches!(t.status.as_str(), "completed" | "failed" | "cancelled"))
+            .unwrap_or(false)
+        {
+            break;
+        }
+    }
+    let task = task.expect("任务应落库");
+    assert_eq!(
+        task.status, "completed",
+        "target_chapter 修订应完成并装配: {:?}",
+        task.error
+    );
+    let scenes = scene_repo.get_by_story(&story_id).unwrap();
+    assert_eq!(scenes.len(), 1, "修订不得创建新章");
+    assert_eq!(scenes[0].sequence_number, 1);
+    assert_eq!(scenes[0].id, existing.id, "必须更新原 scene");
+    assert_ne!(
+        scenes[0].content.as_deref().unwrap_or(""),
+        original,
+        "原正文应被 gate 通过的修订稿更新"
+    );
+    assert!(
+        scenes[0]
+            .content
+            .as_deref()
+            .unwrap_or("")
+            .contains("阿苔穿过星环"),
+        "更新后正文应来自修订稿"
+    );
+    let board = crate::agency::board::BlackboardService::new(pool.clone());
+    let reviews = board.list_zone(&task_id, BoardZone::Review).unwrap();
+    assert!(
+        reviews.iter().any(|i| i.item_type == "gate"),
+        "修订也必须执行质量门"
+    );
+    assert!(
+        mock.writer_prompts
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|p| p.contains("加强冲突与情感冲击") && p.contains("本章现有正文")),
+        "修订 writer prompt 应含导演指令与现有正文"
+    );
+}
+
 /// resume_run story 级护栏：旧 run 的 story 存在其他 pending/running run
 /// 时拒绝恢复。
 #[tokio::test]

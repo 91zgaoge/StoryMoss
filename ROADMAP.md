@@ -1,6 +1,8 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-11-03（v0.80.5：导演派发 LeadWriter 自动续写并装配——`directed_chapter` 派发语义、write lane 上限、`story_chapter_sequences` 原子章号、`run_continue_batch_with_cancel`（count=1）走 GateRunner/handle_gate/装配；导演指令经 `write_chapter` directive 注入 writer prompt，不覆盖世界观/章大纲/情感契约。Rust **1998 / 13**；vitest **653 / 3**；playwright **47 / 5**。**未关闭**：导演派发尚无显式目标章参数，lead_writer 派发按「下一章」处理；真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。）
+> 最后更新: 2026-11-03（v0.80.6：导演修订既有章——`DirectorActionSpec.target_chapter` 仅 lead_writer 可用且 ≥1；调度器校验目标章存在后跳过新章号分配，`run_revise_chapter_with_cancel` 以目标章正文为修订基底，GateRunner/handle_gate 后更新原 scene，不创建新章、不推进 beat。Rust **1999 / 13**；vitest **653 / 3**；playwright **47 / 5**。**未关闭**：target_chapter 仅章级；修订后不重新 ingest KG；真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。）
+>
+> 最后更新: 2026-11-03（v0.80.5：导演派发 LeadWriter 自动续写并装配——`directed_chapter` 派发语义、write lane 上限、`story_chapter_sequences` 原子章号、`run_continue_batch_with_cancel`（count=1）走 GateRunner/handle_gate/装配；导演指令经 `write_chapter` directive 注入 writer prompt，不覆盖世界观/章大纲/情感契约。Rust **1998 / 13**；vitest **653 / 3**；playwright **47 / 5**。**未关闭**：导演派发尚无显式目标章参数，lead_writer 派发按「下一章」处理（v0.80.6 已闭环）；真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。）
 >
 > 最后更新: 2026-11-02（v0.80.4：按本机多代理日志修复——LeadWriter/Writer 熔断从黑板取回草稿并标 completed；调度器只在 cancel 令牌命中时标 cancelled，MaxTurns/Deadline/ParseFailures 落 failed 并带熔断主因；`gateway_content_is_empty` 认可空 content + tool_calls；ingest `Companion`/浮点整数宽容解析。Rust **1996 / 13**；vitest **653 / 3**；playwright **47 / 5**。**未关闭**：导演派发的 LeadWriter 仍只写黑板草稿，未自动装配进故事正文（v0.80.5 已闭环）；真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。）
 >
@@ -34,6 +36,15 @@
 
 ## ✅ v0.27.x–v0.58.x 已实施完成
 
+### ✨ v0.80.6 - 导演修订既有章（target_chapter） ✅ (2026-11-03)
+
+- **目标章语义**：`DirectorActionSpec` 新增 `target_chapter`（仅 lead_writer，≥1）；填已有章号 → 修订该章，不填 → 续写下一章。非法动作在计划阶段被丢弃。
+- **调度器**：校验目标章存在后跳过新章号分配，调用 `run_revise_chapter_with_cancel`；不存在则任务 failed 并回报。
+- **修订 writer**：`write_revision_chapter` 以目标章现有正文为基底，加载本章大纲/资产/导演指令，board key `第N章修订`；不生成新章纲。
+- **质量门 + 原 scene 更新**：gate/revision 仍走 GateRunner/handle_gate；通过后 `assemble_existing_chapter` 更新原 scene 的 content/outline，不创建新 scene、不推进 beat；gate 失败不覆盖。
+- 验证：Rust **1999 / 13**；vitest **653 / 3**；playwright **47 / 5**；tsc/clippy/fmt/guard 全绿。
+- **未关闭**：target_chapter 仅章级（不支持 scene/版本级）；修订后不重新 ingest KG；真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。
+
 ### ✨ v0.80.5 - 导演派发 LeadWriter 自动续写并装配 ✅ (2026-11-03)
 
 - **派发语义**：`DirectorExecutor` 对 lead_writer dispatch 写入 `directed_chapter=true`；`TaskScheduler` 检查 write lane 上限后，用 `story_chapter_sequences` 原子分配下一章，调用 `run_continue_batch_with_cancel`（count=1）走 GateRunner/handle_gate/装配。
@@ -41,7 +52,7 @@
 - **导演指令注入**：`write_chapter` 新增 directive 参数，在章契约/情感块后注入【导演派发指令】，不得覆盖世界观/本章大纲/情感契约；空指令时普通批量 prompt 逐字不变。
 - **任务回报**：摘要带章号/scene/verdict，成功 follow-up；失败/取消回填聊天并同步 cancel flag。
 - 验证：Rust **1998 / 13**；vitest **653 / 3**；playwright **47 / 5**；tsc/clippy/fmt/guard 全绿。
-- **未关闭**：导演派发尚无显式目标章参数字段，lead_writer 派发按「下一章」处理；真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。
+- **未关闭**：导演派发尚无显式目标章参数字段，lead_writer 派发按「下一章」处理（v0.80.6 已闭环）；真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。
 
 ### ✨ v0.80.4 - 按多代理日志修复熔断/状态语义 ✅ (2026-11-02)
 

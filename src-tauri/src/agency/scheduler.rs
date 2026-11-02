@@ -20,7 +20,7 @@ use crate::{
         repository::{AgencyRepository, MAX_ACTIVE_WRITE_RUNS_PER_STORY},
         task_repository::TaskRepository,
     },
-    db::DbPool,
+    db::{repositories::SceneRepository, DbPool},
     error::AppError,
 };
 
@@ -129,17 +129,27 @@ impl TaskScheduler {
         let sched = self.clone();
         let premise = premise.to_string();
         let instruction = instruction.to_string();
+        let meta = serde_json::from_str::<serde_json::Value>(&task.meta_json).ok();
         let directed_chapter = role == AgentRole::LeadWriter
             && matches!(
-                serde_json::from_str::<serde_json::Value>(&task.meta_json)
-                    .ok()
+                meta.as_ref()
                     .and_then(|v| v.get("directed_chapter").and_then(|x| x.as_bool())),
                 Some(true)
             );
+        let target_chapter: Option<i32> = meta
+            .as_ref()
+            .and_then(|v| v.get("target_chapter").and_then(|x| x.as_i64()))
+            .and_then(|n| i32::try_from(n).ok())
+            .filter(|n| *n >= 1);
         tokio::spawn(async move {
             if directed_chapter {
                 sched
-                    .run_directed_chapter_task(task, instruction, depends_on_task_id)
+                    .run_directed_chapter_task(
+                        task,
+                        instruction,
+                        depends_on_task_id,
+                        target_chapter,
+                    )
                     .await;
             } else {
                 sched.run_task(task, premise, depends_on_task_id).await;
@@ -309,6 +319,7 @@ impl TaskScheduler {
         task: AgencyAgentTask,
         instruction: String,
         depends_on_task_id: Option<String>,
+        target_chapter: Option<i32>,
     ) {
         if let Some(parent) = depends_on_task_id {
             if !self.wait_for_parent(&parent).await {
@@ -411,6 +422,92 @@ impl TaskScheduler {
                 )),
             )
             .await;
+            return;
+        }
+
+        // v0.80.6: target_chapter 表示「修订既有章」——不分配新章号，
+        // 直接校验该章存在并走修订管线（仍过 GateRunner 后更新原 scene）。
+        if let Some(ch) = target_chapter {
+            let pool = self.pool.clone();
+            let sid = task.story_id.clone();
+            let exists = tokio::task::spawn_blocking(move || {
+                SceneRepository::new(pool)
+                    .get_by_story(&sid)
+                    .map(|scenes| {
+                        scenes
+                            .into_iter()
+                            .find(|s| s.sequence_number == ch)
+                            .is_some()
+                    })
+                    .map_err(AppError::from)
+            })
+            .await;
+            match exists {
+                Ok(Ok(true)) => {}
+                Ok(Ok(false)) => {
+                    self.finish_directed_task(
+                        &task,
+                        &reporter,
+                        "failed",
+                        None,
+                        Some(format!("目标章不存在: 第{ch}章")),
+                    )
+                    .await;
+                    return;
+                }
+                Ok(Err(e)) => {
+                    self.finish_directed_task(
+                        &task,
+                        &reporter,
+                        "failed",
+                        None,
+                        Some(e.to_string()),
+                    )
+                    .await;
+                    return;
+                }
+                Err(e) => {
+                    self.finish_directed_task(
+                        &task,
+                        &reporter,
+                        "failed",
+                        None,
+                        Some(format!("目标章校验失败: {e}")),
+                    )
+                    .await;
+                    return;
+                }
+            }
+            let result = self
+                .coordinator
+                .run_revise_chapter_with_cancel(
+                    &task.id,
+                    &task.story_id,
+                    ch,
+                    &instruction,
+                    cancel.clone(),
+                )
+                .await;
+            let cancelled = cancel.load(Ordering::SeqCst);
+            let (status, summary, error) = match result {
+                Ok(chapter_result) if !cancelled => (
+                    "completed",
+                    Some(format!(
+                        "第{}章已按导演指令修订并通过质量门并装配（scene={}，verdict={}）",
+                        chapter_result.chapter_number,
+                        chapter_result.scene_id,
+                        chapter_result.verdict.verdict
+                    )),
+                    None,
+                ),
+                Ok(_) => ("cancelled", Some("已取消".to_string()), None),
+                Err(e) if cancelled => {
+                    ("cancelled", Some("已取消".to_string()), Some(e.to_string()))
+                }
+                Err(e) => ("failed", None, Some(e.to_string())),
+            };
+            self.finish_directed_task(&task, &reporter, status, summary, error)
+                .await;
             return;
         }
 

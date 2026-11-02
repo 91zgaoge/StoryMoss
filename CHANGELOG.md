@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.80.6（2026-11-03）
+
+**导演修订既有章：`target_chapter` 目标章语义 + 修订管线仍过质量门。**
+
+- **导演动作**：`DirectorActionSpec` 新增 `target_chapter: Option<i32>`；`dispatch lead_writer` 填已有章号 → 修订该章，不填 → 原子分配下一章续写。`target_chapter` 仅允许 lead_writer，且必须 ≥1；非 lead_writer 或非法章号会被 `validate_action` 丢弃。
+- **调度器**：识别 meta `target_chapter` 后校验目标章存在；存在则跳过新章号分配，调用 `run_revise_chapter_with_cancel`；不存在则任务 failed 并回报原因。
+- **修订 writer**：`write_revision_chapter` 以目标章现有正文为修订基底，加载本章大纲、世界观/角色/前文与导演指令，写入 board key `第N章修订`；不生成新章纲、不新增章节、不覆盖手写资产。
+- **质量门与装配**：修订仍走批量管线的 GateRunner → 修订/复审 → `handle_gate`；通过后 `assemble_existing_chapter` 更新原 scene 的 content/outline，不创建新 scene、不推进 beat 计数；质量门失败则不覆盖正文。
+- **提示词**：导演提示词新增 target_chapter 规则与示例（修订第9章时填 `"target_chapter":9`）。
+- **验证**：Rust **1999 passed / 13 ignored**（+1：target_chapter 修订既有章且 gate 装配；校验用例补 3 断言）；vitest **653 passed / 3 skipped**；playwright **47 passed / 5 skipped**；tsc / clippy / fmt / guard 全绿。
+- **未关闭**：target_chapter 仅到章级（不支持指定 scene/版本）；修订装配不重新 ingest KG（避免重复写入）；真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。
+
 ## v0.80.5（2026-11-03）
 
 **导演派发 LeadWriter 自动续写并装配：原子章号 + GateRunner 质量门，不绕过门禁。**
