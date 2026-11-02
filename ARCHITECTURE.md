@@ -1530,6 +1530,12 @@ npm test
 
 ---
 
+## v0.80.2 新增：复合姓 / 候选池 / 作者称呼编辑
+
+- **复合姓**：`naming/repository.rs::split_formal_name` 按复姓表切分账本。
+- **候选池**：`naming::suggest_candidates` 保留姓氏、按语义域生成候选。
+- **作者编辑**：`get_character_name`/`update_character_name` IPC；`CharacterEditModal` 称呼规则字段写回 `AddressRule`。
+
 ## v0.80.1 新增：SceneOutcome / 姓名账本
 
 - **SceneOutcome**：V152 `scene_outcomes` + `agency/narrative_contract/outcome.rs`；装配后写回结果/状态变化/未决问题；进度块优先读最近 3 章结果。

@@ -6,7 +6,41 @@ import {
   deleteCharacter,
   setCharacterLifeStatus,
   notifyFrontstageDataRefresh,
+  loggedInvoke,
 } from '@/services/tauri';
+
+export interface CharacterNameRecord {
+  character_id: string;
+  story_id: string;
+  formal: string;
+  surname: string;
+  given: string;
+  courtesy: string | null;
+  art: string | null;
+  childhood: string | null;
+  nickname: string | null;
+  aliases_json: string;
+  titles_json: string;
+  taboo_json: string;
+  address_rules_json: string;
+  name_story: string;
+}
+
+export interface CharacterNameUpdate {
+  characterId: string;
+  storyId: string;
+  courtesy?: string;
+  art?: string;
+  childhood?: string;
+  nickname?: string;
+  aliasesJson?: string;
+  titlesJson?: string;
+  tabooJson?: string;
+  addressRulesJson?: string;
+  nameStory?: string;
+}
+
+const CHARACTER_NAME_KEY = 'character-name';
 import type { CreateCharacterRequest, Character } from '@/types/index';
 import toast from 'react-hot-toast';
 import { useEffect } from 'react';
@@ -75,6 +109,46 @@ export function useDeleteCharacter() {
  * 正文判定是单调的（写成死亡即持久化），这里是唯一回写口——
  * 用于假死/诈死情节「其实没死」，或手动把角色标记身故。
  */
+export function useCharacterName(characterId: string | null) {
+  return useQuery<CharacterNameRecord | null>({
+    queryKey: [CHARACTER_NAME_KEY, characterId],
+    queryFn: () =>
+      loggedInvoke<CharacterNameRecord | null>('get_character_name', {
+        character_id: characterId,
+      }),
+    enabled: !!characterId,
+  });
+}
+
+export function useUpdateCharacterName() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (update: CharacterNameUpdate) =>
+      loggedInvoke<CharacterNameRecord>('update_character_name', {
+        character_id: update.characterId,
+        story_id: update.storyId,
+        courtesy: update.courtesy ?? null,
+        art: update.art ?? null,
+        childhood: update.childhood ?? null,
+        nickname: update.nickname ?? null,
+        aliases_json: update.aliasesJson ?? null,
+        titles_json: update.titlesJson ?? null,
+        taboo_json: update.tabooJson ?? null,
+        address_rules_json: update.addressRulesJson ?? null,
+        name_story: update.nameStory ?? null,
+      }),
+    onSuccess: (_, update) => {
+      queryClient.invalidateQueries({
+        queryKey: [CHARACTER_NAME_KEY, update.characterId],
+      });
+      toast.success('称呼规则已保存');
+    },
+    onError: (error: Error) => {
+      toast.error('称呼规则保存失败: ' + error.message);
+    },
+  });
+}
+
 export function useSetCharacterLifeStatus() {
   const queryClient = useQueryClient();
 

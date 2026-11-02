@@ -5,6 +5,7 @@ use tauri::{AppHandle, Manager, State};
 use crate::{
     db::{CharacterRepository, CreateCharacterRequest, DbPool},
     error::AppError,
+    naming::{AddressRule, NameLedgerRecord, NameLedgerRepository},
     skills::SkillManager,
 };
 
@@ -428,4 +429,115 @@ pub fn delete_character(
         let _ = crate::state_sync::StateSync::emit_character_deleted(&app, &id, &story_id);
     }
     Ok(())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn get_character_name(
+    character_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Option<NameLedgerRecord>, AppError> {
+    let repo = NameLedgerRepository::new(pool.inner().clone());
+    if let Some(record) = repo
+        .get_by_character(&character_id)
+        .map_err(AppError::from)?
+    {
+        return Ok(Some(record));
+    }
+    // 旧角色第一次打开称呼面板时按需落账，避免“没有账本就无法编辑”。
+    let character = CharacterRepository::new(pool.inner().clone())
+        .get_by_id(&character_id)
+        .map_err(AppError::from)?
+        .ok_or_else(|| AppError::not_found("character", character_id.clone()))?;
+    let record =
+        NameLedgerRecord::from_character(&character.story_id, &character.id, &character.name);
+    repo.upsert(&record).map_err(AppError::from)?;
+    Ok(Some(record))
+}
+
+#[allow(clippy::too_many_arguments)]
+#[tauri::command(rename_all = "snake_case")]
+pub fn update_character_name(
+    character_id: String,
+    story_id: String,
+    courtesy: Option<String>,
+    art: Option<String>,
+    childhood: Option<String>,
+    nickname: Option<String>,
+    aliases_json: Option<String>,
+    titles_json: Option<String>,
+    taboo_json: Option<String>,
+    address_rules_json: Option<String>,
+    name_story: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<NameLedgerRecord, AppError> {
+    let repo = NameLedgerRepository::new(pool.inner().clone());
+    let mut record = match repo
+        .get_by_character(&character_id)
+        .map_err(AppError::from)?
+    {
+        Some(record) => record,
+        None => {
+            let character = CharacterRepository::new(pool.inner().clone())
+                .get_by_id(&character_id)
+                .map_err(AppError::from)?
+                .ok_or_else(|| AppError::not_found("character", character_id.clone()))?;
+            NameLedgerRecord::from_character(&character.story_id, &character.id, &character.name)
+        }
+    };
+    record.story_id = story_id;
+    if let Some(v) = courtesy {
+        record.courtesy = normalize_name_field(v);
+    }
+    if let Some(v) = art {
+        record.art = normalize_name_field(v);
+    }
+    if let Some(v) = childhood {
+        record.childhood = normalize_name_field(v);
+    }
+    if let Some(v) = nickname {
+        record.nickname = normalize_name_field(v);
+    }
+    if let Some(v) = aliases_json {
+        record.aliases_json = normalize_json_array(&v, "aliases")?;
+    }
+    if let Some(v) = titles_json {
+        record.titles_json = normalize_json_array(&v, "titles")?;
+    }
+    if let Some(v) = taboo_json {
+        record.taboo_json = normalize_json_array(&v, "taboo")?;
+    }
+    if let Some(v) = name_story {
+        record.name_story = v.trim().to_string();
+    }
+    if let Some(v) = address_rules_json {
+        let parsed: Vec<AddressRule> = serde_json::from_str(&v).map_err(|e| {
+            AppError::validation_failed(format!("称呼规则 JSON 无效: {e}"), None::<String>)
+        })?;
+        record.address_rules_json = serde_json::to_string(&parsed).map_err(|e| {
+            AppError::validation_failed(format!("称呼规则序列化失败: {e}"), None::<String>)
+        })?;
+    }
+    repo.upsert(&record).map_err(AppError::from)?;
+    Ok(record)
+}
+
+fn normalize_name_field(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn normalize_json_array(value: &str, field: &str) -> Result<String, AppError> {
+    let parsed: Vec<String> = serde_json::from_str(value).map_err(|e| {
+        AppError::validation_failed(
+            format!("{field} 必须是字符串数组 JSON: {e}"),
+            None::<String>,
+        )
+    })?;
+    serde_json::to_string(&parsed).map_err(|e| {
+        AppError::validation_failed(format!("{field} 序列化失败: {e}"), None::<String>)
+    })
 }

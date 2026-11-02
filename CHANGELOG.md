@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.80.2（2026-11-02）
+
+**复合姓解析 + 姓名候选池 + 作者编辑称呼规则。**
+
+- **复合姓解析**：姓名账本不再把「欧阳修远」拆成姓「欧」名「阳修远」；`split_formal_name` 按 `欧阳/上官/诸葛/慕容/…` 复姓表切分，单姓仍取首字。新增复姓账本测试。
+- **姓名候选池**：`suggest_candidates(formal, count)` 保留姓氏、按语义域（期望/时代/经典/日常/方言）生成候选项并避开模型陈词组合；供作者编辑/后续取名编译器使用。
+- **作者编辑称呼规则**：新增 IPC `get_character_name` / `update_character_name`；旧角色首次打开称呼面板时按需落账。`CharacterEditModal` 新增字/号/小名/绰号/公开称呼/私下称呼/敌对禁忌称呼/取名故事字段，保存时序列化为 `AddressRule` 写入账本。
+- **验证**：Rust **1991 passed / 13 ignored**（+3：复合姓 1、候选池 2）；vitest **653 passed / 3 skipped**；playwright **47 passed / 5 skipped**；tsc / clippy / fmt / guard 全绿。
+- **未关闭**：LLM 章契约生成/校验；完整字/号/绰号候选池仍为小样本；称呼规则 UI 只编辑「众人」一条规则；人类 A/B、设置页灰度开关、真机样章。
+
 ## v0.80.1（2026-11-02）
 
 **SceneOutcome 结构化落库 + 姓名账本/称呼块接入。**

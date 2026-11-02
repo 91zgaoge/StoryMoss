@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.80.1)
+# 🧪 StoryMoss 自动化测试环境 (v0.80.2)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.80.2 变更说明
+
+- **复合姓/候选池（Rust 1991 passed / 13 ignored，+3）**：复姓账本 1 项；候选池 2 项；称呼 IPC 编译通过。
+- **前端**：`CharacterEditModal` 称呼规则字段；tsc / prettier 全绿；vitest 653 / 3；playwright 47 / 5。
+- **未关闭**：LLM 章契约；称呼 UI 仅一条规则；候选池小样本；人类 A/B。
 
 ### v0.80.1 变更说明
 

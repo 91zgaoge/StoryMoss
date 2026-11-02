@@ -31,15 +31,37 @@ pub struct NameLedgerRecord {
     pub updated_at: String,
 }
 
+/// 复姓表（与 `agency/continue_assets` 的别名启发式保持独立；账本以完整
+/// 复姓为姓、其余为名）。
+const COMPOUND_SURNAMES: &[&str] = &[
+    "欧阳", "上官", "诸葛", "慕容", "司徒", "司马", "尉迟", "长孙", "宇文", "皇甫", "令狐", "独孤",
+    "南宫", "西门", "东方", "夏侯", "公孙", "端木", "呼延", "赫连",
+];
+
+fn split_formal_name(formal: &str) -> (String, String) {
+    let formal = formal.trim();
+    if formal.is_empty() {
+        return (String::new(), String::new());
+    }
+    for compound in COMPOUND_SURNAMES {
+        if formal.starts_with(compound) && formal.chars().count() > compound.chars().count() {
+            let given: String = formal.chars().skip(compound.chars().count()).collect();
+            return (compound.to_string(), given);
+        }
+    }
+    let surname = formal
+        .chars()
+        .next()
+        .map(|c| c.to_string())
+        .unwrap_or_default();
+    let given: String = formal.chars().skip(1).collect();
+    (surname, given)
+}
+
 impl NameLedgerRecord {
     pub fn from_character(story_id: &str, character_id: &str, formal: &str) -> Self {
         let formal = formal.trim().to_string();
-        let surname = formal
-            .chars()
-            .next()
-            .map(|c| c.to_string())
-            .unwrap_or_default();
-        let given: String = formal.chars().skip(1).collect();
+        let (surname, given) = split_formal_name(&formal);
         let rules = vec![AddressRule {
             speaker: "众人".to_string(),
             addressee: formal.clone(),
@@ -300,6 +322,16 @@ mod tests {
         assert!(got.address_rules_json.contains("默认称呼"));
         let list = repo.list_for_story("story-1").unwrap();
         assert_eq!(list.len(), 1);
+    }
+
+    #[test]
+    fn compound_surname_is_not_split_at_first_char() {
+        let rec = NameLedgerRecord::from_character("story-1", "char-1", "欧阳修远");
+        assert_eq!(rec.surname, "欧阳");
+        assert_eq!(rec.given, "修远");
+        let rec2 = NameLedgerRecord::from_character("story-1", "char-2", "上官婉儿");
+        assert_eq!(rec2.surname, "上官");
+        assert_eq!(rec2.given, "婉儿");
     }
 
     #[test]

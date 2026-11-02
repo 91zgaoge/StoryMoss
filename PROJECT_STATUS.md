@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.80.1 项目完成状态
+# StoryMoss (草苔) v0.80.2 项目完成状态
 
+> 最后更新: 2026-11-02（**v0.80.2：复合姓解析 + 姓名候选池 + 作者编辑称呼规则**——账本按复姓表切分；`suggest_candidates` 按语义域生成候选；新增 `get_character_name`/`update_character_name`，`CharacterEditModal` 可编辑字/号/小名/绰号/公开/私下/敌对称呼/取名故事。Rust **1991 passed / 13 ignored**；vitest **653 / 3**；playwright **47 / 5**；tsc/clippy/fmt/guard 全绿。**未关闭**：LLM 章契约、称呼 UI 仅一条规则、候选池小样本、人类 A/B。）
+>
 > 最后更新: 2026-11-02（**v0.80.1：SceneOutcome 结构化落库 + 姓名账本/称呼块**——V152 `scene_outcomes` + 仓库，Append/NextChapter/批量装配后写回，进度块优先读最近 3 章结果；V153 `character_names` + 仓库，角色创建同事务落账、旧故事按需从 characters 回填，`render_parts` 注入【本场称呼】。Rust **1988 passed / 13 ignored**；vitest **653 / 3**；playwright **47 / 5**；tsc/clippy/fmt/guard 全绿。**未关闭**：LLM 章契约、称呼规则仍默认全名、候选池/作者编辑 UI、人类 A/B。）
 >
 > 最后更新: 2026-11-02（**v0.80.0：章契约 + 1–3 场投影 + legacy 资产接线 + 回滚开关 + 多故事切换 E2E**——新增 `ChapterContract`/`compile_chapter_contract`，批量 `write_chapter` 注入章契约 + 1–3 场简报；`render_continue_assets` 消费 `methodology_extension`/`narrative_quartet`；`STORYMOSS_NARRATIVE_CONTRACT=0`/`STORYMOSS_NAMING=0` 可回滚；新增 `frontstage-story-switch.spec.ts`。Rust **1984 passed / 13 ignored**；vitest **653 passed / 3 skipped**；playwright **47 passed / 5 skipped**；tsc/clippy/fmt/guard 全绿。**未关闭**：LLM 章契约、完整 NameLedger/称呼图、SceneOutcome 落库、人类 A/B。）

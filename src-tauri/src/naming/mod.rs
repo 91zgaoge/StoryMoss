@@ -80,6 +80,62 @@ pub struct AddressRule {
     pub note: String,
 }
 
+/// 取名候选项（P1 作者编辑界面/取名编译器用）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NameCandidate {
+    pub formal: String,
+    pub surname: String,
+    pub given: String,
+    pub domain: String,
+    pub note: String,
+}
+
+const GIVEN_POOL: &[(&str, &str, &str)] = &[
+    ("秀兰", "期望/日常", "1960s 常见的女性名，普通家庭"),
+    ("建国", "时代", "1970s 男性名，时代感强"),
+    ("雨桐", "纪念", "1990s 后常见，出生雨季"),
+    ("子默", "经典", "偏书面，适合读书人家庭"),
+    ("守拙", "经典", "字辈/书香家庭，藏锋"),
+    ("阿禾", "日常/方言", "乡村小名，亲近"),
+    ("小满", "节气/纪念", "节气名，乡野"),
+    ("念慈", "纪念", "纪念长辈，女性偏多"),
+    ("承志", "家族", "承接字辈与家族期待"),
+    ("明远", "期望", "普通期望名，男女可用"),
+    ("静秋", "时代", "年代感女性名"),
+    ("志强", "期望", "1980s 男性常见名"),
+    ("招娣", "日常/方言", "旧时代女性名，带时代伤痕"),
+    ("石头", "日常", "乡土男性名，质朴"),
+    ("若兰", "经典", "书香家庭女性名"),
+];
+
+/// 为给定本名生成候选（保留姓氏，换用不同语义域的给定名）。
+/// 只用于作者选名/候选池；不直接改已有角色名。
+pub fn suggest_candidates(formal: &str, count: usize) -> Vec<NameCandidate> {
+    let surname = surname_of(formal);
+    if surname.is_empty() {
+        return Vec::new();
+    }
+    let existing = formal.trim();
+    let mut out = Vec::new();
+    for (given, domain, note) in GIVEN_POOL {
+        let candidate = format!("{surname}{given}");
+        if candidate == existing || is_model_cliche(&candidate) {
+            continue;
+        }
+        out.push(NameCandidate {
+            formal: candidate,
+            surname: surname.clone(),
+            given: given.to_string(),
+            domain: domain.to_string(),
+            note: note.to_string(),
+        });
+        if out.len() >= count.max(1) {
+            break;
+        }
+    }
+    out
+}
+
 /// 主要角色姓名校验。返回空表示通过；Hard 问题需阻止落库。
 pub fn validate_names(names: &[&str]) -> Vec<NameIssue> {
     let mut issues = Vec::new();
@@ -263,5 +319,26 @@ mod tests {
     fn common_surnames_are_not_banned() {
         let issues = validate_names(&["王秀兰", "李建国", "张伟"]);
         assert!(!issues.iter().any(|i| i.code == "common_surname_banned"));
+    }
+
+    #[test]
+    fn candidate_pool_keeps_surname_and_varies_given() {
+        let candidates = suggest_candidates("沈砚", 3);
+        assert_eq!(candidates.len(), 3);
+        for c in &candidates {
+            assert!(c.formal.starts_with("沈"));
+            assert_ne!(c.formal, "沈砚");
+            assert!(!c.given.is_empty());
+        }
+    }
+
+    #[test]
+    fn candidate_pool_keeps_compound_surname() {
+        let candidates = suggest_candidates("欧阳修远", 2);
+        assert_eq!(candidates.len(), 2);
+        for c in &candidates {
+            assert!(c.formal.starts_with("欧阳"));
+            assert_ne!(c.formal, "欧阳修远");
+        }
     }
 }
