@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.80.4（2026-11-02）
+
+**按本机多代理日志修复：熔断不丢稿、状态语义、网关工具回合、ingest 宽容解析。**
+
+- **主创熔断不再丢稿**：`run_role_task_reported`（导演/剧组对话派发路径）在 LeadWriter/Writer 达到最大轮数、Deadline 或解析失败熔断时，从黑板 Draft 区取回 ≥200 字的 active 草稿，标记任务为 completed 并回报聊天（「主创达到最大轮数熔断，已从黑板草稿区取回「第2章」（2097 字）…」）。此前该路径没有创世/续写路径的 salvage 兜底，真机日志里 4 次 LeadWriter 熔断均把 task 标成 cancelled，导演据此反复重派同一任务。
+- **熔断不再伪装成用户取消**：`TaskScheduler::run_task` 只在 cancel 令牌命中的时候标 cancelled；MaxTurns/Deadline/ParseFailures 熔断落 failed 并带熔断主因，避免导演把「自动熔断」误读成「用户撤单」。失败/取消也会回填聊天占位消息，不再永远停在 acting。
+- **旧 agents 路径不写占位串**：`run_role_task`（auto_write/auto_revise）熔断时可从黑板取回完整草稿；取不到返回 Err，不再把「（达到最大轮数，已熔断）」拼进正文。
+- **网关识别合法工具回合**：`gateway_content_is_empty` 现在把「content 为空但 tool_calls 非空」视为合法（原生 function calling 的常见形态），不再冷却候选并二次走 LlmService 旧路径；日志里 156 次 `content 为空但 reasoning_content 有 N 字符` 的候选空转因此减少。
+- **ingest 宽容解析**：`RelationType::Ally` 接受 `Companion` 别名（真机日志 `unknown variant Companion`）；`importance`/`age` 等整数字段接受浮点与数字字符串（真机日志 `invalid type: floating point ..., expected i32` 导致整段 KG 提取 3 次全败）。
+- **验证**：Rust **1996 passed / 13 ignored**（+5：网关 tool_calls 空正文 1、调度器熔断状态 1、ingest Companion/浮点 1、age 浮点/空串 1、对话派发 LeadWriter salvage 1）；vitest **653 passed / 3 skipped**；playwright **47 passed / 5 skipped**；tsc / clippy / fmt / guard 全绿。
+- **未关闭**：导演派发 LeadWriter 仍只写黑板草稿，尚不自动把草稿装配进故事正文（需后续 `materialize`/续写管线接线）；真机复测需重启安装包后观察同一对话链路；人类 A/B、设置页灰度开关、真机样章。
+
 ## v0.80.3（2026-11-02）
 
 **批量续写接入 LLM 章契约（确定性兜底）。**

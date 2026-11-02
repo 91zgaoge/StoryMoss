@@ -244,8 +244,21 @@ impl TaskScheduler {
             .await;
 
         let cancelled = cancel.load(Ordering::SeqCst);
+        // v0.80.4: aborted 不再一律等同「用户取消」。tool_loop 的
+        // MaxTurns/Deadline/ParseFailures 熔断必须落 failed（带熔断主因），
+        // 否则导演看到 cancelled 会误判成用户撤单并反复重新派发同一任务。
+        // 只有 cancel 令牌命中才是真取消；LeadWriter/Writer 的熔断若已被
+        // coordinator salvage 成草稿，则 aborted 已被清掉，走 completed。
         let (status, summary, error) = match result {
-            Ok(r) if r.aborted || cancelled => ("cancelled", Some("已取消".to_string()), None),
+            Ok(r) if cancelled => ("cancelled", Some("已取消".to_string()), None),
+            Ok(r) if r.aborted => {
+                let reason = crate::agency::coordinator::circuit_break_reason(&r);
+                (
+                    "failed",
+                    None,
+                    Some(format!("tool_loop 熔断（{}），未产出可用结果", reason)),
+                )
+            }
             Ok(r) => {
                 let summary = truncate_summary(&r.output);
                 ("completed", Some(summary), None)
@@ -261,6 +274,10 @@ impl TaskScheduler {
         unregister_task_cancel(&task.id);
         if status == "completed" {
             self.append_chat_follow_up(&task, summary.as_deref());
+        } else {
+            // v0.80.4: 失败/取消也要回填聊天占位消息，否则 @主创 等直达派发
+            // 的占位消息会一直停在 acting，作者看不到失败原因。
+            self.update_chat_task_status(&task, status, error.as_deref());
         }
     }
 
@@ -366,6 +383,41 @@ impl TaskScheduler {
             }
         }
     }
+
+    /// 失败/取消回填原占位消息（不是追加 follow-up）：作者在对话里能看到
+    /// 「主创任务失败：…」而不是永远 pending/acting。
+    fn update_chat_task_status(&self, task: &AgencyAgentTask, status: &str, error: Option<&str>) {
+        let Some(message_id) = parse_meta_chat_message(&task.meta_json) else {
+            return;
+        };
+        let content = match status {
+            "cancelled" => "已取消".to_string(),
+            _ => format!(
+                "{} 任务失败：{}",
+                task.role.as_str(),
+                error.unwrap_or("未知错误")
+            ),
+        };
+        let repo = ChatRepository::new(self.pool.clone());
+        if repo
+            .update_message_payload(&message_id, status, Some(&content), None, None, error)
+            .is_ok()
+        {
+            if let Some(app) = &self.app {
+                let _ = app.emit(
+                    EVENT_CHAT_UPDATE,
+                    serde_json::json!({
+                        "session_id": parse_meta_chat_session(&task.meta_json).unwrap_or_default(),
+                        "message_id": message_id,
+                        "role": task.role.as_str(),
+                        "status": status,
+                        "content": content,
+                        "task_ids": [task.id.clone()],
+                    }),
+                );
+            }
+        }
+    }
 }
 
 fn truncate_summary(text: &str) -> String {
@@ -392,6 +444,16 @@ fn parse_meta_chat_session(meta: &str) -> Option<String> {
         .ok()
         .and_then(|v| {
             v.get("chat_session_id")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string())
+        })
+}
+
+fn parse_meta_chat_message(meta: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(meta)
+        .ok()
+        .and_then(|v| {
+            v.get("chat_message_id")
                 .and_then(|x| x.as_str())
                 .map(|s| s.to_string())
         })
@@ -446,7 +508,47 @@ mod tests {
         }
     }
 
+    /// 每轮都返回一个不可用工具的 action：让 ToolLoop 走到最大轮数熔断，
+    /// 用于验证熔断不再被调度器标成 cancelled。
+    struct AlwaysToolLlm;
+
+    #[async_trait::async_trait]
+    impl LoopLlm for AlwaysToolLlm {
+        async fn complete(
+            &self,
+            _s: &str,
+            _u: &str,
+            _t: TaskType,
+            _m: i32,
+        ) -> Result<String, AppError> {
+            Ok(r#"{"type":"tool","name":"definitely_not_a_tool","args":{}}"#.to_string())
+        }
+
+        async fn complete_turn_metered(
+            &self,
+            s: &str,
+            u: &str,
+            t: TaskType,
+            m: i32,
+            _tools: Option<&[crate::llm::adapter::ToolSpec]>,
+        ) -> Result<(LlmTurn, i32, f64), AppError> {
+            let content = self.complete(s, u, t, m).await?;
+            Ok((
+                LlmTurn {
+                    content,
+                    tool_calls: Vec::new(),
+                },
+                0,
+                0.0,
+            ))
+        }
+    }
+
     fn setup(delay_ms: u64) -> TaskScheduler {
+        setup_with_llm(Arc::new(SlowFinalLlm { delay_ms }))
+    }
+
+    fn setup_with_llm(llm: Arc<dyn LoopLlm>) -> TaskScheduler {
         let pool = create_test_pool().unwrap();
         let conn = pool.get().unwrap();
         conn.execute(
@@ -455,10 +557,7 @@ mod tests {
             [],
         )
         .unwrap();
-        let coordinator = Arc::new(AgencyCoordinator::for_test(
-            pool.clone(),
-            Arc::new(SlowFinalLlm { delay_ms }),
-        ));
+        let coordinator = Arc::new(AgencyCoordinator::for_test(pool.clone(), llm));
         TaskScheduler::new(pool, coordinator, None)
     }
 
@@ -559,5 +658,36 @@ mod tests {
             .unwrap();
         assert_eq!(parent_task.status, "completed");
         assert_eq!(child_task.status, "completed");
+    }
+
+    #[tokio::test]
+    async fn test_tool_loop_breaker_is_failed_not_cancelled() {
+        let sched = setup_with_llm(Arc::new(AlwaysToolLlm));
+        let task_id = sched
+            .dispatch_sub_agent(
+                "story-1",
+                "chat:s1",
+                AgentRole::EditorAuditor,
+                "前提",
+                "复审草稿",
+                None,
+                None,
+                "{}".into(),
+            )
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let task = TaskRepository::new(sched.pool.clone())
+            .get_task(&task_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            task.status, "failed",
+            "自动熔断必须落 failed，不能伪装成用户 cancelled"
+        );
+        assert!(
+            task.error.unwrap_or_default().contains("熔断"),
+            "失败原因需带熔断主因"
+        );
     }
 }

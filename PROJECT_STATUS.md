@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.80.3 项目完成状态
+# StoryMoss (草苔) v0.80.4 项目完成状态
 
+> 最后更新: 2026-11-02（**v0.80.4：按本机多代理日志修复——熔断不丢稿 + 状态语义 + 网关工具回合 + ingest 宽容解析**——`run_role_task_reported` 对 LeadWriter/Writer 熔断从黑板取回 ≥200 字草稿并标 completed；`TaskScheduler::run_task` 只在 cancel 令牌命中时标 cancelled，MaxTurns/Deadline/ParseFailures 落 failed 并带熔断主因，失败/取消回填聊天占位消息；`run_role_task` 熔断不再把占位串拼进正文；`gateway_content_is_empty` 认可「空 content + 非空 tool_calls」；ingest `Companion` 归一为 Ally、importance/age 接受浮点与数字字符串。Rust **1996 passed / 13 ignored**；vitest **653 / 3**；playwright **47 / 5**；tsc/clippy/fmt/guard 全绿。**未关闭**：导演派发的 LeadWriter 仍只写黑板草稿，未自动装配进故事正文；真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。）
+>
 > 最后更新: 2026-11-02（**v0.80.3：批量续写接入 LLM 章契约（确定性兜底）**——新增 chapter_contract 提示词；`generate_chapter_contract_llm` 生成 JSON 并覆盖确定性章契约，失败/通用/空字段回退；仅批量 `write_chapter` 调用（每章 1 次），生产默认开启、测试默认关闭，`STORYMOSS_LLM_CHAPTER_CONTRACT` 可强制开关。Rust **1991 passed / 13 ignored**；vitest **653 / 3**；playwright **47 / 5**；tsc/clippy/fmt/guard 全绿。**未关闭**：人类 A/B、设置页灰度开关、真机样章、LLM 契约质量复测。）
 >
 > 最后更新: 2026-11-02（**v0.80.2：复合姓解析 + 姓名候选池 + 作者编辑称呼规则**——账本按复姓表切分；`suggest_candidates` 按语义域生成候选；新增 `get_character_name`/`update_character_name`，`CharacterEditModal` 可编辑字/号/小名/绰号/公开/私下/敌对称呼/取名故事。Rust **1991 passed / 13 ignored**；vitest **653 / 3**；playwright **47 / 5**；tsc/clippy/fmt/guard 全绿。**未关闭**：LLM 章契约、称呼 UI 仅一条规则、候选池小样本、人类 A/B。）

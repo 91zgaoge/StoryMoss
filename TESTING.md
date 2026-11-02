@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.80.3)
+# 🧪 StoryMoss 自动化测试环境 (v0.80.4)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.80.4 变更说明
+
+- **多代理日志修复（Rust 1996 passed / 13 ignored，+5）**：网关 tool_calls 空正文 1；调度器熔断状态 1；ingest Companion/浮点 1；age 浮点/空串 1；对话派发 LeadWriter salvage 1。
+- **前端/E2E**：tsc / prettier 全绿；vitest 653 / 3；playwright 47 / 5。
+- **未关闭**：导演派发的 LeadWriter 仍只写黑板草稿，未自动装配进故事正文；真机复测需重启安装包；人类 A/B。
 
 ### v0.80.3 变更说明
 

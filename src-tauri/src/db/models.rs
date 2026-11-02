@@ -892,6 +892,9 @@ pub enum RelationType {
     Lover,
     Mentor,
     Rival,
+    /// v0.80.4: LLM 常输出「Companion」这一未在枚举里的同义词；归入 Ally，
+    /// 避免 Step2 整段 JSON 因 unknown variant 连续失败（真机日志）。
+    #[serde(alias = "Companion", alias = "companion")]
     Ally,
 
     // 物品关系
@@ -977,7 +980,7 @@ impl std::str::FromStr for RelationType {
             "Lover" => Ok(RelationType::Lover),
             "Mentor" => Ok(RelationType::Mentor),
             "Rival" => Ok(RelationType::Rival),
-            "Ally" => Ok(RelationType::Ally),
+            "Ally" | "Companion" | "companion" => Ok(RelationType::Ally),
             "LocatedAt" => Ok(RelationType::LocatedAt),
             "BelongsTo" => Ok(RelationType::BelongsTo),
             "Uses" => Ok(RelationType::Uses),

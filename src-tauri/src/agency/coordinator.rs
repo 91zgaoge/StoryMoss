@@ -3523,7 +3523,7 @@ impl AgencyCoordinator {
         let llm = self.llm_for_run(run_id, role, story_id);
         let board = self.board();
         let registry = Arc::new(ToolRegistry::agency_default());
-        run_role_loop_reported(
+        let mut result = run_role_loop_reported(
             &llm,
             &budget,
             &self.pool,
@@ -3536,9 +3536,45 @@ impl AgencyCoordinator {
             task,
             self.current_deadline(),
             reporter,
-            cancel,
+            cancel.clone(),
         )
-        .await
+        .await?;
+        // v0.80.4: 对话派发路径此前没有创世/续写路径的「熔断不丢稿」兜底。
+        // 真机日志：LeadWriter 连续 10 轮 board_write 后达到最大轮数熔断，
+        // 黑板 draft 区已有「第2章「沈」字」(2097 字)，但 task 被标成
+        // cancelled、不追加 follow-up，导演据此反复重新派发同一任务。
+        // 只要不是用户主动取消且黑板已有实质草稿，就把熔断结果 salvage 成
+        // 成功结果，交给 scheduler 标 completed 并回报聊天。
+        let user_cancelled = cancel
+            .as_ref()
+            .map(|c| c.load(Ordering::SeqCst))
+            .unwrap_or(false);
+        if result.aborted
+            && !user_cancelled
+            && matches!(role, AgentRole::LeadWriter | AgentRole::Writer)
+        {
+            let reason = circuit_break_reason(&result);
+            if let Ok(draft) = self.latest_draft(&board, run_id).await {
+                let chars = draft.content.chars().count();
+                if chars >= 200 {
+                    log::warn!(
+                        "agency: 主创 tool_loop 熔断（{}），从黑板取回草稿「{}」（{}字）run={}",
+                        reason,
+                        draft.key,
+                        chars,
+                        run_id
+                    );
+                    let excerpt: String = draft.content.chars().take(500).collect();
+                    result.aborted = false;
+                    result.abort_reason = None;
+                    result.output = format!(
+                        "主创达到最大轮数熔断，已从黑板草稿区取回「{}」（{} 字）：{}",
+                        draft.key, chars, excerpt
+                    );
+                }
+            }
+        }
+        Ok(result)
     }
 
     /// 单角色任务运行：给定角色与任务描述，创建 run 并跑一个 ToolLoop。
@@ -3575,14 +3611,56 @@ impl AgencyCoordinator {
 
         let board = self.board();
         let registry = Arc::new(ToolRegistry::agency_default());
-        let result = self
+        let mut result = self
             .run_role_with_llm_and_budget(
                 &budget, role, &board, &registry, run_id, story_id, premise, task,
             )
             .await;
 
+        // v0.80.4: 旧 agents 路径（auto_write/auto_revise）会把
+        // LoopResult.output
+        // 原样拼进正文；熔断占位串（「（达到最大轮数，已熔断）」）会污染正文。
+        // 主创/写作角色熔断时先试着从黑板取回完整草稿，取不到让调用方收到
+        // Err，而不是拿到占位串。
+        let aborted_before_salvage = result.as_ref().map(|r| r.aborted).unwrap_or(false);
+        if aborted_before_salvage && matches!(role, AgentRole::LeadWriter | AgentRole::Writer) {
+            if let Ok(draft) = self.latest_draft(&board, run_id).await {
+                let chars = draft.content.chars().count();
+                if chars >= 200 {
+                    log::warn!(
+                        "agency: {} tool_loop 熔断，从黑板取回草稿「{}」（{}字）run={}",
+                        role.as_str(),
+                        draft.key,
+                        chars,
+                        run_id
+                    );
+                    if let Ok(r) = &mut result {
+                        r.output = draft.content;
+                        r.aborted = false;
+                        r.abort_reason = None;
+                    }
+                }
+            }
+        }
+
         unregister_agency_cancel(run_id);
         let (status, result_json, error_message) = match &result {
+            Ok(r) if r.aborted => {
+                let reason = circuit_break_reason(r);
+                (
+                    "failed",
+                    Some(
+                        serde_json::json!({
+                            "output": r.output,
+                            "aborted": true,
+                            "turn_count": r.turns.len(),
+                            "abort_reason": reason,
+                        })
+                        .to_string(),
+                    ),
+                    Some(format!("{} tool_loop 熔断（{}）", role.as_str(), reason)),
+                )
+            }
             Ok(r) => {
                 let json = serde_json::json!({
                     "output": r.output,
@@ -3590,11 +3668,7 @@ impl AgencyCoordinator {
                     "turn_count": r.turns.len(),
                 })
                 .to_string();
-                (
-                    if r.aborted { "cancelled" } else { "completed" },
-                    Some(json),
-                    None,
-                )
+                ("completed", Some(json), None)
             }
             Err(e) => ("failed", None, Some(e.to_string())),
         };
@@ -3616,8 +3690,25 @@ impl AgencyCoordinator {
             run_id,
             role.as_str(),
             status,
-            &format!("{} 任务完成", role.as_str()),
+            &format!(
+                "{} 任务{}",
+                role.as_str(),
+                if status == "completed" {
+                    "完成"
+                } else {
+                    "失败"
+                }
+            ),
         );
+        if let Ok(r) = &result {
+            if r.aborted {
+                return Err(AppError::internal(format!(
+                    "{} tool_loop 熔断（{}），未产出可用结果",
+                    role.as_str(),
+                    circuit_break_reason(r)
+                )));
+            }
+        }
         result
     }
 

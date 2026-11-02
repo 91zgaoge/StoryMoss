@@ -73,8 +73,13 @@ pub(crate) fn should_attempt_after_probe_timeout(idx: usize, total: usize) -> bo
 /// 思维链顶替）。此前它被当作成功透传到 writer，计划「完成」却无正文，最终
 /// 报 Fatal。此处是候选循环的产出闸门（与 `candidate_fits_prompt` 的上下文
 /// 闸门互补）。
+///
+/// v0.80.4: 原生 function calling 的响应允许 content 为空、只有 tool_calls
+/// （OpenAI 兼容端点的常见形态）。此前只看 content 会把合法的工具回合判成
+/// 空正文：候选被冷却，LlmService 再走一次旧路径，工具循环每轮多烧一次
+/// 调用。有 tool_calls 时不得判失败。
 pub(crate) fn gateway_content_is_empty(resp: &LlmGenerateResponse) -> bool {
-    resp.content.trim().is_empty()
+    resp.content.trim().is_empty() && resp.tool_calls.is_empty()
 }
 
 /// 从候选链中剔除「因连续空正文处于冷却期」的模型。
@@ -1837,6 +1842,28 @@ mod tests {
         )));
         // 前后空白不影响判定（只有全空白才算失败）。
         assert!(!gateway_content_is_empty(&gateway_response(" 正文 ")));
+    }
+
+    #[test]
+    fn empty_content_with_tool_calls_is_not_a_candidate_failure() {
+        // 原生 function calling 的合法形态：content 为空，动作在 tool_calls。
+        // 网关不得把它当成空正文候选去冷却/重试。
+        let mut resp = gateway_response("");
+        resp.tool_calls = vec![crate::llm::adapter::ToolCall {
+            id: "call-1".into(),
+            name: "board_write".into(),
+            arguments: serde_json::json!({"zone": "draft", "key": "第2章"}),
+        }];
+        assert!(!gateway_content_is_empty(&resp));
+
+        // 空白 content + tool_calls 同样合法。
+        let mut resp = gateway_response("   \n\t ");
+        resp.tool_calls = vec![crate::llm::adapter::ToolCall {
+            id: "call-2".into(),
+            name: "board_read".into(),
+            arguments: serde_json::json!({}),
+        }];
+        assert!(!gateway_content_is_empty(&resp));
     }
 
     /// mock_app 共享同一 app_data_dir；写 config 的契约测试必须串行。

@@ -153,7 +153,7 @@ pub struct WbRuleDelta {
     pub description: String,
     #[serde(default)]
     pub rule_type: String,
-    #[serde(default = "default_importance")]
+    #[serde(default = "default_importance", deserialize_with = "de_int_or_float")]
     pub importance: i32,
 }
 
@@ -236,7 +236,7 @@ pub struct AnalyzedEntity {
     #[serde(default)]
     pub gender: String,
     /// 年龄（仅 Character）
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_opt_int_or_float")]
     pub age: Option<i32>,
     /// 情感内核：主导情感倾向（仅 Character）
     #[serde(default)]
@@ -297,7 +297,7 @@ pub struct AnalyzedEvent {
     pub description: String,
     #[serde(default)]
     pub participants: Vec<String>,
-    #[serde(default = "default_importance")]
+    #[serde(default = "default_importance", deserialize_with = "de_int_or_float")]
     pub importance: i32,
     #[serde(default)]
     pub trigger: String,
@@ -307,6 +307,57 @@ pub struct AnalyzedEvent {
 
 fn default_importance() -> i32 {
     5
+}
+
+/// LLM 常把 importance/age 这类整数字段写成 `8.0`、`"8"` 或 `""`；serde
+/// 默认直接报 `invalid type: floating point ..., expected i32`。真机日志里
+/// 因此整段 KG 提取连续 3 次失败。这里宽容解析：浮点四舍五入，数字字符串
+/// 也接受。
+fn de_int_or_float<'de, D>(deserializer: D) -> Result<i32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    int_from_json(value).map_err(serde::de::Error::custom)
+}
+
+fn de_opt_int_or_float<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    if value.is_null() {
+        return Ok(None);
+    }
+    if let serde_json::Value::String(s) = &value {
+        if s.trim().is_empty() {
+            return Ok(None);
+        }
+    }
+    int_from_json(value)
+        .map(Some)
+        .map_err(serde::de::Error::custom)
+}
+
+fn int_from_json(value: serde_json::Value) -> Result<i32, String> {
+    match value {
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Ok(i as i32)
+            } else if let Some(u) = n.as_u64() {
+                Ok(u as i32)
+            } else if let Some(f) = n.as_f64() {
+                Ok(f.round() as i32)
+            } else {
+                Err("期望整数，收到无法解析的数字".to_string())
+            }
+        }
+        serde_json::Value::String(s) => s
+            .trim()
+            .parse::<i32>()
+            .map_err(|_| format!("期望整数，收到字符串 {s:?}")),
+        other => Err(format!("期望整数，收到 {other}")),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -373,7 +424,7 @@ pub struct EntityProfile {
     pub description: String,
     #[serde(default)]
     pub attributes: serde_json::Value,
-    #[serde(default = "default_importance")]
+    #[serde(default = "default_importance", deserialize_with = "de_int_or_float")]
     pub importance: i32,
 }
 
@@ -398,7 +449,7 @@ pub struct EventProfile {
     pub title: String,
     #[serde(default)]
     pub description: String,
-    #[serde(default = "default_importance")]
+    #[serde(default = "default_importance", deserialize_with = "de_int_or_float")]
     pub importance: i32,
     #[serde(default)]
     pub impact: String,
@@ -2739,5 +2790,39 @@ mod tests {
         let pool = create_test_pool().unwrap();
         let jobs = IngestPipeline::get_recent_jobs("nonexistent_story", 10, &pool).unwrap();
         assert!(jobs.is_empty());
+    }
+
+    /// v0.80.4: 真机日志「invalid type: floating point ..., expected i32」
+    /// 与 `unknown variant Companion` 会让整段 KG 提取 3 次全败并回滚。
+    #[test]
+    fn generated_knowledge_accepts_float_and_string_integers_and_companion() {
+        let json = r#"{
+            "entities": [
+                {"name": "陈砚", "entity_type": "Character", "importance": 8.0}
+            ],
+            "relations": [
+                {"source": "陈砚", "target": "沈望舒", "relation_type": "Companion", "strength": 0.8}
+            ],
+            "events": [
+                {"title": "补缺角", "description": "陈砚补档案缺角", "importance": "9"}
+            ]
+        }"#;
+        let knowledge: GeneratedKnowledge = serde_json::from_str(json).unwrap();
+        assert_eq!(knowledge.entities[0].importance, 8);
+        assert!(
+            matches!(knowledge.relations[0].relation_type, RelationType::Ally),
+            "Companion 应归入 Ally，实际 {:?}",
+            knowledge.relations[0].relation_type
+        );
+        assert_eq!(knowledge.events[0].importance, 9);
+    }
+
+    #[test]
+    fn analyzed_entity_age_accepts_float_and_empty_string() {
+        let entity: AnalyzedEntity = serde_json::from_str(r#"{"name":"陈砚","age":35.4}"#).unwrap();
+        assert_eq!(entity.age, Some(35));
+
+        let entity: AnalyzedEntity = serde_json::from_str(r#"{"name":"陈砚","age":""}"#).unwrap();
+        assert_eq!(entity.age, None);
     }
 }

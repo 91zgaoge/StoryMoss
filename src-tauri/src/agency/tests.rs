@@ -4384,6 +4384,51 @@ async fn test_continue_writer_maxturns_board_recovery() {
     assert_eq!(run.status, "completed", "MaxTurns 取回草稿后 run 应完成");
 }
 
+/// v0.80.4: 对话派发路径（DirectorExecutor → TaskScheduler →
+/// run_role_task_reported）此前没有「熔断不丢稿」兜底。真机日志里
+/// LeadWriter 10 轮 board_write 无 final 熔断，黑板已有 2097 字草稿，但
+/// task 被标 cancelled、无 follow-up，导演反复重新派发。
+#[tokio::test]
+async fn test_reported_lead_writer_maxturns_salvages_draft() {
+    let pool = create_test_pool().unwrap();
+    let prose = "沈望舒补档案缺角，指腹压过折边。".repeat(20);
+    assert!(prose.chars().count() >= 200);
+    let board_write = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第2章","content":"{}","summary":"补缺角"}}}}"#,
+        prose
+    );
+    let lines: Vec<String> = (0..10).map(|_| board_write.clone()).collect();
+    let llm = MockLlm::scripted(lines.iter().map(|s| s.as_str()).collect::<Vec<_>>());
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+    let reporter = crate::agency::reporter::TaskReporter::new(
+        pool.clone(),
+        "task-rep-1",
+        "story-1",
+        "chat:s1",
+        crate::agency::models::AgentRole::LeadWriter,
+        None,
+    );
+    let result = coordinator
+        .run_role_task_reported(
+            "chat:s1",
+            "story-1",
+            crate::agency::models::AgentRole::LeadWriter,
+            "前提",
+            "续写第二章",
+            &reporter,
+            None,
+        )
+        .await
+        .expect("报告版角色任务不应因熔断返回 Err");
+    assert!(!result.aborted, "熔断后应从黑板取回草稿并标记成功");
+    assert!(result.turns.len() >= 10, "应确实跑到最大轮数");
+    assert!(
+        result.output.contains("第2章") && result.output.contains("已从黑板草稿区取回"),
+        "salvage 摘要应带草稿 key 与来源，实际: {}",
+        result.output
+    );
+}
+
 // ---- 阶段二（P1）：后端事件信号补齐——活动信号配对验证 ----
 // 测试环境 app_handle=None 时 emit 静默，信号经 cfg(test) activity_log
 // 记录（coordinator.recorded_activities()），借此断言角色/action/detail
