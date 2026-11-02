@@ -7,11 +7,13 @@
 //! 章契约（LLM 生成）在 M3 接入；本模块不新增每拍 LLM 调用。
 
 pub mod compile;
+pub mod outcome;
 pub mod render;
 pub mod types;
 pub mod verify;
 
 pub use compile::{compile_chapter_contract, compile_scene_contract};
+pub use outcome::{SceneOutcome, SceneOutcomeRepository};
 pub use render::{render_chapter_contract, render_scene_brief, render_scene_tail};
 pub use types::{ChapterContract, ContractError, EmotionChain, SceneContract, StateDelta};
 pub use verify::{verify_contract, ContractStatus, ContractVerification, FieldResult};

@@ -1530,6 +1530,11 @@ npm test
 
 ---
 
+## v0.80.1 新增：SceneOutcome / 姓名账本
+
+- **SceneOutcome**：V152 `scene_outcomes` + `agency/narrative_contract/outcome.rs`；装配后写回结果/状态变化/未决问题；进度块优先读最近 3 章结果。
+- **NameLedger**：V153 `character_names` + `naming/repository.rs`；角色创建同事务落账，旧故事按需回填；`render_parts` 注入【本场称呼】。
+
 ## v0.80.0 新增：章契约 / 1–3 场投影 / legacy 资产接线 / 回滚开关
 
 - **章契约**：`agency/narrative_contract/types.rs` 新增 `ChapterContract`；`compile_chapter_contract` 从节拍卡 + 章纲切 1–3 场，上一场 `outcome` 成为下一场 `entry_state`；`render_chapter_contract` 注入 stable pack。

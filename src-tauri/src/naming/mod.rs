@@ -7,6 +7,10 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
+pub mod repository;
+
+pub use repository::{insert_in_tx, NameLedgerRecord, NameLedgerRepository};
+
 /// P0 回滚开关：`STORYMOSS_NAMING=0` 时关闭姓名校验。
 pub fn enabled() -> bool {
     std::env::var("STORYMOSS_NAMING")

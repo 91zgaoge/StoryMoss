@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.80.1（2026-11-02）
+
+**SceneOutcome 结构化落库 + 姓名账本/称呼块接入。**
+
+- **结构化场结果**：V152 新增 `scene_outcomes`（scene_id/story_id/chapter_number/outcome/state_delta_json/emotion_json/open_question/contract_misses_json）；`SceneOutcomeRepository` 支持 upsert/list/latest。Append、NextChapter 与批量 `handle_gate` 在装配后写回本场结果。
+- **进度块读结果**：`ContinueContextParts` 加载最近 3 章 `SceneOutcome`；`progress_lines_from_parts` 优先输出「第N章：结果（状态变化；未决问题）」，不再依赖正文末段或 outline 计划卡块。
+- **姓名账本**：V153 新增 `character_names`（本名/姓/名/字/号/小名/绰号/别名/称谓/禁忌称呼/称呼规则/取名故事），`NameLedgerRepository` 支持 upsert/list/get；`CharacterRepository::create_in_tx` 同事务落账（失败非阻塞）；旧故事账本在 `list_for_story` 时按需从 `characters` 回填。
+- **称呼块进 writer**：`ContinueContextParts` 加载账本；`render_parts` 过滤本场准入角色，生成【本场称呼（公开/私下）】块并注入 writer 资产区。
+- **验证**：Rust **1988 passed / 13 ignored**（+4：SceneOutcome upsert/roundtrip、NameLedger upsert/roundtrip）；vitest **653 passed / 3 skipped**；playwright **47 passed / 5 skipped**；tsc / clippy / fmt / guard 全绿。
+- **未关闭**：LLM 章契约生成/校验；完整字/号/绰号候选池与作者编辑界面；称呼规则仍为默认全名（需作者补充公开/私下/敌对叫法）；人类 A/B、真机样章。
+
 ## v0.80.0（2026-11-02）
 
 **章契约 + 1–3 场投影 + legacy 资产接线 + 回滚开关 + 多故事切换 E2E。**

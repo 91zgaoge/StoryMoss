@@ -1,7 +1,7 @@
 # 续写叙事质量设计：从「资产倾倒」到「叙事契约」
 
 - 日期：2026-11-02
-- 状态：**已实施 P0 + M3/M5 增量（v0.80.0）**。实施方案见 [2026-11-02-narrative-quality-implementation-plan.md](./2026-11-02-narrative-quality-implementation-plan.md)，交付记录见 [CHANGELOG v0.80.0](../../CHANGELOG.md)。
+- 状态：**已实施 P0 + M3/M5 增量（v0.80.1）**。实施方案见 [2026-11-02-narrative-quality-implementation-plan.md](./2026-11-02-narrative-quality-implementation-plan.md)，交付记录见 [CHANGELOG v0.80.1](../../CHANGELOG.md)。
 - 范围：Agency 续写主路径（幕前 Append、幕后 NextChapter、批量续写）。改写/审稿仍走现有 planner，不在本文范围。
 - 关联：`docs/plans/2026-08-13-agency-only-continuation-design.md`
 

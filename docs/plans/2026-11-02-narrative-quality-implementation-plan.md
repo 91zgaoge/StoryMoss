@@ -1,7 +1,7 @@
 # 续写叙事质量 + 多作品切换 实施方案
 
 - 日期：2026-11-02
-- 状态：**P0 + M3/M5 增量已实施（v0.80.0），P1/P2 剩余项待继续**。
+- 状态：**P0 + M3/M5 增量已实施（v0.80.1），P1/P2 剩余项待继续**。
 - 设计依据：[2026-11-02-narrative-contract-design.md](./2026-11-02-narrative-contract-design.md)
 
 ### 实施状态（2026-11-02）
@@ -11,8 +11,8 @@
 | M0 基线与开关 | 🟡 部分 | prompt/契约快照、指标日志骨架、`STORYMOSS_NARRATIVE_CONTRACT` / `STORYMOSS_NAMING` 环境回滚开关 | 设置页灰度开关、golden harness 扩展、正式指标表 |
 | M1 多作品切换 | ✅ P0 | active story + seq、StorySwitchController、生成隔离、跨故事懒加载修复、后端/前端测试、多故事切换 E2E | 后台/创世分离的完整 UI |
 | M2 NCC 最小闭环 | ✅ P0 | SceneContract 编译/场简报/契约核对/gate 硬失败/定向修订/情感最小链/8 条 system | 读者面板联动 |
-| M3 章契约与批量统一 | 🟡 P0+ | `ChapterContract`/确定性章契约/1–3 场投影/批量 writer 注入章契约+场简报/legacy methodology/quartet 接线/进度块改实际正文末段 | LLM 章契约生成与校验、`SceneOutcome` 结构化落库、legacy 追读力/参考场景全量映射 |
-| M4 姓名编译器 | 🟡 P0 | `naming` 校验（重名/同用字/同姓/长度塌缩/陈词）、创世逐组校验、反模式提示词修正 | NameLedger/称呼图/DB 落库/候选池、旧故事反建账本 |
+| M3 章契约与批量统一 | 🟡 P0+ | `ChapterContract`/确定性章契约/1–3 场投影/批量 writer 注入章契约+场简报/legacy methodology/quartet 接线/V152 `SceneOutcome` 落库/进度块读最近 3 章结果 | LLM 章契约生成与校验、legacy 追读力/参考场景全量映射 |
+| M4 姓名编译器 | 🟡 P0+ | `naming` 校验、创世逐组校验、反模式提示词修正、V153 `character_names`/账本仓库/角色创建落账/旧故事按需回填/【本场称呼】块 | 完整字/号/绰号候选池、作者编辑称呼 UI、复合姓解析 |
 | M5 度量、灰度、发布 | 🟡 部分 | 版本/文档同步、全量测试门禁、多故事切换 E2E | 人类 A/B、设置页正式灰度开关、真机样章 |
 
 - 目标版本：建议 M1 `v0.78.1`，M2 `v0.79.0`，M3 `v0.80.0`，M4 `v0.81.0`，M5 `v0.82.0`（以实际发布为准）

@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.80.0 项目完成状态
+# StoryMoss (草苔) v0.80.1 项目完成状态
 
+> 最后更新: 2026-11-02（**v0.80.1：SceneOutcome 结构化落库 + 姓名账本/称呼块**——V152 `scene_outcomes` + 仓库，Append/NextChapter/批量装配后写回，进度块优先读最近 3 章结果；V153 `character_names` + 仓库，角色创建同事务落账、旧故事按需从 characters 回填，`render_parts` 注入【本场称呼】。Rust **1988 passed / 13 ignored**；vitest **653 / 3**；playwright **47 / 5**；tsc/clippy/fmt/guard 全绿。**未关闭**：LLM 章契约、称呼规则仍默认全名、候选池/作者编辑 UI、人类 A/B。）
+>
 > 最后更新: 2026-11-02（**v0.80.0：章契约 + 1–3 场投影 + legacy 资产接线 + 回滚开关 + 多故事切换 E2E**——新增 `ChapterContract`/`compile_chapter_contract`，批量 `write_chapter` 注入章契约 + 1–3 场简报；`render_continue_assets` 消费 `methodology_extension`/`narrative_quartet`；`STORYMOSS_NARRATIVE_CONTRACT=0`/`STORYMOSS_NAMING=0` 可回滚；新增 `frontstage-story-switch.spec.ts`。Rust **1984 passed / 13 ignored**；vitest **653 passed / 3 skipped**；playwright **47 passed / 5 skipped**；tsc/clippy/fmt/guard 全绿。**未关闭**：LLM 章契约、完整 NameLedger/称呼图、SceneOutcome 落库、人类 A/B。）
 >
 > 最后更新: 2026-11-02（**v0.79.0：叙事契约 P0 + 多作品切换 + 姓名校验**——新增 `agency/narrative_contract/`（SceneContract/StateDelta/EmotionChain、确定性编译、场简报、契约核对）；单拍/批量 writer prompt 注入场契约，GateRunner/evaluate_gate_impl 接契约，硬失败强制修订；情感最小链默认启用；后端 `set_active_story/get_active_story` + 幕前 StorySwitchController，删除生成中 toast-return 守卫、隔离旧故事事件；`naming` 模块校验重名/同用字/同姓/长度塌缩/陈词组合。Rust **1981 passed / 13 ignored**；vitest **653 passed / 3 skipped**；playwright **46 passed / 5 skipped**；tsc/clippy/fmt/guard 全绿。**未关闭**：章契约 LLM 生成、完整 NameLedger/称呼图、legacy 资产映射、人类 A/B。）

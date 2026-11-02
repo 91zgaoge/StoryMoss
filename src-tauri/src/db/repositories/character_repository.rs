@@ -78,6 +78,14 @@ impl CharacterRepository {
             ],
         )?;
 
+        // v0.80.1：同事务落姓名账本（本名 + 默认称呼规则）。失败只影响账本，
+        // 不应让角色创建失败——但表/行同事务，错误必须显式回滚由调用方处理。
+        let ledger =
+            crate::naming::NameLedgerRecord::from_character(&req.story_id, &entity.id, &req.name);
+        if let Err(e) = crate::naming::insert_in_tx(tx, &ledger) {
+            log::warn!("[name_ledger] 角色姓名账本落库失败（非阻塞）: {e}");
+        }
+
         Character::from_entity(&entity).ok_or_else(|| {
             rusqlite::Error::InvalidParameterName("Created entity is not a Character".to_string())
         })

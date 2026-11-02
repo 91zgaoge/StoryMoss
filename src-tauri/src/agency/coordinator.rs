@@ -3797,6 +3797,13 @@ impl AgencyCoordinator {
                 emotion_outcome.as_ref(),
             )
             .await;
+            self.record_scene_outcome(
+                story_id,
+                &outcome.scene_id,
+                outcome.chapter_number,
+                scene_contract.as_ref(),
+            )
+            .await;
             // 资产回流（best-effort 后台）与章里程碑检查点，与 handle_gate 对齐
             self.spawn_asset_ingest(run_id, story_id, &outcome.scene_id, &outcome.full_content);
             // 幕前 Append 建的新章同样自动取名；已有手写标题时 helper 内跳过。
@@ -3864,6 +3871,13 @@ impl AgencyCoordinator {
             &result.scene_id,
             result.chapter_number,
             emotion_outcome.as_ref(),
+        )
+        .await;
+        self.record_scene_outcome(
+            story_id,
+            &result.scene_id,
+            result.chapter_number,
+            scene_contract.as_ref(),
         )
         .await;
         self.spawn_editor_qc(
@@ -5851,6 +5865,35 @@ impl AgencyCoordinator {
         }
     }
 
+    /// v0.80.1：结构化场结果落库（进度块 / 下一拍输入）。失败只告警。
+    async fn record_scene_outcome(
+        &self,
+        story_id: &str,
+        scene_id: &str,
+        chapter_number: i32,
+        contract: Option<&crate::agency::narrative_contract::SceneContract>,
+    ) {
+        let Some(contract) = contract else {
+            return;
+        };
+        let outcome = crate::agency::narrative_contract::SceneOutcome::from_contract(
+            contract,
+            story_id,
+            scene_id,
+            chapter_number,
+        );
+        let pool = self.pool.clone();
+        let joined = tokio::task::spawn_blocking(move || {
+            crate::agency::narrative_contract::SceneOutcomeRepository::new(pool).upsert(&outcome)
+        })
+        .await;
+        match joined {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => log::warn!("[scene_outcome] 落库失败（非阻塞）: {e}"),
+            Err(e) => log::warn!("[scene_outcome] join 失败: {e}"),
+        }
+    }
+
     /// P1-5：把本拍用的手法落库（归因基底；失败只告警）。
     ///
     /// v0.73.11: 改为 await 落库。此前是 fire-and-forget `spawn_blocking`，
@@ -6278,6 +6321,13 @@ impl AgencyCoordinator {
             .await?;
         assembled.revised = revised;
         assembled.verdict = final_verdict;
+        self.record_scene_outcome(
+            story_id,
+            &assembled.scene_id,
+            assembled.chapter_number,
+            contract.as_ref(),
+        )
+        .await;
         Ok(assembled)
     }
 
@@ -8071,6 +8121,10 @@ pub(crate) struct ContinueContextParts {
     pub tensions: Vec<crate::agency::emotional_ledger::InterpersonalTension>,
     pub arcs: Vec<crate::agency::emotional_ledger::EmotionalArc>,
     pub logline: Option<String>,
+    /// v0.80.1：最近 3 章的结构化场结果（进度块优先使用）。
+    pub outcomes: Vec<crate::agency::narrative_contract::SceneOutcome>,
+    /// v0.80.1：姓名账本（本场称呼块）。
+    pub name_ledger: Vec<crate::naming::NameLedgerRecord>,
 }
 
 pub(crate) fn load_continue_context_parts(
@@ -8102,6 +8156,12 @@ pub(crate) fn load_continue_context_parts(
     let scenes = SceneRepository::new(pool.clone())
         .get_by_story(story_id)
         .unwrap_or_default();
+    let outcomes = crate::agency::narrative_contract::SceneOutcomeRepository::new(pool.clone())
+        .list_for_story(story_id, 3)
+        .unwrap_or_default();
+    let name_ledger = crate::naming::NameLedgerRepository::new(pool.clone())
+        .list_for_story(story_id)
+        .unwrap_or_default();
     Some(ContinueContextParts {
         bundle,
         table_names,
@@ -8109,6 +8169,8 @@ pub(crate) fn load_continue_context_parts(
         tensions,
         arcs,
         logline,
+        outcomes,
+        name_ledger,
     })
 }
 
@@ -8386,9 +8448,35 @@ fn grounded_table_names(parts: &ContinueContextParts) -> Vec<String> {
 }
 
 fn progress_lines_from_parts(parts: &ContinueContextParts) -> Vec<String> {
-    // v0.79.0：进度块必须是「最近 3 场实际发生了什么」，不是 outline_content
-    // 里的计划卡块（【当前场大纲】/在场/冲突/下一拍）。优先取正文末段，
-    // 正文为空时才回退章纲前缀。
+    // v0.80.1：优先读结构化场结果（最近 3 章：结果 + 状态变化 + 未决问题）；
+    // 没有结果时回退到正文末段，再回退章纲前缀。
+    if !parts.outcomes.is_empty() {
+        return parts
+            .outcomes
+            .iter()
+            .take(3)
+            .map(|o| {
+                let delta = serde_json::from_str::<crate::agency::narrative_contract::StateDelta>(
+                    &o.state_delta_json,
+                )
+                .ok()
+                .map(|d| d.compact())
+                .unwrap_or_default();
+                let open = if o.open_question.trim().is_empty() {
+                    String::new()
+                } else {
+                    format!("；未决：{}", o.open_question.trim())
+                };
+                format!(
+                    "第{}章：{}（{}）{}",
+                    o.chapter_number,
+                    o.outcome.trim(),
+                    delta,
+                    open
+                )
+            })
+            .collect();
+    }
     let mut prior: Vec<_> = parts.scenes.iter().collect();
     prior.sort_by_key(|sc| std::cmp::Reverse(sc.sequence_number));
     prior
@@ -8535,7 +8623,7 @@ pub(crate) fn render_parts(
     } else {
         vec![arcs_text]
     };
-    render_continue_assets(&ContinueAssetsInput {
+    let mut assets = render_continue_assets(&ContinueAssetsInput {
         bundle: &parts.bundle,
         admitted,
         roster: &roster,
@@ -8549,7 +8637,41 @@ pub(crate) fn render_parts(
         logline: parts.logline.as_deref(),
         full_card_names,
         continuity_blocks,
-    })
+    });
+    let address = render_address_block(parts, admitted);
+    if !address.is_empty() {
+        assets.push_str("\n\n");
+        assets.push_str(&address);
+    }
+    assets
+}
+
+fn render_address_block(parts: &ContinueContextParts, admitted: &[String]) -> String {
+    if parts.name_ledger.is_empty() || admitted.is_empty() {
+        return String::new();
+    }
+    let mut lines: Vec<String> = Vec::new();
+    for name in admitted.iter().take(8) {
+        let Some(record) = parts.name_ledger.iter().find(|r| &r.formal == name) else {
+            lines.push(format!("{name}：本名称呼={name}"));
+            continue;
+        };
+        let rules: Vec<crate::naming::AddressRule> =
+            serde_json::from_str(&record.address_rules_json).unwrap_or_default();
+        if let Some(rule) = rules.first() {
+            lines.push(format!(
+                "{} → {}：公开={}；私下={}；{}",
+                rule.speaker, rule.addressee, rule.public_form, rule.private_form, rule.note
+            ));
+        } else {
+            lines.push(format!("{}：本名称呼={}", name, record.formal));
+        }
+    }
+    if lines.is_empty() {
+        String::new()
+    } else {
+        format!("【本场称呼（公开/私下）】\n{}", lines.join("\n"))
+    }
 }
 
 fn format_chars_for_outline(parts: &ContinueContextParts, admitted: &[String]) -> String {
