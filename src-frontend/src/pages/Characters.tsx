@@ -16,6 +16,8 @@ import { useWorldBuilding } from '@/hooks/useWorldBuilding';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { CharacterStatePanel } from '@/components/CharacterStatePanel';
 import { CharacterEditModal } from '@/components/CharacterEditModal';
 import { CharacterRelationshipForm } from '@/components/CharacterRelationshipForm';
@@ -401,37 +403,29 @@ export function Characters() {
   if (!currentStory) {
     return (
       <div className="p-8 flex items-center justify-center h-full">
-        <Card>
-          <CardContent className="p-8 text-center">
-            <Users className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-            <h2 className="font-display text-xl font-semibold text-white mb-2">先选择一个故事</h2>
-            <p className="text-gray-400">在故事库中选择一个故事来管理角色</p>
-          </CardContent>
-        </Card>
+        <EmptyState icon={Users} title="先选择一个故事" />
       </div>
     );
   }
 
   return (
-    <div className="p-8 space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-3xl font-bold text-white">角色管理</h1>
-          <p className="text-gray-400">
-            {currentStory.title} - 共 {characters.length} 个角色
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" onClick={() => setAiModalOpen(true)}>
-            <Wand2 className="w-4 h-4" />
-            AI 扩展
-          </Button>
-          <Button variant="primary" onClick={() => setIsModalOpen(true)}>
-            <Plus className="w-4 h-4" />
-            添加角色
-          </Button>
-        </div>
-      </div>
+    <div className="p-8 space-y-6 animate-fade-in min-w-0">
+      <PageHeader
+        title="角色"
+        count={characters.length}
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => setAiModalOpen(true)}>
+              <Wand2 className="w-4 h-4" />
+              AI 扩展
+            </Button>
+            <Button variant="primary" onClick={() => setIsModalOpen(true)}>
+              <Plus className="w-4 h-4" />
+              添加角色
+            </Button>
+          </>
+        }
+      />
 
       {/* Tabs */}
       <div className="flex gap-1 p-1 bg-cinema-800 rounded-lg w-fit">
@@ -592,10 +586,12 @@ export function Characters() {
           })}
 
           {characters.length === 0 && (
-            <div className="col-span-full text-center py-12">
-              <Users className="w-16 h-16 text-gray-700 mx-auto mb-4" />
-              <p className="text-gray-500">还没有角色，添加一个吧！</p>
-            </div>
+            <EmptyState
+              icon={Users}
+              title="还没有角色"
+              className="col-span-full"
+              action={{ label: '添加角色', onClick: () => setIsModalOpen(true) }}
+            />
           )}
         </div>
       ) : (
@@ -801,15 +797,12 @@ export function Characters() {
               </div>
 
               {!worldBuilding ? (
-                <div className="text-center py-8 text-gray-400">
-                  <p>请先在世界构建页初始化世界观，AI 需要基于世界观生成角色。</p>
+                <div className="text-center py-8 text-ai-ink-2">
+                  <p>请先在世界构建页初始化世界观</p>
                 </div>
               ) : (
                 <>
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-gray-400">
-                      基于当前世界观生成若干角色组合，选择一套加入故事。
-                    </p>
+                  <div className="flex justify-end">
                     <Button
                       variant="secondary"
                       onClick={handleGenerateCharacters}

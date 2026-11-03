@@ -28,7 +28,7 @@ test.describe('导航与路由测试', () => {
     await page.locator('nav').getByRole('button', { name: '角色', exact: true }).click();
 
     await expect(page.locator('aside')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('main').first()).toContainText('角色管理');
+    await expect(page.locator('main').first()).toContainText('添加角色');
   });
 
   test('幕后通过导航栏跳转到场景页面', async ({ page }) => {

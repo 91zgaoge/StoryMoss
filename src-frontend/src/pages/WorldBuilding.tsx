@@ -11,6 +11,8 @@ import {
 } from '@/hooks/useWorldBuilding';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { EmptyState } from '@/components/ui/EmptyState';
 import {
   Globe,
   Plus,
@@ -356,7 +358,7 @@ function AiWorldBuildingModal({ isOpen, onClose, storyTitle, onApply }: AiWorldB
           </div>
 
           <div className="space-y-2">
-            <label className="block text-sm text-gray-400">描述你的故事题材与核心设定</label>
+            <label className="block text-sm text-gray-400">题材与核心设定</label>
             <textarea
               value={prompt}
               onChange={e => setPrompt(e.target.value)}
@@ -381,7 +383,6 @@ function AiWorldBuildingModal({ isOpen, onClose, storyTitle, onApply }: AiWorldB
 
           {options.length > 0 && (
             <div className="space-y-3">
-              <p className="text-sm text-gray-400">选择一套世界观应用到当前故事：</p>
               <div className="grid gap-3">
                 {options.map((option, index) => (
                   <div
@@ -649,13 +650,7 @@ export function WorldBuilding() {
   if (!currentStory) {
     return (
       <div className="p-8 flex items-center justify-center h-full">
-        <Card>
-          <CardContent className="p-8 text-center">
-            <Globe className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-            <h2 className="font-display text-xl font-semibold text-white mb-2">先选择一个故事</h2>
-            <p className="text-gray-400">在故事库中选择一个故事来构建世界</p>
-          </CardContent>
-        </Card>
+        <EmptyState icon={Globe} title="先选择一个故事" />
       </div>
     );
   }
@@ -693,32 +688,36 @@ export function WorldBuilding() {
   }
 
   return (
-    <div className="p-8 space-y-6 animate-fade-in max-w-5xl mx-auto">
+    <div className="p-8 space-y-6 animate-fade-in max-w-5xl mx-auto min-w-0">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-3xl font-bold text-white flex items-center gap-3">
-            <Globe className="w-8 h-8 text-cinema-gold" />
+      <PageHeader
+        title={
+          <span className="flex items-center gap-3">
+            <Globe className="w-6 h-6 text-cinema-gold" />
             世界构建
             {worldBuilding?.is_auto_generated && (
-              <span className="text-sm px-2 py-0.5 rounded bg-cinema-gold/20 text-cinema-gold flex items-center gap-1">
-                <Star className="w-3.5 h-3.5" />
+              <span className="text-xs px-2 py-0.5 rounded bg-cinema-gold/20 text-cinema-gold flex items-center gap-1 font-normal">
+                <Star className="w-3 h-3" />
                 创世
               </span>
             )}
-          </h1>
-          <p className="text-gray-400 mt-1">
-            {currentStory.title} · {localRules.length} 条规则 · {localCultures.length} 种文化
-            {hasLocalChanges && <span className="text-cinema-gold ml-2 text-sm">保存中...</span>}
-          </p>
-        </div>
-        {activeTab === 'world' && (
-          <Button variant="secondary" onClick={() => setAiModalOpen(true)}>
-            <Wand2 className="w-4 h-4" />
-            AI 生成
-          </Button>
-        )}
-      </div>
+          </span>
+        }
+        meta={
+          <>
+            {localRules.length} 条规则 · {localCultures.length} 种文化
+            {hasLocalChanges && <span className="text-cinema-gold ml-2">保存中...</span>}
+          </>
+        }
+        actions={
+          activeTab === 'world' ? (
+            <Button variant="secondary" onClick={() => setAiModalOpen(true)}>
+              <Wand2 className="w-4 h-4" />
+              AI 生成
+            </Button>
+          ) : undefined
+        }
+      />
 
       {/* Tabs */}
       <div className="flex gap-1 p-1 bg-cinema-800 rounded-lg w-fit">
@@ -784,10 +783,17 @@ export function WorldBuilding() {
               </div>
 
               {localRules.length === 0 ? (
-                <div className="text-center py-8">
-                  <Shield className="w-12 h-12 text-gray-700 mx-auto mb-2" />
-                  <p className="text-gray-500 text-sm">还没有世界规则，添加一条吧</p>
-                </div>
+                <EmptyState
+                  icon={Shield}
+                  title="还没有世界规则"
+                  action={{
+                    label: '添加规则',
+                    onClick: () => {
+                      setEditingRule(null);
+                      setRuleModalOpen(true);
+                    },
+                  }}
+                />
               ) : (
                 <div className="space-y-3">
                   {localRules.map(rule => (
@@ -875,10 +881,17 @@ export function WorldBuilding() {
               </div>
 
               {localCultures.length === 0 ? (
-                <div className="text-center py-8">
-                  <Palette className="w-12 h-12 text-gray-700 mx-auto mb-2" />
-                  <p className="text-gray-500 text-sm">还没有文化体系，添加一个吧</p>
-                </div>
+                <EmptyState
+                  icon={Palette}
+                  title="还没有文化体系"
+                  action={{
+                    label: '添加文化',
+                    onClick: () => {
+                      setEditingCulture(null);
+                      setCultureModalOpen(true);
+                    },
+                  }}
+                />
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {localCultures.map(culture => (

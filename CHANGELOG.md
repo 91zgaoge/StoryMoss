@@ -2,6 +2,19 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.81.2（2026-11-04）
+
+**幕后 UI 重设计 P1-2：核心六页模板改造 + 文案删除 + 视口验收探针。**
+
+- **PageHeader 接入**：Characters（角色，title 含计数与 AI 扩展/添加角色操作）、Stories（故事库）、WorldBuilding（世界构建，meta 行保留「N 条规则 · N 种文化」与「保存中...」状态词）、Foreshadowing（伏笔看板）；PageHeader 新增 `meta` 插槽承载状态行。
+- **溢出修复（800px 最小窗口）**：Scenes 双栏由 `w-5/12 min-w-[380px] + flex-1 min-w-[400px]`（合计下限 780px 必溢出）改为 `grid lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]`，<lg 单列堆叠（右栏 70dvh 保底）；Foreshadowing/Dashboard 统计卡固定 `grid-cols-4`/`grid-cols-3` 加断点回退；Stories 大纲卡 `grid-cols-3` 同理。
+- **空态统一**：Characters/Stories/WorldBuilding×2/Scenes/Foreshadowing 共 7 处改 `EmptyState`（一句话 + 主操作），删除全部教学句。
+- **文案删除（附录 A）**：Stories 空态句、向导创作副标题精简、大纲 placeholder 机制句（保留约束半句）、CreationPathGuide 三卡介绍压缩为单行决策信息、Characters 前置条件句/角色组合说明句/关系表单副标题、WorldBuilding 生成 label 与选择引导句、Dashboard 创建进度机制句；「还没有 X，添加一个吧」类全部重写。
+- **视觉修复**：Dashboard 硬编码未定义 `cinema-50/300` → ai-ink 令牌；`rounded-2xl` → `rounded-xl`（圆角契约）。
+- **验收探针**：新增 `e2e/backstage-viewport-acceptance.spec.ts`——6 页 × 800×600/1400×900 共 12 用例，断言无横向溢出并留档截图（设计文档 §7.8 落地）。
+- **验证**：tsc / prettier 全绿；vitest **677 / 3**；playwright **60 / 5**（+12 视口探针；角色页 3 处 e2e 断言同步页头新文案）。
+- **未关闭**：P2 数据诊断页（Corpus/KG/Skills/Tasks/Logs/Tracing/Maintenance/Cascade/故事系统/拆书/Insights）；P3 设置+工作台；弹窗迁移 ConfirmDialog 与 Table 落地随 P2。
+
 ## v0.81.1（2026-11-04）
 
 **幕后 UI 重设计 P1-1：侧边导航重组 + 双壳视觉统一。**

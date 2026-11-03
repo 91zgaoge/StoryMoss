@@ -87,7 +87,6 @@ export function CharacterRelationshipForm({
             </div>
             <div>
               <h2 className="font-display text-xl font-bold text-white">添加关系</h2>
-              <p className="text-sm text-gray-400">在两个角色之间建立关系</p>
             </div>
             <button
               onClick={onClose}

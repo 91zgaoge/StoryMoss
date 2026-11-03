@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.81.1 项目完成状态
+# StoryMoss (草苔) v0.81.2 项目完成状态
 
+> 最后更新: 2026-11-04（**v0.81.2：核心六页模板改造 + 文案删除 + 视口验收探针**——Characters/Stories/WorldBuilding/Foreshadowing 接 PageHeader；Scenes 双栏改 grid 断点（800px 溢出修复）；7 处空态改 EmptyState；附录 A 对应文案删除（约束保留）；Dashboard 未定义 token/圆角修复；新增 12 用例 800×600/1400×900 无溢出探针。vitest **677 / 3**；playwright **60 / 5**（+12）；tsc/prettier 全绿。**未关闭**：P2 数据诊断页、P3 设置+工作台。）
+>
 > 最后更新: 2026-11-04（**v0.81.1：侧边导航重组 + 双壳视觉统一**——Sidebar 五组改为创作5/故事资产7/运维5/分析5/系统1（技能拆书入创作，诊断拆运维/分析，默认折叠），23 条目 label 零改动；Sidebar 与 NavRail 统一左侧金条 active 指示；Sidebar 色彩令牌化；日志页 e2e 分组入口同步。vitest **677 / 3**（+1）；playwright **48 / 5**；tsc/prettier 全绿。**未关闭**：P1-2 核心页模板改造与文案删除。）
 >
 > 最后更新: 2026-11-04（**v0.81.0：幕后 UI 重设计 P0 基建**——设计文档 `docs/plans/2026-11-04-backstage-ui-redesign-design.md` 经批准；新增 Modal/ConfirmDialog/PageHeader/Field/Input/Select/Textarea/Table/EmptyState/Skeleton/layers 共享组件；Button 收敛 4 规范变体+兼容别名并修复未定义 token；Toaster 令牌化；z-index 五档契约。tsc/prettier 全绿；vitest **676 / 3**（+19）；playwright **48 / 5** 基线不变。**未关闭**：P1 导航重组+双壳视觉统一+核心页模板；P2/P3 待做。）

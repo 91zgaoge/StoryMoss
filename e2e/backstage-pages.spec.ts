@@ -72,8 +72,8 @@ test.describe('Backstage 页面加载测试', () => {
 
     await expect(page.locator('aside')).toBeVisible({ timeout: 10000 });
 
-    // 角色页面在故事已选择时显示角色管理
-    await expect(page.locator('main').first()).toContainText('角色管理');
+    // 角色页面在故事已选择时显示页头操作（v0.81.2 起页头标题为「角色」）
+    await expect(page.locator('main').first()).toContainText('添加角色');
 
     expect(consoleErrors.filter(e => !e.includes('enablePersistence'))).toHaveLength(0);
   });

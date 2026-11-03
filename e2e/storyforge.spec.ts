@@ -107,7 +107,7 @@ test.describe('StoryMoss 应用测试', () => {
 
       const routes: { navText: string; headingText: string }[] = [
         { navText: '故事', headingText: '故事库' },
-        { navText: '角色', headingText: '角色管理' },
+        { navText: '角色', headingText: '添加角色' },
         { navText: '场景', headingText: '场景' },
         { navText: '设置', headingText: '工作室配置' },
       ];

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Plus, BookOpen, AlertCircle, History, FileText } from 'lucide-react';
 import { ExecutionPanel } from '@/components/ExecutionPanel';
 import { Button } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { StoryTimeline } from '@/components/StoryTimeline';
 import { SceneEditor } from '@/components/SceneEditor';
 import { VersionTimeline } from '@/components/VersionTimeline';
@@ -180,13 +181,15 @@ export function Scenes() {
 
   if (!currentStory) {
     return (
-      <div className="p-8 flex flex-col items-center justify-center h-full text-center">
-        <BookOpen className="w-16 h-16 text-cinema-700 mb-4" />
-        <h2 className="font-display text-xl font-semibold text-white mb-2">还没有选择故事</h2>
-        <p className="text-gray-500 max-w-md mb-6">请先选择一个故事，然后开始创建场景</p>
-        <Button variant="primary" onClick={() => useAppStore.getState().setCurrentView('stories')}>
-          去故事库
-        </Button>
+      <div className="p-8 flex items-center justify-center h-full">
+        <EmptyState
+          icon={BookOpen}
+          title="先选择一个故事"
+          action={{
+            label: '去故事库',
+            onClick: () => useAppStore.getState().setCurrentView('stories'),
+          }}
+        />
       </div>
     );
   }
@@ -200,9 +203,11 @@ export function Scenes() {
   }
 
   return (
-    <div className="h-full flex">
+    /* T2 主从模板（设计文档 §4）：<lg 单列堆叠（右栏给 70dvh 保底高度），
+       lg 起双栏、左栏定宽区间、右栏自适应，全部 min-w-0/min-h-0 防溢出 */
+    <div className="h-full grid grid-cols-1 lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)] min-w-0">
       {/* Left Panel - Timeline */}
-      <div className="w-5/12 min-w-[380px] max-w-[560px] border-r border-cinema-700 bg-cinema-900/50">
+      <div className="min-w-0 lg:min-h-0 border-b lg:border-b-0 lg:border-r border-cinema-700 bg-cinema-900/50">
         <div className="h-full p-6 overflow-auto">
           <StoryTimeline
             scenes={scenes}
@@ -218,7 +223,7 @@ export function Scenes() {
       </div>
 
       {/* Middle Panel - Editor */}
-      <div className="flex-1 min-w-[400px] bg-cinema-950">
+      <div className="min-w-0 min-h-0 h-[70dvh] lg:h-full bg-cinema-950">
         {isEditing && selectedScene ? (
           <div className="h-full p-6">
             <SceneEditor

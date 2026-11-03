@@ -26,6 +26,8 @@ import { useWorkflowProgress } from '@/hooks/useWorkflowProgress';
 import { extractMessage } from '@/utils/errorHandler';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { useStories, useCreateStory, useDeleteStory, useUpdateStory } from '@/hooks/useStories';
 import { useAllMethodologies } from '@/hooks/useMethodologies';
 import { useCharacters } from '@/hooks/useCharacters';
@@ -102,7 +104,7 @@ function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }
                   onChange={e => setOutlineDraft(e.target.value)}
                   rows={10}
                   className="w-full px-2 py-1.5 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-y"
-                  placeholder="故事大纲（场景大纲生成与续写将围绕此大纲展开，请确保角色与情节走向一致）"
+                  placeholder="故事大纲（请确保角色与情节走向一致）"
                 />
                 <div className="flex gap-2 justify-end">
                   <Button
@@ -153,7 +155,7 @@ function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }
       )}
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="p-3 bg-cinema-900/50 rounded-lg border border-cinema-800">
           <div className="flex items-center gap-1.5 text-gray-400 mb-1">
             <Users className="w-3.5 h-3.5" />
@@ -711,17 +713,17 @@ export function Stories() {
   }
 
   return (
-    <div className="p-8 space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-3xl font-bold text-white">故事库</h1>
-          <p className="text-gray-400">管理和创作你的故事</p>
-        </div>
-        <Button variant="primary" onClick={() => setIsModalOpen(true)}>
-          <Plus className="w-4 h-4" />
-          新建故事
-        </Button>
-      </div>
+    <div className="p-8 space-y-6 animate-fade-in min-w-0">
+      <PageHeader
+        title="故事库"
+        count={stories.length}
+        actions={
+          <Button variant="primary" onClick={() => setIsModalOpen(true)}>
+            <Plus className="w-4 h-4" />
+            新建故事
+          </Button>
+        }
+      />
 
       {/* Current Story Indicator */}
       {currentStory && (
@@ -1037,9 +1039,7 @@ export function Stories() {
                                 <Wand2 className="w-4 h-4 text-cinema-gold" />
                                 <div>
                                   <div className="text-white text-sm">向导创作</div>
-                                  <div className="text-[10px] text-gray-500">
-                                    分步选择 AI 生成选项
-                                  </div>
+                                  <div className="text-[10px] text-gray-500">分步生成</div>
                                 </div>
                               </button>
                             </div>
@@ -1086,23 +1086,12 @@ export function Stories() {
         })}
 
         {stories.length === 0 && (
-          <div className="col-span-full">
-            <Card className="py-12">
-              <CardContent className="text-center">
-                <BookOpen className="w-16 h-16 text-cinema-700 mx-auto mb-4" />
-                <h3 className="font-display text-xl font-semibold text-white mb-2">
-                  开始你的创作之旅
-                </h3>
-                <p className="text-gray-500 max-w-md mx-auto mb-6">
-                  你还没有创建任何故事。点击"新建故事"开始创作吧！
-                </p>
-                <Button variant="primary" onClick={() => setIsModalOpen(true)}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  创建第一个故事
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
+          <EmptyState
+            icon={BookOpen}
+            title="还没有故事"
+            className="col-span-full"
+            action={{ label: '创建第一个故事', onClick: () => setIsModalOpen(true) }}
+          />
         )}
       </div>
 

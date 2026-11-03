@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.81.1 架构文档
+# StoryMoss (草苔) v0.81.2 架构文档
 
+> **v0.81.2**：**核心页模板化**——Characters/Stories/WorldBuilding/Foreshadowing 接 `PageHeader`（新增 `meta` 状态行插槽）；Scenes 双栏改 `grid lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]`（<lg 堆叠，右栏 70dvh 保底），消除 800px 最小窗口横向溢出；空态统一 `EmptyState`；`e2e/backstage-viewport-acceptance.spec.ts` 为常驻视口验收门。
+>
 > **v0.81.1**：**侧边导航重组**——`Sidebar.tsx` 的 `NAV_GROUPS` 五组调整为创作（dashboard/stories/agency-studio/skills/book-deconstruction）、故事资产（7 项不变）、运维（tasks/maintenance/cascade-center/logs/tracing，默认折叠）、分析（usage-stats/narrative-analysis/agency-eval/agency-learning/intention-graph，默认折叠）、系统；条目 label/view key/impact 不变。Sidebar 与 `StudioNavRail` 统一 active 契约：左 2px 金条 + `bg-cinema-gold/10` + `aria-current`；Sidebar 灰阶全部走 `--ai-ink-*`。
 >
 > **v0.81.0**：**幕后 UI 重设计 P0 基建**——`components/ui/` 新增共享组件层：`Modal`（限高 85dvh、Esc/遮罩关闭、danger 变体）、`ConfirmDialog`、`PageHeader`、`Field`、`Input/Select/Textarea`（`controlClass` 单一来源）、`Table`（横滚+吸顶表头+骨架/空态插槽）、`EmptyState`、`Skeleton`、`layers`（z-index 契约 nav40/status45/overlay50/modal60/toast70，与 tokens.css `--z-*` 同源）。`Button` 收敛为 primary/secondary/ghost/danger，`paper/cinema/cinema-outline` 为兼容别名。设计总案见 `docs/plans/2026-11-04-backstage-ui-redesign-design.md`（P0→P3）。

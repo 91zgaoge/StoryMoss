@@ -22,8 +22,7 @@ const paths: PathItem[] = [
     icon: Sparkles,
     title: '幕前 Genesis Pipeline',
     subtitle: 'smart_execute',
-    description:
-      '智能创作流程-创世。推荐新用户：30–60 秒生成开篇，后台自动完成策略、世界、场景、伏笔、知识图谱与合同播种。',
+    description: '30–60 秒生成开篇，设定自动在后台完善',
     badge: '推荐',
   },
   {
@@ -31,16 +30,14 @@ const paths: PathItem[] = [
     icon: Wand2,
     title: '幕后 AI 向导',
     subtitle: 'NovelCreationWizard',
-    description:
-      '分步选择世界观、角色、文风与首场景，将预置资产写入已有故事。适合希望对创作要素做显式决策的用户。',
+    description: '分步决定世界观、角色、文风与首场景',
   },
   {
     id: 'quick',
     icon: Zap,
     title: '幕后快速创作',
     subtitle: 'runCreationWorkflow',
-    description:
-      '多阶段创作引擎，按选定模式（AI 全自动 / AI 初稿 + 精修 / 我初稿 + AI 润色）快速产出内容。',
+    description: 'AI 全自动 / 初稿精修 / 初稿润色，按所选模式产出',
   },
 ];
 

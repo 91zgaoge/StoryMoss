@@ -25,6 +25,9 @@ import {
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useAppStore } from '@/stores/appStore';
+import { Button } from '@/components/ui/Button';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { EmptyState } from '@/components/ui/EmptyState';
 import {
   useForeshadowings,
   useCreateForeshadowing,
@@ -684,41 +687,42 @@ export function Foreshadowing() {
 
   if (!currentStory) {
     return (
-      <div className="p-8 flex flex-col items-center justify-center h-full text-center">
-        <BookOpen className="w-16 h-16 text-cinema-700 mb-4" />
-        <h2 className="font-display text-xl font-semibold text-white mb-2">还没有选择故事</h2>
-        <p className="text-gray-500 max-w-md mb-6">请先选择一个故事，然后管理伏笔</p>
-        <button
-          onClick={() => useAppStore.getState().setCurrentView('stories')}
-          className="px-4 py-2 bg-cinema-gold/20 text-cinema-gold rounded-lg hover:bg-cinema-gold/30 transition-colors"
-        >
-          去故事库
-        </button>
+      <div className="p-8 flex items-center justify-center h-full">
+        <EmptyState
+          icon={BookOpen}
+          title="先选择一个故事"
+          action={{
+            label: '去故事库',
+            onClick: () => useAppStore.getState().setCurrentView('stories'),
+          }}
+        />
       </div>
     );
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-6 max-w-6xl mx-auto min-w-0">
       {/* Header */}
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-3">
-          <Eye className="w-6 h-6 text-cinema-gold" />
-          <h1 className="text-2xl font-display font-bold text-white">伏笔看板</h1>
-          <span className="text-sm text-gray-500">({items.length})</span>
-        </div>
-        <button
-          onClick={() => setShowCreate(!showCreate)}
-          className="flex items-center gap-2 px-4 py-2 bg-cinema-gold/20 text-cinema-gold rounded-lg hover:bg-cinema-gold/30 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          新建伏笔
-        </button>
-      </div>
+      <PageHeader
+        className="mb-2"
+        title={
+          <span className="flex items-center gap-3">
+            <Eye className="w-6 h-6 text-cinema-gold" />
+            伏笔看板
+          </span>
+        }
+        count={items.length}
+        actions={
+          <Button variant="secondary" onClick={() => setShowCreate(!showCreate)}>
+            <Plus className="w-4 h-4" />
+            新建伏笔
+          </Button>
+        }
+      />
       <p className="text-xs text-gray-500 mb-6">展开行可查看 Ledger 目标窗口编辑</p>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <div className="p-4 bg-cinema-900/50 rounded-lg border border-cinema-800">
           <div className="flex items-center gap-2 text-yellow-400 mb-1">
             <Clock className="w-4 h-4" />
@@ -861,11 +865,11 @@ export function Foreshadowing() {
 
       {/* Empty state */}
       {!isLoading && items.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 text-gray-500">
-          <Sparkles className="w-12 h-12 mb-3 opacity-30" />
-          <p className="text-sm">暂无伏笔</p>
-          <p className="text-xs mt-1 opacity-50">创建伏笔来追踪故事中的悬念和线索</p>
-        </div>
+        <EmptyState
+          icon={Sparkles}
+          title="暂无伏笔"
+          action={{ label: '新建伏笔', onClick: () => setShowCreate(true) }}
+        />
       )}
 
       {/* Kanban board */}
