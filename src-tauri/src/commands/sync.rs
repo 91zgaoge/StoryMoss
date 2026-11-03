@@ -284,17 +284,35 @@ pub fn show_backstage(
         window.set_focus().map_err(AppError::from)?;
         window
     } else {
-        // 窗口可能被关闭，重新创建
-        let window = tauri::WebviewWindowBuilder::new(
-            &app,
-            "backstage",
-            tauri::WebviewUrl::App("index.html".into()),
-        )
-        .title("草苔 - 幕后工作室")
-        .inner_size(1200.0, 800.0)
-        .center()
-        .build()
-        .map_err(AppError::from)?;
+        // 窗口可能被关闭，重新创建。优先复用 tauri.conf.json 的 backstage
+        // 配置（与启动时 from_config 完全一致），不要再手写一份 builder——
+        // v0.80.8 前这里漏了 url/尺寸等配置项，Windows/WebView2 重建后出现
+        // 空白页（幕前第二次点设置白屏）。配置缺失时保留兜底。
+        log::warn!("[show_backstage] backstage window missing, recreating from config");
+        let backstage_config = app
+            .config()
+            .app
+            .windows
+            .iter()
+            .find(|w| w.label == "backstage")
+            .cloned();
+        let window = if let Some(config) = backstage_config {
+            tauri::WebviewWindowBuilder::from_config(&app, &config)
+                .map_err(AppError::from)?
+                .build()
+                .map_err(AppError::from)?
+        } else {
+            tauri::WebviewWindowBuilder::new(
+                &app,
+                "backstage",
+                tauri::WebviewUrl::App("index.html".into()),
+            )
+            .title("草苔 - 幕后工作室")
+            .inner_size(1200.0, 800.0)
+            .center()
+            .build()
+            .map_err(AppError::from)?
+        };
         window.show().map_err(AppError::from)?;
         window.set_focus().map_err(AppError::from)?;
         window

@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.80.8（2026-11-03）
+
+**修复：幕前第二次点设置，幕后窗口白屏。**
+
+- **根因**：`on_window_event` 的 `backstage` CloseRequested 分支只调 `window.hide()`，没有 `api.prevent_close()`；窗口仍按默认行为被关闭销毁。下次 `show_backstage` 找不到窗口，重建出来的 WebView 在 Windows/WebView2 上是空白页（用户截图：第二次点设置只剩白窗）。
+- **修复**：幕后关闭改为 `api.prevent_close()` + `hide()`，保留同一个 WebView；首次与后续打开都走已存在窗口的既有尺寸微调/JS 重排恢复路径，不再触发重建。
+- **重建兜底**：`show_backstage` 在窗口确实缺失时改用 `tauri.conf.json` 的 backstage 配置（`WebviewWindowBuilder::from_config`），与启动时创建方式一致；配置缺失时保留原 builder 兜底，并记录 warn 日志便于定位。
+- **验证**：Rust **1999 passed / 13 ignored**（行为修复，无新增用例）；`cargo check` / nightly fmt 全绿；前端未改动（vitest 657 / 3、playwright 48 / 5 基线不变）。
+- **未关闭**：原生窗口关闭/重开无法被自动化测试覆盖，需安装包真机复测：幕前点设置 → 关闭幕后 → 再点设置，确认内容正常显示；macOS / Windows 都要重启应用后验证。
+
 ## v0.80.7（2026-11-03）
 
 **章节名可改：下拉列表就地重命名 + 手写中文数字标题不再被章号覆盖。**

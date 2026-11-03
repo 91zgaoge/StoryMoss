@@ -1,8 +1,13 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.80.7)
+# 🧪 StoryMoss 自动化测试环境 (v0.80.8)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.80.8 变更说明
+
+- **幕后窗口关闭白屏修复（Rust 1999 / 13 不变）**：`backstage` CloseRequested 补 `api.prevent_close()`，保留 WebView 不再销毁；`show_backstage` 重建窗口改用 tauri.conf.json 配置。行为修复无新增用例；`cargo check` / nightly fmt 全绿；前端基线 vitest 657 / 3、playwright 48 / 5 不变。
+- **未关闭**：原生窗口关闭/重开需安装包真机复测（自动化无法覆盖 WebView2 生命周期）。
 
 ### v0.80.7 变更说明
 

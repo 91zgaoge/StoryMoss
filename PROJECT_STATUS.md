@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.80.7 项目完成状态
+# StoryMoss (草苔) v0.80.8 项目完成状态
 
+> 最后更新: 2026-11-03（**v0.80.8：幕后窗口关闭后重开白屏修复**——`backstage` 的 CloseRequested 补 `api.prevent_close()` 后再 `hide()`，不再销毁窗口；`show_backstage` 在窗口缺失时用 tauri.conf.json 的 backstage 配置 `from_config` 重建，与启动路径一致并记录 warn。Rust **1999 / 13**；`cargo check` / nightly fmt 全绿；前端未改动（vitest 657 / 3、playwright 48 / 5）。**未关闭**：原生窗口关闭/重开需安装包真机复测，macOS / Windows 都要重启应用后验证。）
+>
 > 最后更新: 2026-11-03（**v0.80.7：章节名可改——下拉列表就地重命名 + 手写中文数字标题不再被章号覆盖**——章节切换下拉每行新增铅笔，任意章节可就地改名且不切换当前章；当前章走 `update_scene`、非当前章走 `update_chapter`，统一由 `applyChapterTitleLocally` 刷新章节列表/场景/store；编辑器大标题旁新增铅笔（双击保留）；`displayChapterTitle` 只让阿拉伯数字占位标题跟随章号，`第一章`/`第八章` 等手写中文数字标题原样显示。Rust 未改动 **1999 / 13**；vitest **657 / 3**（+4）；playwright **48 / 5**（+1）；tsc/prettier/guard 全绿。**未关闭**：自动取名/自动分章仍将中文数字标题视为占位；真机安装包需重启后复测。）
 >
 > 最后更新: 2026-11-03（**v0.80.6：导演修订既有章——`target_chapter` 目标章语义 + 修订管线仍过质量门**——`DirectorActionSpec.target_chapter` 仅 lead_writer 可用且 ≥1；调度器校验目标章存在后跳过新章号分配，走 `run_revise_chapter_with_cancel`；`write_revision_chapter` 以目标章正文为修订基底，gate/revision 后 `assemble_existing_chapter` 更新原 scene，不创建新章、不推进 beat；质量门失败不覆盖原正文。Rust **1999 passed / 13 ignored**；vitest **653 / 3**；playwright **47 / 5**；tsc/clippy/fmt/guard 全绿。**未关闭**：target_chapter 仅章级；修订后不重新 ingest KG；真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。）

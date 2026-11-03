@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.80.7 架构文档
+# StoryMoss (草苔) v0.80.8 架构文档
 
+> **v0.80.8**：**幕后窗口关闭白屏修复**——`lib.rs::run` 的 `on_window_event` 对 `backstage` 的 `CloseRequested` 补 `api.prevent_close()` 后再 `hide()`，避免窗口按默认行为销毁；`commands/sync.rs::show_backstage` 在窗口缺失时用 `tauri.conf.json` 的 backstage 配置 `WebviewWindowBuilder::from_config` 重建（与启动路径一致），配置缺失才回退手写 builder，并记录 warn 日志。
+>
 > **v0.80.7**：**章节名可改**——`FrontstageHeader` 章节下拉每行新增铅笔，`onRenameChapterById` 支持任意章节就地改名（Enter/失焦保存、Esc 取消、不切换当前章）；`FrontstageApp::handleRenameChapterById` 对当前章优先 `update_scene`、其他章走 `update_chapter`（后端 `ChapterRepository::update` 同步关联 scene 标题），统一由 `applyChapterTitleLocally` 刷新章节列表/场景/store；`EditableChapterTitle` 大标题旁新增铅笔（双击手势保留）。`displayChapterTitle` 只把阿拉伯数字占位标题（`第2章`）跟随 `chapter_number`，作者手写的 `第一章`/`第八章` 原样显示。
 >
 > **v0.80.6**：**导演修订既有章（target_chapter）**——`DirectorActionSpec.target_chapter` 仅 lead_writer 可用且 ≥1；`TaskScheduler::run_directed_chapter_task` 在存在目标章时跳过 `allocate_chapter_numbers`，调用 `AgencyCoordinator::run_revise_chapter_with_cancel`。修订管线仍走 `run_batch_inner` 的 GateRunner/handle_gate，但 `write_revision_chapter` 以目标章现有正文为修订基底（board key `第N章修订`），`handle_gate` 收到 `existing_scene_id` 后走 `assemble_existing_chapter`：只更新原 scene 的 content/outline，不创建新 scene、不推进 beat、不分配章号；gate 失败不覆盖原正文。

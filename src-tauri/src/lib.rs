@@ -636,7 +636,12 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 match window.label() {
                     "backstage" => {
-                        // 关闭幕后窗口时，只隐藏它，不退出应用，也不影响幕前窗口
+                        // 关闭幕后窗口时，只隐藏它，不退出应用，也不影响幕前窗口。
+                        // v0.80.8 fix：必须 prevent_close。此前只 hide() 不拦截默认关闭，
+                        // 窗口仍被销毁；再从幕前点设置会重建 WebView，Windows/WebView2
+                        // 上重建后是空白页（用户截图：第二次点设置白屏）。拦截后保留
+                        // 同一个 WebView，后续 show() 走既有的尺寸微调/重排恢复路径。
+                        api.prevent_close();
                         log::info!("Backstage close requested, hiding instead of exiting");
                         let _ = window.hide();
                     }
