@@ -103,6 +103,41 @@ test.describe('Frontstage 编辑器测试', () => {
     expect(call?.args).toMatchObject({ chapter_id: 'test-chapter-1', overwrite: true });
   });
 
+  test('章节下拉列表可就地改名（不切换章节）', async ({ page }) => {
+    await page.addInitScript(getMockTauriInitScript());
+    await page.goto('/frontstage.html');
+
+    const chapterTitle = page.locator('.chapter-title');
+    await expect(chapterTitle).toContainText('测试章节', { timeout: 10000 });
+
+    // 打开章节下拉，点当前章右侧铅笔就地改名
+    await page.locator('.frontstage-chapter-name').click();
+    await expect(page.getByRole('option', { name: '测试章节' })).toBeVisible();
+    await page.getByLabel('重命名测试章节').click();
+    const input = page.getByLabel('编辑章节名称');
+    await input.fill('雨夜来客');
+    await input.press('Enter');
+
+    // 列表与正文大标题同步，且下拉保持打开
+    await expect(page.getByRole('option', { name: '雨夜来客' })).toBeVisible();
+    await expect(chapterTitle).toContainText('雨夜来客', { timeout: 10000 });
+
+    const calls = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __e2eMock?: { calls: Array<{ cmd: string; args?: Record<string, unknown> }> };
+          }
+        ).__e2eMock?.calls ?? []
+    );
+    const renameCall = calls.find(
+      c =>
+        (c.cmd === 'update_scene' || c.cmd === 'update_chapter') &&
+        JSON.stringify(c.args ?? {}).includes('雨夜来客')
+    );
+    expect(renameCall).toBeTruthy();
+  });
+
   test('进入和退出禅模式', async ({ page }) => {
     await page.addInitScript(getMockTauriInitScript());
     await page.goto('/frontstage.html');

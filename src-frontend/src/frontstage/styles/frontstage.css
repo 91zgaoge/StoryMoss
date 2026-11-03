@@ -628,9 +628,17 @@ body {
   z-index: 60;
 }
 
+.chapter-switcher-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 6px;
+}
+
 .chapter-switcher-item {
   display: block;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 6px 10px;
   border: none;
   border-radius: 6px;
@@ -652,6 +660,47 @@ body {
 .chapter-switcher-item.active {
   color: var(--terracotta);
   font-weight: 500;
+}
+
+/* 列表内就地重命名：每行右侧铅笔（悬停/键盘聚焦时高亮） */
+.chapter-switcher-rename-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--stone-gray);
+  cursor: pointer;
+  opacity: 0.35;
+  transition:
+    opacity var(--transition-press),
+    background-color var(--transition-press),
+    color var(--transition-press);
+}
+
+.chapter-switcher-row:hover .chapter-switcher-rename-btn,
+.chapter-switcher-rename-btn:focus-visible {
+  opacity: 1;
+  background: var(--warm-sand);
+  color: var(--charcoal);
+}
+
+.chapter-switcher-rename-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 9px;
+  border: 1px solid var(--terracotta);
+  border-radius: 6px;
+  background: var(--ivory);
+  font-size: 12px;
+  font-family: var(--font-sans);
+  color: var(--charcoal);
+  outline: none;
 }
 
 .chapter-switcher-empty {
@@ -1275,7 +1324,8 @@ body {
   margin-bottom: 0;
 }
 
-.chapter-auto-name-btn {
+.chapter-auto-name-btn,
+.chapter-edit-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1285,7 +1335,6 @@ body {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: var(--terracotta);
   cursor: pointer;
   opacity: 0.4;
   transition:
@@ -1294,10 +1343,25 @@ body {
     color var(--transition-press);
 }
 
+.chapter-auto-name-btn {
+  color: var(--terracotta);
+}
+
+.chapter-edit-btn {
+  color: var(--stone-gray);
+}
+
 .chapter-title-row:hover .chapter-auto-name-btn,
 .chapter-auto-name-btn:focus-visible {
   opacity: 1;
   background-color: var(--warm-sand);
+}
+
+.chapter-title-row:hover .chapter-edit-btn,
+.chapter-edit-btn:focus-visible {
+  opacity: 1;
+  background-color: var(--warm-sand);
+  color: var(--charcoal);
 }
 
 .chapter-auto-name-btn:disabled {

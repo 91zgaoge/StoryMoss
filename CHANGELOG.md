@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.80.7（2026-11-03）
+
+**章节名可改：下拉列表就地重命名 + 手写中文数字标题不再被章号覆盖。**
+
+- **下拉列表可改名**：章节切换下拉每行新增铅笔按钮，任意章节（含未选中章）可就地改名；Enter/失焦保存，Esc 取消，改名期间菜单保持打开。当前章仍优先走 `update_scene`（store 已有 sceneId），非当前章走 `update_chapter`（后端同步关联 scene 标题），两条路径统一由 `applyChapterTitleLocally` 刷新章节列表/场景/store。
+- **大标题改名入口**：编辑器上方章节标题旁新增铅笔按钮（双击手势保留），改名不再只靠隐藏的双击；AI 自动取名按钮保留。
+- **展示规则修正**：`displayChapterTitle` 现在只把阿拉伯数字占位标题（`第2章`、`第12章`）跟随 `chapter_number` 展示；作者手写的 `第一章`/`第八章` 原样显示。此前任何 `第X章` 都被当作派生占位，用户改成中文数字后看起来「改不动」。
+- **验证**：vitest **657 passed / 3 skipped**（+4：中文数字标题展示 1、下拉就地改名 2、大标题铅笔入口 1）；playwright **48 passed / 5 skipped**（+1：章节下拉就地改名 E2E）；tsc / prettier / guard 全绿；Rust 未改动（1999 / 13 基线不变）。
+- **未关闭**：自动取名与自动分章仍会把中文数字标题视为占位（分章重排时可能跟随章号改写）；真机安装包需重启后复测。
+
 ## v0.80.6（2026-11-03）
 
 **导演修订既有章：`target_chapter` 目标章语义 + 修订管线仍过质量门。**

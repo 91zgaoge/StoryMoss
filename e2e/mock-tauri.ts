@@ -280,6 +280,14 @@ export function getMockTauriInitScript() {
           case 'update_chapter':
             mockContent = args?.content || '';
             mockChapter.content = mockContent;
+            // 章名与场景标题共享元数据；下拉列表改名走 update_chapter 时
+            // 也要同步，供 E2E 断言。
+            if (typeof args?.title === 'string' && args.title.trim()) {
+              mockChapter.title = args.title;
+              mockScenes.forEach(s => {
+                if (s.chapter_id === mockChapter.id) s.title = args.title;
+              });
+            }
             if (enablePersistence) {
               sessionStorage.setItem(STORAGE_KEY, mockContent);
             }
@@ -306,6 +314,11 @@ export function getMockTauriInitScript() {
                 if (typeof args?.updates?.title === 'string') s.title = args.updates.title;
               }
             });
+            // 标题是 chapter/scene 共享元数据，幕前改名会走 update_scene；
+            // mock 同步章标题，保证重载/切章后仍能看到新名。
+            if (typeof args?.updates?.title === 'string' && args.updates.title.trim()) {
+              mockChapter.title = args.updates.title;
+            }
             if (enablePersistence) {
               sessionStorage.setItem(STORAGE_KEY, mockContent);
             }

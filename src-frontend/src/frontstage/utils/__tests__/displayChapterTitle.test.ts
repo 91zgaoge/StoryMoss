@@ -14,10 +14,16 @@ describe('displayChapterTitle', () => {
     expect(displayChapterTitle({ chapter_number: 12 })).toBe('第12章');
   });
 
-  it('派生章号标题跟 chapter_number，不照显示过期库标题', () => {
-    expect(displayChapterTitle({ chapter_number: 1, title: '第一章' })).toBe('第1章');
+  it('阿拉伯数字占位标题跟 chapter_number，不照显示过期库标题', () => {
     expect(displayChapterTitle({ chapter_number: 8, title: '第6章' })).toBe('第8章');
     expect(displayChapterTitle({ chapter_number: 2, title: '第2章' })).toBe('第2章');
+  });
+
+  it('作者手写的中文数字标题原样显示，不被章号覆盖', () => {
+    expect(displayChapterTitle({ chapter_number: 1, title: '第一章' })).toBe('第一章');
+    expect(displayChapterTitle({ chapter_number: 8, title: '第八章' })).toBe('第八章');
+    // 作者可自选标题，即使与章号不一致也尊重原文
+    expect(displayChapterTitle({ chapter_number: 8, title: '第一章' })).toBe('第一章');
   });
 
   it('真实标题 → 原样 trim', () => {

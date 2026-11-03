@@ -3597,45 +3597,60 @@ const FrontstageApp: React.FC = () => {
    * v0.26.51: 章节改名。Scene 为内容真相源，title 同步写 scene + 本地 chapter 状态。
    * scene_repository.update 会把 title 回写到关联 chapter 行。
    */
-  const handleRenameChapter = useCallback(
-    async (title: string) => {
-      const chapter = currentChapterRef.current;
-      if (!chapter) return;
-      const store = useFrontstageStore.getState();
-      const sceneId =
-        store.sceneId ||
-        chapter.scene_id ||
-        scenes.find(s => s.chapter_id === chapter.id)?.id ||
-        null;
+  /**
+   * 章节改名（当前章或下拉列表里的任意章）。
+   *
+   * 当前章优先写场景（store 里已有 sceneId，标题是 scene/chapter 共享元数据）；
+   * 非当前章没有可用的 scene 上下文，直接走 update_chapter——后端会同步
+   * 关联 scene 的标题。两条路径最终都由 applyChapterTitleLocally 统一刷新本地
+   * 章节/场景/store，避免列表与正文标题分叉。
+   */
+  const handleRenameChapterById = useCallback(
+    async (chapter: Chapter, title: string) => {
+      const isCurrent = currentChapterRef.current?.id === chapter.id;
+      if (isCurrent) {
+        const store = useFrontstageStore.getState();
+        const sceneId =
+          store.sceneId ||
+          chapter.scene_id ||
+          scenes.find(s => s.chapter_id === chapter.id)?.id ||
+          null;
 
-      if (sceneId) {
-        await loggedInvoke<unknown>(
-          'update_scene',
-          buildUpdateSceneIpcArgs({
-            sceneId,
+        if (sceneId) {
+          await loggedInvoke<unknown>(
+            'update_scene',
+            buildUpdateSceneIpcArgs({
+              sceneId,
+              title,
+            })
+          );
+          setSceneInfo(sceneId, title, chapter.id, currentStoryRef.current?.title);
+        } else {
+          // 无关联 scene 时退回 update_chapter（旧数据路径）
+          await loggedInvoke<unknown>('update_chapter', {
+            id: chapter.id,
             title,
-          })
-        );
-        setSceneInfo(sceneId, title, chapter.id, currentStoryRef.current?.title);
-        setScenes(prev => prev.map(s => (s.id === sceneId ? { ...s, title } : s)));
-        setCurrentScene(prev => (prev && prev.id === sceneId ? { ...prev, title } : prev));
+          });
+        }
       } else {
-        // 无关联 scene 时退回 update_chapter（旧数据路径）
         await loggedInvoke<unknown>('update_chapter', {
           id: chapter.id,
           title,
         });
       }
 
-      const updated = { ...chapter, title };
-      currentChapterRef.current = updated;
-      setCurrentChapter(updated);
-      setChapters(prev => prev.map(c => (c.id === chapter.id ? { ...c, title } : c)));
-      chaptersRef.current = chaptersRef.current.map(c =>
-        c.id === chapter.id ? { ...c, title } : c
-      );
+      applyChapterTitleLocally(chapter.id, title);
     },
-    [scenes, setSceneInfo]
+    [applyChapterTitleLocally, scenes, setSceneInfo]
+  );
+
+  const handleRenameChapter = useCallback(
+    async (title: string) => {
+      const chapter = currentChapterRef.current;
+      if (!chapter) return;
+      await handleRenameChapterById(chapter, title);
+    },
+    [handleRenameChapterById]
   );
 
   /** 手动「AI 取名」：显式覆盖当前标题，失败不影响正文。 */
@@ -5742,6 +5757,7 @@ const FrontstageApp: React.FC = () => {
           onToggleZenMode={() => setIsZenMode(prev => !prev)}
           onRenameStory={handleRenameStory}
           onRenameChapter={handleRenameChapter}
+          onRenameChapterById={handleRenameChapterById}
         />
 
         {/* Main Content */}

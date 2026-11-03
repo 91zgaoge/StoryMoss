@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.80.6 项目完成状态
+# StoryMoss (草苔) v0.80.7 项目完成状态
 
+> 最后更新: 2026-11-03（**v0.80.7：章节名可改——下拉列表就地重命名 + 手写中文数字标题不再被章号覆盖**——章节切换下拉每行新增铅笔，任意章节可就地改名且不切换当前章；当前章走 `update_scene`、非当前章走 `update_chapter`，统一由 `applyChapterTitleLocally` 刷新章节列表/场景/store；编辑器大标题旁新增铅笔（双击保留）；`displayChapterTitle` 只让阿拉伯数字占位标题跟随章号，`第一章`/`第八章` 等手写中文数字标题原样显示。Rust 未改动 **1999 / 13**；vitest **657 / 3**（+4）；playwright **48 / 5**（+1）；tsc/prettier/guard 全绿。**未关闭**：自动取名/自动分章仍将中文数字标题视为占位；真机安装包需重启后复测。）
+>
 > 最后更新: 2026-11-03（**v0.80.6：导演修订既有章——`target_chapter` 目标章语义 + 修订管线仍过质量门**——`DirectorActionSpec.target_chapter` 仅 lead_writer 可用且 ≥1；调度器校验目标章存在后跳过新章号分配，走 `run_revise_chapter_with_cancel`；`write_revision_chapter` 以目标章正文为修订基底，gate/revision 后 `assemble_existing_chapter` 更新原 scene，不创建新章、不推进 beat；质量门失败不覆盖原正文。Rust **1999 passed / 13 ignored**；vitest **653 / 3**；playwright **47 / 5**；tsc/clippy/fmt/guard 全绿。**未关闭**：target_chapter 仅章级；修订后不重新 ingest KG；真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。）
 >
 > 最后更新: 2026-11-03（**v0.80.5：导演派发 LeadWriter 自动续写并装配——原子章号 + GateRunner 质量门，不绕过门禁**——`DirectorExecutor` 对 lead_writer dispatch 写入 `directed_chapter=true`；`TaskScheduler` 检查 write lane 上限后用 `story_chapter_sequences` 原子分配下一章，调用 `run_continue_batch_with_cancel`（count=1）走 GateRunner/handle_gate/装配；`write_chapter` 接受 director directive 并在章契约/情感块后注入【导演派发指令】，空指令逐字不变；任务摘要带章号/scene/verdict，失败/取消回填聊天。Rust **1998 passed / 13 ignored**；vitest **653 / 3**；playwright **47 / 5**；tsc/clippy/fmt/guard 全绿。**未关闭**：导演派发尚无显式目标章参数字段，lead_writer 派发按「下一章」处理（v0.80.6 已闭环）；真机复测需重启安装包；人类 A/B、设置页灰度、真机样章。）

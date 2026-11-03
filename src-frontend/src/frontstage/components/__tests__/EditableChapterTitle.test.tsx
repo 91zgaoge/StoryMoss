@@ -46,6 +46,16 @@ describe('EditableChapterTitle', () => {
     });
   });
 
+  it('点击铅笔按钮进入编辑态（不必知道双击手势）', async () => {
+    const user = userEvent.setup();
+    render(
+      <EditableChapterTitle displayTitle="第八章" canRename onRename={onRename} variant="heading" />
+    );
+    await user.click(screen.getByLabelText('重命名章节'));
+    expect(screen.getByLabelText('编辑章节名称')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('第八章')).toBeInTheDocument();
+  });
+
   it('canRename=false 时双击不进入编辑', async () => {
     const user = userEvent.setup();
     render(
@@ -115,5 +125,6 @@ describe('EditableChapterTitle', () => {
       />
     );
     expect(screen.queryByLabelText('AI 自动取名')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('重命名章节')).not.toBeInTheDocument();
   });
 });

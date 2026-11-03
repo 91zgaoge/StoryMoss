@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Sparkles } from 'lucide-react';
+import { Loader2, Pencil, Sparkles } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 export interface EditableChapterTitleProps {
@@ -76,16 +76,20 @@ const EditableChapterTitle: React.FC<EditableChapterTitleProps> = ({
     }
   }, [draft, onRename, saving, cancelEdit]);
 
+  const startEditing = useCallback(() => {
+    if (!canRename || !onRename) return;
+    titleBeforeEditRef.current = displayTitle;
+    setDraft(displayTitle);
+    setEditing(true);
+  }, [canRename, onRename, displayTitle]);
+
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      if (!canRename || !onRename) return;
-      titleBeforeEditRef.current = displayTitle;
-      setDraft(displayTitle);
-      setEditing(true);
+      startEditing();
     },
-    [canRename, onRename, displayTitle]
+    [startEditing]
   );
 
   const handleInputKeyDown = useCallback(
@@ -133,35 +137,55 @@ const EditableChapterTitle: React.FC<EditableChapterTitleProps> = ({
         className
       )}
       onDoubleClick={handleDoubleClick}
-      title={canRename ? '双击改名' : undefined}
+      title={canRename ? '双击改名，或点击右侧铅笔' : undefined}
     >
       {displayTitle}
     </Tag>
   );
 
-  if (variant !== 'heading' || !onAutoName) return titleEl;
+  if (variant !== 'heading') return titleEl;
+
+  const canEdit = canRename && !!onRename;
+  if (!canEdit && !onAutoName) return titleEl;
 
   return (
     <div className="chapter-title-row">
       {titleEl}
-      <button
-        type="button"
-        className="chapter-auto-name-btn"
-        aria-label="AI 自动取名"
-        title="AI 自动取名（会覆盖当前标题）"
-        disabled={autoNaming}
-        onClick={event => {
-          event.preventDefault();
-          event.stopPropagation();
-          void onAutoName();
-        }}
-      >
-        {autoNaming ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <Sparkles className="h-3.5 w-3.5" />
-        )}
-      </button>
+      {canEdit && (
+        <button
+          type="button"
+          className="chapter-edit-btn"
+          aria-label="重命名章节"
+          title="重命名章节（也可双击标题）"
+          onClick={event => {
+            event.preventDefault();
+            event.stopPropagation();
+            startEditing();
+          }}
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {onAutoName && (
+        <button
+          type="button"
+          className="chapter-auto-name-btn"
+          aria-label="AI 自动取名"
+          title="AI 自动取名（会覆盖当前标题）"
+          disabled={autoNaming}
+          onClick={event => {
+            event.preventDefault();
+            event.stopPropagation();
+            void onAutoName();
+          }}
+        >
+          {autoNaming ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Sparkles className="h-3.5 w-3.5" />
+          )}
+        </button>
+      )}
     </div>
   );
 };

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from '@/utils/cn';
-import { Flame, Sparkles, ZapOff, Maximize, Settings, ChevronDown } from 'lucide-react';
+import { Flame, Sparkles, ZapOff, Maximize, Settings, ChevronDown, Pencil } from 'lucide-react';
 import ColorThemeDot from './ColorThemeDot';
 import { IngestHealthIndicator } from './IngestHealthIndicator';
 import DebtIndicator from './DebtIndicator';
@@ -65,6 +65,8 @@ interface FrontstageHeaderProps {
   onToggleZenMode: () => void;
   onRenameStory?: (title: string) => Promise<void> | void;
   onRenameChapter?: (title: string) => Promise<void> | void;
+  /** 章节下拉列表中重命名任意章节（不切换当前章节） */
+  onRenameChapterById?: (chapter: Chapter, title: string) => Promise<void> | void;
 }
 
 const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
@@ -94,6 +96,7 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
   onToggleZenMode,
   onRenameStory,
   onRenameChapter,
+  onRenameChapterById,
 }) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
@@ -109,6 +112,12 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
   const [chapterMenuOpen, setChapterMenuOpen] = useState(false);
   const chapterSwitcherRef = useRef<HTMLDivElement>(null);
   const chapterClickTimerRef = useRef<number | null>(null);
+  // 章节下拉列表内就地重命名（不切换当前章节）
+  const [renamingChapterId, setRenamingChapterId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const renameOriginalRef = useRef('');
 
   const closeChapterMenu = useCallback(() => setChapterMenuOpen(false), []);
 
@@ -162,6 +171,63 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
       }
     },
     []
+  );
+
+  // 菜单关闭时退出列表内改名，避免下次打开残留输入框
+  useEffect(() => {
+    if (chapterMenuOpen) return;
+    setRenamingChapterId(null);
+    setRenameDraft('');
+    setRenameSaving(false);
+  }, [chapterMenuOpen]);
+
+  useEffect(() => {
+    if (!renamingChapterId) return;
+    const el = renameInputRef.current;
+    if (!el) return;
+    el.focus();
+    el.select();
+  }, [renamingChapterId]);
+
+  const startChapterRename = useCallback(
+    (chapter: Chapter, event: React.MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!onRenameChapterById) return;
+      const display = displayChapterTitle(chapter);
+      renameOriginalRef.current = display;
+      setRenameDraft(display);
+      setRenameSaving(false);
+      setRenamingChapterId(chapter.id);
+    },
+    [onRenameChapterById]
+  );
+
+  const cancelChapterRename = useCallback(() => {
+    setRenamingChapterId(null);
+    setRenameDraft('');
+    setRenameSaving(false);
+  }, []);
+
+  const commitChapterRename = useCallback(
+    async (chapter: Chapter) => {
+      if (renameSaving) return;
+      const next = renameDraft.trim();
+      if (!next || next === renameOriginalRef.current || !onRenameChapterById) {
+        cancelChapterRename();
+        return;
+      }
+      setRenameSaving(true);
+      try {
+        await onRenameChapterById(chapter, next);
+        cancelChapterRename();
+      } catch {
+        // 失败时保持编辑态，便于重试
+      } finally {
+        setRenameSaving(false);
+      }
+    },
+    [cancelChapterRename, onRenameChapterById, renameDraft, renameSaving]
   );
 
   const sortedChapters = (chapters ?? [])
@@ -308,22 +374,59 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
                     <div className="chapter-switcher-empty">暂无章节</div>
                   ) : (
                     sortedChapters.map(ch => (
-                      <button
-                        key={ch.id}
-                        type="button"
-                        role="option"
-                        aria-selected={ch.id === currentChapter.id}
-                        className={cn(
-                          'chapter-switcher-item',
-                          ch.id === currentChapter.id && 'active'
+                      <div key={ch.id} className="chapter-switcher-row">
+                        {renamingChapterId === ch.id ? (
+                          <input
+                            ref={renameInputRef}
+                            className="chapter-switcher-rename-input"
+                            value={renameDraft}
+                            disabled={renameSaving}
+                            aria-label="编辑章节名称"
+                            onChange={e => setRenameDraft(e.target.value)}
+                            onBlur={() => void commitChapterRename(ch)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                void commitChapterRename(ch);
+                              } else if (e.key === 'Escape') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                cancelChapterRename();
+                              }
+                            }}
+                          />
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={ch.id === currentChapter.id}
+                              className={cn(
+                                'chapter-switcher-item',
+                                ch.id === currentChapter.id && 'active'
+                              )}
+                              onClick={() => {
+                                closeChapterMenu();
+                                if (ch.id !== currentChapter.id) onSelectChapter?.(ch);
+                              }}
+                            >
+                              {displayChapterTitle(ch)}
+                            </button>
+                            {onRenameChapterById && (
+                              <button
+                                type="button"
+                                className="chapter-switcher-rename-btn"
+                                aria-label={`重命名${displayChapterTitle(ch)}`}
+                                title="重命名本章"
+                                onClick={event => startChapterRename(ch, event)}
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </button>
+                            )}
+                          </>
                         )}
-                        onClick={() => {
-                          closeChapterMenu();
-                          if (ch.id !== currentChapter.id) onSelectChapter?.(ch);
-                        }}
-                      >
-                        {displayChapterTitle(ch)}
-                      </button>
+                      </div>
                     ))
                   )}
                 </div>

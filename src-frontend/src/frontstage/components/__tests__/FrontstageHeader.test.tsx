@@ -80,7 +80,7 @@ describe('FrontstageHeader', () => {
 
   it('应该显示章节标题和字数统计', () => {
     render(<FrontstageHeader {...defaultProps} />);
-    expect(screen.getByText('第1章')).toBeInTheDocument();
+    expect(screen.getByText('第一章')).toBeInTheDocument();
     expect(screen.getByText(/1234 字/)).toBeInTheDocument();
     expect(screen.getByText(/5678 字/)).toBeInTheDocument();
   });
@@ -281,7 +281,7 @@ describe('FrontstageHeader', () => {
       />
     );
 
-    await userEvent.click(screen.getByText('第1章'));
+    await userEvent.click(screen.getByText('第一章'));
     await waitFor(() => {
       expect(screen.getByRole('listbox', { name: '章节列表' })).toBeInTheDocument();
     });
@@ -290,7 +290,7 @@ describe('FrontstageHeader', () => {
     expect(screen.getByRole('option', { name: '第2章' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: '临江夜雨' })).toBeInTheDocument();
     // 当前章节高亮
-    expect(screen.getByRole('option', { name: '第1章' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('option', { name: '第一章' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('下拉中选中其他章节应调用 onSelectChapter 并关闭菜单', async () => {
@@ -324,8 +324,62 @@ describe('FrontstageHeader', () => {
     );
 
     await user.click(screen.getByLabelText('展开章节列表'));
-    await user.click(screen.getByRole('option', { name: '第1章' }));
+    await user.click(screen.getByRole('option', { name: '第一章' }));
     expect(onSelectChapter).not.toHaveBeenCalled();
+  });
+
+  it('下拉列表可就地重命名任意章节且不切换章节', async () => {
+    const user = userEvent.setup();
+    const onRenameChapterById = vi.fn().mockResolvedValue(undefined);
+    const onSelectChapter = vi.fn();
+    render(
+      <FrontstageHeader
+        {...defaultProps}
+        chapters={chaptersProp}
+        onSelectChapter={onSelectChapter}
+        onRenameChapterById={onRenameChapterById}
+      />
+    );
+
+    await user.click(screen.getByText('第一章'));
+    expect(await screen.findByRole('listbox', { name: '章节列表' })).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText('重命名第2章'));
+    const input = screen.getByLabelText('编辑章节名称');
+    await user.clear(input);
+    await user.type(input, '雨夜来客{Enter}');
+
+    await waitFor(() => {
+      expect(onRenameChapterById).toHaveBeenCalledWith(chaptersProp[1], '雨夜来客');
+    });
+    expect(onSelectChapter).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(screen.queryByLabelText('编辑章节名称')).not.toBeInTheDocument();
+    });
+    // 下拉保持打开，可继续操作
+    expect(screen.getByRole('listbox', { name: '章节列表' })).toBeInTheDocument();
+  });
+
+  it('下拉列表改名按 Esc 取消且不落库', async () => {
+    const user = userEvent.setup();
+    const onRenameChapterById = vi.fn().mockResolvedValue(undefined);
+    render(
+      <FrontstageHeader
+        {...defaultProps}
+        chapters={chaptersProp}
+        onRenameChapterById={onRenameChapterById}
+      />
+    );
+
+    await user.click(screen.getByText('第一章'));
+    await screen.findByRole('listbox', { name: '章节列表' });
+    await user.click(screen.getByLabelText('重命名第2章'));
+    const input = screen.getByLabelText('编辑章节名称');
+    await user.type(input, 'x');
+    await user.keyboard('{Escape}');
+
+    expect(onRenameChapterById).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('编辑章节名称')).not.toBeInTheDocument();
   });
 
   it('双击章节名改名不应展开下拉', async () => {
@@ -339,7 +393,7 @@ describe('FrontstageHeader', () => {
       />
     );
 
-    await user.dblClick(screen.getByText('第1章'));
+    await user.dblClick(screen.getByText('第一章'));
     expect(screen.getByLabelText('编辑章节名称')).toBeInTheDocument();
     // 等待超过单击延迟（250ms），确认下拉未弹出
     await new Promise(resolve => setTimeout(resolve, 350));
