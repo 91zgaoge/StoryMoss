@@ -45,13 +45,21 @@ export function StudioNavRail({ activeView = 'dashboard' }: StudioNavRailProps) 
               title={item.label}
               onClick={() => setCurrentView(item.view)}
               className={cn(
-                'w-full aspect-square rounded-panel flex items-center justify-center transition-colors',
+                'relative w-full aspect-square rounded-panel flex items-center justify-center transition-colors',
                 'hover:bg-cinema-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinema-gold/50',
                 isActive
                   ? 'bg-cinema-gold/10 text-cinema-gold'
                   : 'text-cinema-gold/60 hover:text-cinema-gold'
               )}
             >
+              {/* active 指示：左侧 2px 金条（与全局 Sidebar 同一契约） */}
+              <span
+                aria-hidden="true"
+                className={cn(
+                  'absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-cinema-gold transition-opacity',
+                  isActive ? 'opacity-100' : 'opacity-0'
+                )}
+              />
               <Icon className="w-5 h-5" />
             </button>
           );

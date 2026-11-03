@@ -68,7 +68,7 @@ type NavGroup = {
   items: NavItem[];
 };
 
-/** v0.26.40: 五层 IA + 生成影响徽章；诊断组默认折叠；MCP 在 P1c 移出 */
+/** v0.81.1: 五组 IA（创作/故事资产/运维/分析/系统，设计文档 §3.1）；条目 label 不变；运维/分析默认折叠 */
 export const NAV_GROUPS: NavGroup[] = [
   {
     id: 'create',
@@ -77,6 +77,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard, impact: 'warm' },
       { id: 'stories', label: '故事', icon: BookOpen, impact: 'hot' },
       { id: 'agency-studio', label: '代理工作室', icon: Bot, impact: 'hot' },
+      { id: 'skills', label: '技能', icon: Wand2, impact: 'hot' },
+      { id: 'book-deconstruction', label: '拆书', icon: BookMarked, impact: 'warm' },
     ],
   },
   {
@@ -93,28 +95,27 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    id: 'tools',
-    label: '创作工具',
+    id: 'ops',
+    label: '运维',
+    defaultCollapsed: true,
     items: [
-      { id: 'skills', label: '技能', icon: Wand2, impact: 'hot' },
-      { id: 'book-deconstruction', label: '拆书', icon: BookMarked, impact: 'warm' },
+      { id: 'tasks', label: '任务', icon: ListChecks, impact: 'warm' },
+      { id: 'maintenance', label: '运行维护', icon: Wrench, impact: 'cold' },
+      { id: 'cascade-center', label: '级联中心', icon: Workflow, impact: 'warm' },
+      { id: 'logs', label: '日志', icon: ScrollText, impact: 'cold' },
+      { id: 'tracing', label: '生成链路', icon: Activity, impact: 'cold' },
     ],
   },
   {
-    id: 'insights',
-    label: '诊断',
+    id: 'analysis',
+    label: '分析',
     defaultCollapsed: true,
     items: [
-      { id: 'narrative-analysis', label: '叙事分析', icon: GitBranch, impact: 'cold' },
-      { id: 'cascade-center', label: '级联中心', icon: Workflow, impact: 'warm' },
-      { id: 'maintenance', label: '运行维护', icon: Wrench, impact: 'cold' },
       { id: 'usage-stats', label: '数据洞察', icon: BarChart3, impact: 'cold' },
+      { id: 'narrative-analysis', label: '叙事分析', icon: GitBranch, impact: 'cold' },
       { id: 'agency-eval', label: '创作评估', icon: Gauge, impact: 'warm' },
       { id: 'agency-learning', label: '学习中心', icon: Brain, impact: 'warm' },
       { id: 'intention-graph', label: '意图诊断', icon: BrainCircuit, impact: 'cold' },
-      { id: 'tracing', label: '生成链路', icon: Activity, impact: 'cold' },
-      { id: 'logs', label: '日志', icon: ScrollText, impact: 'cold' },
-      { id: 'tasks', label: '任务', icon: ListChecks, impact: 'warm' },
     ],
   },
   {
@@ -158,7 +159,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
     return 'create';
   }, [activeView]);
 
-  // 诊断组默认折叠；用户可展开。当前组强制展开。
+  // 运维/分析组默认折叠；用户可展开。当前组强制展开。
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     for (const g of NAV_GROUPS) {
@@ -208,7 +209,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
           <span className="font-display text-xl font-bold text-white block leading-tight">
             草苔
           </span>
-          <span className="text-xs text-gray-500">StoryMoss</span>
+          <span className="text-xs text-ai-ink-3">StoryMoss</span>
         </div>
       </div>
 
@@ -220,7 +221,6 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
           <MonitorPlay className="w-5 h-5 flex-shrink-0" />
           <span className="hidden lg:block font-medium">打开幕前写作</span>
         </button>
-        <p className="hidden lg:block text-xs text-gray-600 mt-2 px-3">极简阅读写作界面</p>
       </div>
 
       <nav className="flex-1 p-3 space-y-3 overflow-y-auto" data-testid="sidebar-nav">
@@ -233,7 +233,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
               <button
                 type="button"
                 onClick={() => toggleGroup(group.id)}
-                className="hidden lg:flex w-full items-center justify-between px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-gray-500 hover:text-gray-300"
+                className="hidden lg:flex w-full items-center justify-between px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-ai-ink-3 hover:text-ai-ink-2"
               >
                 <span>{group.label}</span>
                 <ChevronDown
@@ -258,13 +258,22 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
                         onClick={() => handleNavigate(item.id)}
                         title={tip}
                         data-impact={item.impact}
+                        aria-current={isActive ? 'page' : undefined}
                         className={cn(
-                          'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200',
+                          'relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200',
                           'hover:bg-cinema-800',
                           isActive && 'bg-cinema-gold/10 text-cinema-gold',
-                          !isActive && 'text-gray-400'
+                          !isActive && 'text-ai-ink-2'
                         )}
                       >
+                        {/* active 指示：左侧 2px 金条（设计文档 §3） */}
+                        <span
+                          aria-hidden="true"
+                          className={cn(
+                            'absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-cinema-gold transition-opacity',
+                            isActive ? 'opacity-100' : 'opacity-0'
+                          )}
+                        />
                         <Icon
                           className={cn('w-5 h-5 flex-shrink-0', isActive && 'text-cinema-gold')}
                         />
@@ -293,7 +302,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
       <div className="p-3 border-t border-cinema-800">
         {currentStory ? (
           <div className="hidden lg:block">
-            <p className="text-xs text-gray-500 mb-2 flex items-center gap-1">
+            <p className="text-xs text-ai-ink-3 mb-2 flex items-center gap-1">
               <Sparkles className="w-3 h-3 text-cinema-gold" />
               当前编辑
             </p>
@@ -301,17 +310,17 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
               onClick={() => onNavigate('scenes')}
               className="w-full text-left p-3 rounded-xl bg-cinema-800/50 hover:bg-cinema-800 transition-colors group"
             >
-              <p className="font-medium text-white truncate group-hover:text-cinema-gold transition-colors">
+              <p className="font-medium text-ai-ink truncate group-hover:text-cinema-gold transition-colors">
                 {currentStory.title}
               </p>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-ai-ink-3 mt-1">
                 {currentStory.genre || '未分类'} · {currentStory.chapter_count || 0} 章
               </p>
             </button>
           </div>
         ) : (
           <div className="hidden lg:block text-center py-2">
-            <p className="text-xs text-gray-600">未选择故事</p>
+            <p className="text-xs text-ai-ink-3">未选择故事</p>
           </div>
         )}
 

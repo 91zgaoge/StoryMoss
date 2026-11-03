@@ -28,16 +28,64 @@ vi.mock('@/stores/appStore', () => ({
   ),
 }));
 
-describe('Sidebar IA v0.26.40', () => {
+describe('Sidebar IA v0.81.1（设计文档 §3.1）', () => {
   const onNavigate = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('应有五组导航', () => {
+  it('应有五组导航：创作/故事资产/运维/分析/系统', () => {
     expect(NAV_GROUPS).toHaveLength(5);
-    expect(NAV_GROUPS.map(g => g.id)).toEqual(['create', 'assets', 'tools', 'insights', 'system']);
+    expect(NAV_GROUPS.map(g => g.id)).toEqual(['create', 'assets', 'ops', 'analysis', 'system']);
+    expect(NAV_GROUPS.map(g => g.label)).toEqual(['创作', '故事资产', '运维', '分析', '系统']);
+  });
+
+  it('条目总数 23 且 label 零改动；创作工具并入创作组', () => {
+    const items = NAV_GROUPS.flatMap(g => g.items);
+    expect(items).toHaveLength(23);
+    expect(items.map(i => i.label)).toEqual([
+      '仪表盘',
+      '故事',
+      '代理工作室',
+      '技能',
+      '拆书',
+      '场景',
+      '角色',
+      '语料',
+      '世界构建',
+      '伏笔',
+      '知识图谱',
+      '故事合同',
+      '任务',
+      '运行维护',
+      '级联中心',
+      '日志',
+      '生成链路',
+      '数据洞察',
+      '叙事分析',
+      '创作评估',
+      '学习中心',
+      '意图诊断',
+      '设置',
+    ]);
+    const createIds = NAV_GROUPS.find(g => g.id === 'create')!.items.map(i => i.id);
+    expect(createIds).toEqual([
+      'dashboard',
+      'stories',
+      'agency-studio',
+      'skills',
+      'book-deconstruction',
+    ]);
+  });
+
+  it('运维/分析组默认折叠', () => {
+    const ops = NAV_GROUPS.find(g => g.id === 'ops');
+    const analysis = NAV_GROUPS.find(g => g.id === 'analysis');
+    expect(ops?.label).toBe('运维');
+    expect(ops?.defaultCollapsed).toBe(true);
+    expect(analysis?.label).toBe('分析');
+    expect(analysis?.defaultCollapsed).toBe(true);
   });
 
   it('每项应有 impact 徽章映射', () => {
@@ -50,30 +98,30 @@ describe('Sidebar IA v0.26.40', () => {
     expect(IMPACT_LABELS.hot).toContain('默认生成');
   });
 
-  it('诊断组应默认折叠标签为「诊断」', () => {
-    const insights = NAV_GROUPS.find(g => g.id === 'insights');
-    expect(insights?.label).toBe('诊断');
-    expect(insights?.defaultCollapsed).toBe(true);
-  });
-
-  it('侧栏应展示中文分组标签与重命名项', () => {
+  it('侧栏应展示中文分组标签与关键条目', () => {
     render(<Sidebar currentView="dashboard" onNavigate={onNavigate} />);
 
     expect(screen.getByTestId('nav-group-create')).toBeInTheDocument();
     expect(screen.getByTestId('nav-group-assets')).toBeInTheDocument();
     expect(screen.getByText('故事合同')).toBeInTheDocument();
-    expect(screen.getByText('诊断')).toBeInTheDocument();
-    // 诊断组默认折叠：数据洞察不可见，直到展开或进入该组
-    expect(screen.queryByText('数据洞察')).not.toBeInTheDocument();
     expect(screen.getByText('打开幕前写作')).toBeInTheDocument();
+    // 运维/分析默认折叠：任务与数据洞察不可见，直到展开或进入该组
+    expect(screen.queryByText('数据洞察')).not.toBeInTheDocument();
+    expect(screen.queryByText('运行维护')).not.toBeInTheDocument();
     expect(screen.queryByText('Story System')).not.toBeInTheDocument();
     expect(screen.queryByText('写作统计')).not.toBeInTheDocument();
   });
 
-  it('进入诊断组视图时应展开并显示数据洞察', () => {
+  it('进入分析组视图时应展开并显示数据洞察', () => {
     render(<Sidebar currentView="usage-stats" onNavigate={onNavigate} />);
     expect(screen.getByText('数据洞察')).toBeInTheDocument();
     expect(screen.getByText('意图诊断')).toBeInTheDocument();
+  });
+
+  it('进入运维组视图时应展开并显示运行维护', () => {
+    render(<Sidebar currentView="maintenance" onNavigate={onNavigate} />);
+    expect(screen.getByText('运行维护')).toBeInTheDocument();
+    expect(screen.getByText('级联中心')).toBeInTheDocument();
   });
 
   it('热路径项应渲染 impact badge', () => {
@@ -95,22 +143,15 @@ describe('Sidebar IA v0.26.40', () => {
     expect(onNavigate).toHaveBeenCalledWith('settings');
   });
 
-  it('点击扩展连接应重定向到设置扩展 Tab', () => {
-    // MCP 已从侧栏移除；通过 store 重定向契约验证
+  it('点击扩展连接应重定向到设置扩展 Tab（MCP 不在侧栏）', () => {
     expect(NAV_GROUPS.flatMap(g => g.items.map(i => i.id))).not.toContain('mcp');
   });
 
-  it('创作工具组不应再含扩展连接', () => {
-    render(<Sidebar currentView="dashboard" onNavigate={onNavigate} />);
-    expect(screen.queryByText('扩展连接')).not.toBeInTheDocument();
-    expect(screen.getByText('技能')).toBeInTheDocument();
-    expect(screen.getByText('拆书')).toBeInTheDocument();
-  });
-
-  it('选中项只有金淡彩，没有金边框', () => {
+  it('选中项只有金淡彩与左侧金条指示，没有金边框', () => {
     render(<Sidebar currentView="stories" onNavigate={onNavigate} />);
     const item = screen.getByText('故事').closest('button') as HTMLElement;
     expect(item.className).toMatch(/bg-cinema-gold\/10/);
     expect(item.className).not.toMatch(/border-cinema-gold/);
+    expect(item.querySelector('span[aria-hidden="true"]')).toHaveClass('bg-cinema-gold');
   });
 });

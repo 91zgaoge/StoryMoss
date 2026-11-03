@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.81.0 项目完成状态
+# StoryMoss (草苔) v0.81.1 项目完成状态
 
+> 最后更新: 2026-11-04（**v0.81.1：侧边导航重组 + 双壳视觉统一**——Sidebar 五组改为创作5/故事资产7/运维5/分析5/系统1（技能拆书入创作，诊断拆运维/分析，默认折叠），23 条目 label 零改动；Sidebar 与 NavRail 统一左侧金条 active 指示；Sidebar 色彩令牌化；日志页 e2e 分组入口同步。vitest **677 / 3**（+1）；playwright **48 / 5**；tsc/prettier 全绿。**未关闭**：P1-2 核心页模板改造与文案删除。）
+>
 > 最后更新: 2026-11-04（**v0.81.0：幕后 UI 重设计 P0 基建**——设计文档 `docs/plans/2026-11-04-backstage-ui-redesign-design.md` 经批准；新增 Modal/ConfirmDialog/PageHeader/Field/Input/Select/Textarea/Table/EmptyState/Skeleton/layers 共享组件；Button 收敛 4 规范变体+兼容别名并修复未定义 token；Toaster 令牌化；z-index 五档契约。tsc/prettier 全绿；vitest **676 / 3**（+19）；playwright **48 / 5** 基线不变。**未关闭**：P1 导航重组+双壳视觉统一+核心页模板；P2/P3 待做。）
 >
 > 最后更新: 2026-11-03（**v0.80.8：幕后窗口关闭后重开白屏修复**——`backstage` 的 CloseRequested 补 `api.prevent_close()` 后再 `hide()`，不再销毁窗口；`show_backstage` 在窗口缺失时用 tauri.conf.json 的 backstage 配置 `from_config` 重建，与启动路径一致并记录 warn。Rust **1999 / 13**；`cargo check` / nightly fmt 全绿；前端未改动（vitest 657 / 3、playwright 48 / 5）。**未关闭**：原生窗口关闭/重开需安装包真机复测，macOS / Windows 都要重启应用后验证。）

@@ -240,11 +240,11 @@ test.describe('Backstage 页面加载测试', () => {
     await page.addInitScript(getMockTauriInitScript());
     await page.goto('/index.html');
 
-    // 日志入口在 Sidebar 的「诊断」分组（默认折叠）
+    // 日志入口在 Sidebar 的「运维」分组（v0.81.1 起，默认折叠）
     await page.locator('nav').getByRole('button', { name: '故事', exact: true }).click();
     const aside = page.locator('aside');
     await expect(aside).toBeVisible({ timeout: 10000 });
-    await aside.getByRole('button', { name: /诊断/ }).click();
+    await aside.getByRole('button', { name: /运维/ }).click();
     await aside.getByRole('button', { name: /^日志/ }).click();
     await expect(page.locator('h1')).toContainText('日志查看器', { timeout: 10000 });
 

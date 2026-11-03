@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.81.1（2026-11-04）
+
+**幕后 UI 重设计 P1-1：侧边导航重组 + 双壳视觉统一。**
+
+- **导航重组（设计文档 §3.1）**：`Sidebar` 分组从「创作/故事资产/创作工具/诊断/系统」调整为「创作/故事资产/运维/分析/系统」——技能、拆书并入创作组；原诊断组拆分为运维（任务/运行维护/级联中心/日志/生成链路）与分析（数据洞察/叙事分析/创作评估/学习中心/意图诊断），两组默认折叠。23 个条目 label、icon、impact、view key 零改动。
+- **双壳视觉统一**：Sidebar 与 StudioNavRail（Dashboard/Settings 壳）统一 active 指示——左侧 2px 金条 + 金淡彩背景 + `aria-current`；Sidebar 全部 gray-\* 色改走 ai-ink 令牌；删除「打开幕前写作」下方冗余说明句。
+- **验证**：tsc / prettier 全绿；vitest **677 / 3**（Sidebar IA 契约测试按新五组重写，+1）；playwright **48 / 5**（日志页 e2e 的分组入口同步改为「运维」）。
+- **未关闭**：P1-2 核心页模板改造与文案删除（Dashboard/Stories/Characters/WorldBuilding/Scenes/Foreshadowing）；800×600 截图验收随 P1-2 一并做。
+
 ## v0.81.0（2026-11-04）
 
 **幕后 UI 全面重设计启动：P0 基建落地（设计文档 docs/plans/2026-11-04-backstage-ui-redesign-design.md）。**
