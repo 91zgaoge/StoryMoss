@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.80.8 项目完成状态
+# StoryMoss (草苔) v0.81.0 项目完成状态
 
+> 最后更新: 2026-11-04（**v0.81.0：幕后 UI 重设计 P0 基建**——设计文档 `docs/plans/2026-11-04-backstage-ui-redesign-design.md` 经批准；新增 Modal/ConfirmDialog/PageHeader/Field/Input/Select/Textarea/Table/EmptyState/Skeleton/layers 共享组件；Button 收敛 4 规范变体+兼容别名并修复未定义 token；Toaster 令牌化；z-index 五档契约。tsc/prettier 全绿；vitest **676 / 3**（+19）；playwright **48 / 5** 基线不变。**未关闭**：P1 导航重组+双壳视觉统一+核心页模板；P2/P3 待做。）
+>
 > 最后更新: 2026-11-03（**v0.80.8：幕后窗口关闭后重开白屏修复**——`backstage` 的 CloseRequested 补 `api.prevent_close()` 后再 `hide()`，不再销毁窗口；`show_backstage` 在窗口缺失时用 tauri.conf.json 的 backstage 配置 `from_config` 重建，与启动路径一致并记录 warn。Rust **1999 / 13**；`cargo check` / nightly fmt 全绿；前端未改动（vitest 657 / 3、playwright 48 / 5）。**未关闭**：原生窗口关闭/重开需安装包真机复测，macOS / Windows 都要重启应用后验证。）
 >
 > 最后更新: 2026-11-03（**v0.80.7：章节名可改——下拉列表就地重命名 + 手写中文数字标题不再被章号覆盖**——章节切换下拉每行新增铅笔，任意章节可就地改名且不切换当前章；当前章走 `update_scene`、非当前章走 `update_chapter`，统一由 `applyChapterTitleLocally` 刷新章节列表/场景/store；编辑器大标题旁新增铅笔（双击保留）；`displayChapterTitle` 只让阿拉伯数字占位标题跟随章号，`第一章`/`第八章` 等手写中文数字标题原样显示。Rust 未改动 **1999 / 13**；vitest **657 / 3**（+4）；playwright **48 / 5**（+1）；tsc/prettier/guard 全绿。**未关闭**：自动取名/自动分章仍将中文数字标题视为占位；真机安装包需重启后复测。）

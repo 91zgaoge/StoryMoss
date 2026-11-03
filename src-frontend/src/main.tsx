@@ -60,11 +60,12 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         </SettingsProvider>
         <Toaster
           position="top-right"
+          containerStyle={{ zIndex: 70 }}
           toastOptions={{
             style: {
-              background: '#1e1e2e',
-              color: '#fff',
-              border: '1px solid #3a3a50',
+              background: 'var(--cinema-900)',
+              color: 'var(--ai-ink)',
+              border: '1px solid var(--border-subtle)',
             },
           }}
         />

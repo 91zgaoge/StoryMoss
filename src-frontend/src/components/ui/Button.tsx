@@ -1,13 +1,19 @@
 import React, { forwardRef } from 'react';
 
+/**
+ * 规范变体（设计文档 §5）：primary / secondary / ghost / danger。
+ * paper / cinema / cinema-outline 为兼容别名（历史调用方），分别映射到
+ * primary / primary / secondary；新代码禁止使用别名。
+ */
 type ButtonVariant =
-  | 'paper'
-  | 'cinema'
-  | 'cinema-outline'
   | 'primary'
   | 'secondary'
   | 'ghost'
-  | 'danger';
+  | 'danger'
+  // 兼容别名（勿在新代码使用）
+  | 'paper'
+  | 'cinema'
+  | 'cinema-outline';
 type ButtonSize = 'sm' | 'md' | 'lg';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -17,21 +23,21 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantMap: Record<ButtonVariant, string> = {
-  paper:
-    'bg-terracotta/15 text-terracotta-dark hover:bg-terracotta/25 focus-visible:ring-terracotta/40',
-  cinema:
-    'bg-cinema-gold/15 text-cinema-gold hover:bg-cinema-gold/25 focus-visible:ring-cinema-gold/40',
-  'cinema-outline':
-    'bg-transparent border border-cinema-600 text-cinema-gold hover:bg-cinema-800 focus-visible:ring-cinema-gold/30',
-  // Legacy backstage variants mapped to new cinema styles
   primary:
     'bg-cinema-gold/15 text-cinema-gold hover:bg-cinema-gold/25 focus-visible:ring-cinema-gold/40',
   secondary:
-    'bg-cinema-800 border border-cinema-700 text-cinema-100 hover:border-cinema-gold/50 hover:bg-cinema-700 focus-visible:ring-cinema-gold/30',
+    'bg-cinema-800 border border-cinema-700 text-ai-ink hover:border-cinema-gold/50 hover:bg-cinema-700 focus-visible:ring-cinema-gold/30',
   ghost:
-    'bg-transparent text-cinema-300 hover:text-cinema-50 hover:bg-cinema-800/50 focus-visible:ring-cinema-gold/30',
+    'bg-transparent text-ai-ink-2 hover:text-ai-ink hover:bg-cinema-800/50 focus-visible:ring-cinema-gold/30',
   danger:
     'bg-status-danger/10 border border-status-danger/30 text-status-danger hover:bg-status-danger/20 focus-visible:ring-status-danger/30',
+  // 兼容别名
+  paper:
+    'bg-cinema-gold/15 text-cinema-gold hover:bg-cinema-gold/25 focus-visible:ring-cinema-gold/40',
+  cinema:
+    'bg-cinema-gold/15 text-cinema-gold hover:bg-cinema-gold/25 focus-visible:ring-cinema-gold/40',
+  'cinema-outline':
+    'bg-cinema-800 border border-cinema-700 text-ai-ink hover:border-cinema-gold/50 hover:bg-cinema-700 focus-visible:ring-cinema-gold/30',
 };
 
 const sizeMap: Record<ButtonSize, string> = {
@@ -42,7 +48,7 @@ const sizeMap: Record<ButtonSize, string> = {
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   (
-    { variant = 'paper', size = 'md', isLoading, children, disabled, className = '', ...props },
+    { variant = 'primary', size = 'md', isLoading, children, disabled, className = '', ...props },
     ref
   ) => {
     const base =

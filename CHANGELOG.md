@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.81.0（2026-11-04）
+
+**幕后 UI 全面重设计启动：P0 基建落地（设计文档 docs/plans/2026-11-04-backstage-ui-redesign-design.md）。**
+
+- **设计决策**：四阶段全量实施；Dashboard/Settings 保留 NavRail 双壳（只做视觉统一）；侧边导航允许重组，清单见设计文档 §3.1（创作5/资产7/运维5/分析5/系统1，条目 label 零改动，P1 落地）。
+- **新增共享组件**（components/ui/，全部走既有 token）：`Modal`（限高 85dvh 内滚、Esc/遮罩关闭、danger 变体）、`ConfirmDialog`（替代 window.confirm，危险文案原样保留）、`PageHeader`、`Field`（label 上置/错误下置/hint 插槽）、`Input/Select/Textarea`（共享控件样式）、`Table`（横向滚动+可选吸顶表头+骨架/空态）、`EmptyState`（一句话+按钮）、`Skeleton`、`layers`（z-index 契约 40/45/50/60/70）。
+- **Button 收敛**：规范变体 primary/secondary/ghost/danger；paper/cinema/cinema-outline 转为兼容别名；默认变体 primary；修复引用未定义 `cinema-100/300/50` 的类名（回归测试覆盖）。
+- **令牌化**：Toaster 硬编码 hex → cinema/ai token，zIndex 70 入层级契约；tokens.css 新增 `--z-nav…--z-toast` 五档。
+- **验证**：tsc / prettier 全绿；vitest **676 passed / 3 skipped**（+19：Modal 4、ConfirmDialog 3、Field/controls 3、Table 4、Skeleton/EmptyState 2、Button 别名与 token 回归 3）；playwright **48 passed / 5 skipped** 基线不变。
+- **未关闭**：P1 导航重组+双壳视觉统一+核心页模板改造（Dashboard/Stories/Characters/WorldBuilding/Scenes/Foreshadowing）与对应文案删除待做；P2 数据诊断页、P3 设置+工作台待做。
+
 ## v0.80.8（2026-11-03）
 
 **修复：幕前第二次点设置，幕后窗口白屏。**

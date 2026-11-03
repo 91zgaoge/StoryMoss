@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.80.8 架构文档
+# StoryMoss (草苔) v0.81.0 架构文档
 
+> **v0.81.0**：**幕后 UI 重设计 P0 基建**——`components/ui/` 新增共享组件层：`Modal`（限高 85dvh、Esc/遮罩关闭、danger 变体）、`ConfirmDialog`、`PageHeader`、`Field`、`Input/Select/Textarea`（`controlClass` 单一来源）、`Table`（横滚+吸顶表头+骨架/空态插槽）、`EmptyState`、`Skeleton`、`layers`（z-index 契约 nav40/status45/overlay50/modal60/toast70，与 tokens.css `--z-*` 同源）。`Button` 收敛为 primary/secondary/ghost/danger，`paper/cinema/cinema-outline` 为兼容别名。设计总案见 `docs/plans/2026-11-04-backstage-ui-redesign-design.md`（P0→P3）。
+>
 > **v0.80.8**：**幕后窗口关闭白屏修复**——`lib.rs::run` 的 `on_window_event` 对 `backstage` 的 `CloseRequested` 补 `api.prevent_close()` 后再 `hide()`，避免窗口按默认行为销毁；`commands/sync.rs::show_backstage` 在窗口缺失时用 `tauri.conf.json` 的 backstage 配置 `WebviewWindowBuilder::from_config` 重建（与启动路径一致），配置缺失才回退手写 builder，并记录 warn 日志。
 >
 > **v0.80.7**：**章节名可改**——`FrontstageHeader` 章节下拉每行新增铅笔，`onRenameChapterById` 支持任意章节就地改名（Enter/失焦保存、Esc 取消、不切换当前章）；`FrontstageApp::handleRenameChapterById` 对当前章优先 `update_scene`、其他章走 `update_chapter`（后端 `ChapterRepository::update` 同步关联 scene 标题），统一由 `applyChapterTitleLocally` 刷新章节列表/场景/store；`EditableChapterTitle` 大标题旁新增铅笔（双击手势保留）。`displayChapterTitle` 只把阿拉伯数字占位标题（`第2章`）跟随 `chapter_number`，作者手写的 `第一章`/`第八章` 原样显示。

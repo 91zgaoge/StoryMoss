@@ -3,6 +3,22 @@ export { Button } from './ui/Button';
 export { EmptyHint } from './ui/EmptyHint';
 export { Card, CardContent } from './ui/Card';
 export { ConnectionStatus } from './ConnectionStatus';
+// v0.81.0 UI 基建（幕后重设计 P0，设计文档 §5）
+export { Modal } from './ui/Modal';
+export type { ModalProps } from './ui/Modal';
+export { ConfirmDialog } from './ui/ConfirmDialog';
+export type { ConfirmDialogProps } from './ui/ConfirmDialog';
+export { PageHeader } from './ui/PageHeader';
+export type { PageHeaderProps } from './ui/PageHeader';
+export { Field } from './ui/Field';
+export type { FieldProps } from './ui/Field';
+export { Input, Select, Textarea, controlClass } from './ui/controls';
+export { Table } from './ui/Table';
+export type { TableColumn, TableProps } from './ui/Table';
+export { EmptyState } from './ui/EmptyState';
+export type { EmptyStateProps } from './ui/EmptyState';
+export { Skeleton } from './ui/Skeleton';
+export { Z_INDEX } from './ui/layers';
 // P1 - AI Native Components（生成体验）
 export { AiLoading } from './ui/ai/AiLoading';
 export { AiThinking } from './ui/ai/AiThinking';

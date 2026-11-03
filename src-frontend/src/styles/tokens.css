@@ -60,6 +60,13 @@
   --radius-md: 8px;
   --radius-full: 9999px;
 
+  /* 层级契约（ui/layers.ts 同源）：nav 40 ｜ launcher/连接/更新 45 ｜ overlay 50 ｜ modal 60 ｜ toast 70 */
+  --z-nav: 40;
+  --z-status: 45;
+  --z-overlay: 50;
+  --z-modal: 60;
+  --z-toast: 70;
+
   --transition-fast: 0.15s ease;
   --transition-normal: 0.25s ease-out;
   --transition-spring: 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);

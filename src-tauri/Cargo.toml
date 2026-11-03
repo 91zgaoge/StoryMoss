@@ -1,6 +1,6 @@
 [package]
 name = "storymoss"
-version = "0.80.8"
+version = "0.81.0"
 edition = "2021"
 
 [build-dependencies]
