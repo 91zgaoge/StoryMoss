@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import { logFeatureUsage } from '@/services/tauri';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { EmptyState } from '@/components/ui/EmptyState';
 import {
   FileText,
   BookOpen,
   TrendingUp,
   Brain,
+  ShieldCheck,
   ShieldAlert,
   Layers,
   Radar,
@@ -64,22 +67,23 @@ export function StorySystem() {
 
   if (!currentStory) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500">请先选择一个故事</div>
+      <div className="flex items-center justify-center h-full">
+        <EmptyState icon={ShieldCheck} title="先选择一个故事" />
+      </div>
     );
   }
 
   return (
-    <div className="h-full overflow-auto p-6">
+    <div className="h-full overflow-auto p-6 min-w-0">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-white mb-1">故事合同</h1>
-        <p className="text-gray-400 text-sm">{currentStory.title} — 合同驱动写作体系</p>
+        <PageHeader title="故事合同" />
         <div
-          className="mt-3 rounded-lg border border-cinema-gold/20 bg-cinema-gold/5 px-3 py-2 text-xs text-gray-300 leading-relaxed"
+          className="rounded-lg border border-cinema-gold/20 bg-cinema-gold/5 px-3 py-2 text-xs text-ai-ink-2 leading-relaxed"
           data-testid="story-system-impact-callout"
         >
           <span className="text-cinema-gold font-medium">影响默认生成：</span>
-          合同红线与运行时合同进入续写热路径（WriteTimeBundle）。「记忆」子 Tab 的语义事实主要在
-          Full/改写路径注入；知识图谱实体摘要在默认续写中以轻量【相关设定】注入（top-5）。
+          合同红线与运行时合同进入续写热路径；「记忆」语义事实在
+          Full/改写路径注入；图谱摘要以轻量【相关设定】注入（top-5）。
         </div>
       </div>
 

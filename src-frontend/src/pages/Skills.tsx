@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { AiToolChips } from '@/components/ui/ai/AiToolChips';
 import { AiCodeBlock } from '@/components/ui/ai/AiCodeBlock';
 import { extractMessage } from '@/utils/errorHandler';
@@ -233,17 +234,16 @@ export function Skills() {
   const isBuiltin = (skill: Skill) => skill.path === 'builtin';
 
   return (
-    <div className="p-8 space-y-6 animate-fade-in">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="font-display text-3xl font-bold text-white">技能工坊</h1>
-          <p className="text-gray-400">管理和配置AI辅助技能</p>
-        </div>
-        <Button variant="primary" onClick={handleImport} isLoading={isImporting}>
-          <Upload className="w-4 h-4" />
-          导入技能
-        </Button>
-      </div>
+    <div className="p-8 space-y-6 animate-fade-in min-w-0">
+      <PageHeader
+        title="技能工坊"
+        actions={
+          <Button variant="primary" onClick={handleImport} isLoading={isImporting}>
+            <Upload className="w-4 h-4" />
+            导入技能
+          </Button>
+        }
+      />
 
       {error && (
         <div className="flex items-center gap-2 text-red-400 bg-red-950/30 px-4 py-3 rounded-lg border border-red-900/50">

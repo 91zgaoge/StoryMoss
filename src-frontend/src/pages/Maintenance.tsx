@@ -13,6 +13,8 @@ import {
   XCircle,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import { Button } from '@/components/ui/Button';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyHint } from '@/components/ui/EmptyHint';
 import { AiToolChips } from '@/components/ui/ai/AiToolChips';
 import { AiInsightCards } from '@/components/ui/ai/AiInsightCards';
@@ -120,25 +122,29 @@ export function Maintenance() {
   ];
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-2">
-        <h1 className="text-2xl font-display font-bold text-white flex items-center gap-2">
-          <ShieldAlert className="w-6 h-6 text-cinema-gold" />
-          运行维护
-        </h1>
-        <button
-          onClick={refreshAll}
-          disabled={refreshing}
-          data-testid="maintenance-refresh"
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-cinema-800/60 text-ai-ink-2 hover:text-ai-ink border border-cinema-700 transition-colors disabled:opacity-50"
-        >
-          <RefreshCw className={cn('w-3.5 h-3.5', refreshing && 'animate-spin')} />
-          刷新
-        </button>
-      </div>
-      <p className="text-sm text-ai-ink-3 mb-5">
-        质量债、待确认、文风偏好与成本账本的集中视图。所有条目都由你决策处理，系统不会自动改写正文。
-      </p>
+    <div className="p-6 max-w-6xl mx-auto min-w-0">
+      <PageHeader
+        className="mb-3"
+        title={
+          <span className="flex items-center gap-2">
+            <ShieldAlert className="w-6 h-6 text-cinema-gold" />
+            运行维护
+          </span>
+        }
+        meta="所有条目由你决策，系统不会自动改写正文。"
+        actions={
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={refreshAll}
+            disabled={refreshing}
+            data-testid="maintenance-refresh"
+          >
+            <RefreshCw className={cn('w-3.5 h-3.5', refreshing && 'animate-spin')} />
+            刷新
+          </Button>
+        }
+      />
 
       <div className="mb-5">
         <AiToolChips

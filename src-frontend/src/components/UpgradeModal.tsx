@@ -155,10 +155,6 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
             继续使用免费版
           </button>
         </div>
-
-        <p className="mt-4 text-center text-xs text-gray-600">
-          当前为开发测试模式，点击升级即可解锁全部功能
-        </p>
       </div>
     </div>
   );

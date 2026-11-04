@@ -2,6 +2,19 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.81.3（2026-11-04）
+
+**幕后 UI 重设计 P2：数据诊断页模板化 + 文案删除 + 视口探针全量覆盖。**
+
+- **PageHeader 接入**：Logs（日志）、Tasks（任务）、Corpus（语料库，meta 保留三条计数）、Maintenance（运行维护）、CascadeCenter（级联中心）、Skills（技能工坊）、StorySystem（故事合同）、TracingPanel（生成链路）、NarrativeAnalysis（叙事分析）、IntentionGraphDiagnostics（意图诊断，三分支统一）。
+- **溢出/高度修复**：Logs 撤 `max-h-[calc(100vh-320px)]` 魔法数 → `h-full` flex 链；TracingPanel 撤 `h-[calc(100%-5rem)]` → `flex-1 min-h-0`；NarrativeAnalysis 固定 `grid-cols-4` 加 `grid-cols-2 xl:grid-cols-4` 回退。
+- **空态统一**：Corpus 列表/详情、Tasks、KG 摘要、Logs（Skeleton 骨架替代「加载中...」文字）等改 EmptyState/Skeleton。
+- **文案删除（附录 A 对应条目）**：Corpus 空态整段、KG 前置句/蒸馏副题/教学句、Tasks 空态教学句、Maintenance 页首段（保留安全承诺句）、CascadeCenter 页首段（保留「不会自动改写」）、意图诊断 SING 科普段压缩、故事系统副题（保留「影响默认生成」契约块并压缩）、SceneEditor/审校面板/版本时间线/导出弹窗/升级弹窗冗余句。约束句与状态词全部保留。
+- **令牌**：NarrativeAnalysis SVG 内联 hex → `--ai-line/--ai-ink-3/--status-warning`；Logs undefined `cinema-100/200/300/400` → ai-ink 系。
+- **视口探针扩到全导航 21 页 × 2 档 = 42 用例**（含折叠组展开逻辑）。
+- **验证**：tsc / prettier 全绿；vitest **677 / 3**（Corpus 断言同步页头）；playwright **80 / 5**（+20 探针；语料/日志 e2e 断言同步）。
+- **未关闭**：P3 设置 13 面板 + Agency 工作台 + UserMenu 暗色化 + `window.confirm` 18 处迁移 ConfirmDialog（保持单一确认样式，随 P3 一次落齐）。
+
 ## v0.81.2（2026-11-04）
 
 **幕后 UI 重设计 P1-2：核心六页模板改造 + 文案删除 + 视口验收探针。**

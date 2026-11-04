@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.81.2 项目完成状态
+# StoryMoss (草苔) v0.81.3 项目完成状态
 
+> 最后更新: 2026-11-04（**v0.81.3：P2 数据诊断页模板化 + 文案删除**——10 页接 PageHeader；Logs/Tracing 撤 100vh 魔法数；NarrativeAnalysis 栅格断点 + SVG hex 令牌化；空态/骨架统一；附录 A 对应文案删除（约束句保留）；视口探针扩到 21 页 ×2 档 = 42 用例。vitest **677 / 3**；playwright **80 / 5**（+20）。**未关闭**：P3 设置+工作台+confirm 迁移。）
+>
 > 最后更新: 2026-11-04（**v0.81.2：核心六页模板改造 + 文案删除 + 视口验收探针**——Characters/Stories/WorldBuilding/Foreshadowing 接 PageHeader；Scenes 双栏改 grid 断点（800px 溢出修复）；7 处空态改 EmptyState；附录 A 对应文案删除（约束保留）；Dashboard 未定义 token/圆角修复；新增 12 用例 800×600/1400×900 无溢出探针。vitest **677 / 3**；playwright **60 / 5**（+12）；tsc/prettier 全绿。**未关闭**：P2 数据诊断页、P3 设置+工作台。）
 >
 > 最后更新: 2026-11-04（**v0.81.1：侧边导航重组 + 双壳视觉统一**——Sidebar 五组改为创作5/故事资产7/运维5/分析5/系统1（技能拆书入创作，诊断拆运维/分析，默认折叠），23 条目 label 零改动；Sidebar 与 NavRail 统一左侧金条 active 指示；Sidebar 色彩令牌化；日志页 e2e 分组入口同步。vitest **677 / 3**（+1）；playwright **48 / 5**；tsc/prettier 全绿。**未关闭**：P1-2 核心页模板改造与文案删除。）

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { cn } from '@/utils/cn';
 import { AiCodeBlock } from '@/components/ui/ai/AiCodeBlock';
 import { createLogger } from '@/utils/logger';
@@ -216,24 +217,24 @@ export function TracingPanel() {
   }, [traces, tracingFilter, setTracingFilter]);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto h-full overflow-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-display font-bold text-white flex items-center gap-2">
+    <div className="flex h-full flex-col overflow-auto lg:overflow-hidden p-6 max-w-7xl mx-auto min-w-0">
+      <PageHeader
+        className="mb-6 shrink-0"
+        title={
+          <span className="flex items-center gap-2">
             <Activity className="w-6 h-6 text-cinema-gold" />
-            生成链路可观测性
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            查看最近 AI 生成请求的全链路 trace 与步骤耗时
-          </p>
-        </div>
-        <Button variant="secondary" onClick={loadTraces} disabled={loading}>
-          <RefreshCw className={cn('w-4 h-4 mr-2', loading && 'animate-spin')} />
-          刷新
-        </Button>
-      </div>
+            生成链路
+          </span>
+        }
+        actions={
+          <Button variant="secondary" onClick={loadTraces} disabled={loading}>
+            <RefreshCw className={cn('w-4 h-4 mr-2', loading && 'animate-spin')} />
+            刷新
+          </Button>
+        }
+      />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100%-5rem)]">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
         <Card className="lg:col-span-1 overflow-hidden flex flex-col">
           <CardContent className="p-4 flex flex-col h-full">
             <h2 className="text-sm font-medium text-gray-400 mb-3">最近 Trace</h2>

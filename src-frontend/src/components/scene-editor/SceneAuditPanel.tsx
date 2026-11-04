@@ -47,14 +47,13 @@ export function SceneAuditPanel({
         <div className="p-8 bg-cinema-800/50 border border-cinema-700 rounded-lg text-center">
           <Loader2 className="w-8 h-8 text-cinema-gold mx-auto mb-3 animate-spin" />
           <p className="text-gray-400">正在运行 AI 审校...</p>
-          <p className="text-xs text-gray-600 mt-1">检查逻辑一致性、人物连贯性、文风质量等</p>
         </div>
       )}
 
       {!auditLoading && !auditReport && (
         <div className="p-8 bg-cinema-800/50 border border-cinema-700 rounded-lg text-center">
           <Search className="w-12 h-12 text-cinema-700 mx-auto mb-4" />
-          <p className="text-gray-400 mb-2">点击上方按钮运行审校</p>
+          <p className="text-gray-400 mb-2">尚未运行审校，将检查：</p>
           <ul className="text-sm text-gray-500 space-y-1">
             <li>• 逻辑一致性</li>
             <li>• 人物行为连贯性</li>

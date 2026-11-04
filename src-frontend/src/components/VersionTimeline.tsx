@@ -566,7 +566,7 @@ export function VersionTimeline({
           <div className="text-center py-8 text-gray-500">
             <History className="w-12 h-12 mx-auto mb-3 opacity-30" />
             <p>暂无版本历史</p>
-            <p className="text-sm mt-1">保存场景后将自动创建第一个版本</p>
+            <p className="text-sm mt-1">保存场景后自动创建</p>
           </div>
         )}
       </div>

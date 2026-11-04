@@ -2,25 +2,41 @@ import { test, expect } from '@playwright/test';
 import { getMockTauriInitScript } from './mock-tauri';
 
 /**
- * 幕后重设计 P1-2 视口验收探针（设计文档 §7.8）：
- * 800×600（最小窗口）与 1400×900 双档，核心页断言无横向溢出并留档截图。
+ * 幕后重设计视口验收探针（设计文档 §7.8）：
+ * 800×600（最小窗口）与 1400×900 双档，全导航页断言无横向溢出并留档截图。
  */
 const VIEWPORTS = [
   { width: 800, height: 600 },
   { width: 1400, height: 900 },
 ];
 
-const VIEWS: { view: string; navLabel: string }[] = [
+/** navLabel → 所属分组（运维/分析默认折叠，需先展开） */
+const VIEWS: { view: string; navLabel: string; group?: '运维' | '分析' }[] = [
   { view: 'dashboard', navLabel: '' },
   { view: 'stories', navLabel: '故事' },
   { view: 'characters', navLabel: '角色' },
   { view: 'scenes', navLabel: '场景' },
   { view: 'world_building', navLabel: '世界构建' },
   { view: 'foreshadowing', navLabel: '伏笔' },
+  { view: 'corpus', navLabel: '语料' },
+  { view: 'knowledge-graph', navLabel: '知识图谱' },
+  { view: 'skills', navLabel: '技能' },
+  { view: 'book-deconstruction', navLabel: '拆书' },
+  { view: 'tasks', navLabel: '任务', group: '运维' },
+  { view: 'maintenance', navLabel: '运行维护', group: '运维' },
+  { view: 'cascade-center', navLabel: '级联中心', group: '运维' },
+  { view: 'logs', navLabel: '日志', group: '运维' },
+  { view: 'tracing', navLabel: '生成链路', group: '运维' },
+  { view: 'usage-stats', navLabel: '数据洞察', group: '分析' },
+  { view: 'narrative-analysis', navLabel: '叙事分析', group: '分析' },
+  { view: 'agency-eval', navLabel: '创作评估', group: '分析' },
+  { view: 'agency-learning', navLabel: '学习中心', group: '分析' },
+  { view: 'intention-graph', navLabel: '意图诊断', group: '分析' },
+  { view: 'story-system', navLabel: '故事合同' },
 ];
 
 for (const vp of VIEWPORTS) {
-  for (const { view, navLabel } of VIEWS) {
+  for (const { view, navLabel, group } of VIEWS) {
     test(`幕后 ${view} @ ${vp.width}×${vp.height} 无横向溢出`, async ({ page }) => {
       await page.setViewportSize(vp);
       await page.addInitScript(getMockTauriInitScript());
@@ -35,12 +51,13 @@ for (const vp of VIEWPORTS) {
           .getByRole('button', { name: /^故事( |$)/ })
           .first()
           .click();
+        const aside = page.locator('aside');
+        if (group) {
+          // 折叠组：当前组会强制展开；先进入该组任一项即可
+          await aside.getByRole('button', { name: new RegExp(`^${group}`) }).first().click();
+        }
         if (navLabel !== '故事') {
-          await page
-            .locator('aside')
-            .getByRole('button', { name: new RegExp(`^${navLabel}`) })
-            .first()
-            .click();
+          await aside.getByRole('button', { name: new RegExp(`^${navLabel}`) }).first().click();
         }
       }
       await page.waitForTimeout(500);

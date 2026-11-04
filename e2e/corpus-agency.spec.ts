@@ -22,7 +22,8 @@ test.describe('语料库与代理工作室', () => {
     await page.getByRole('heading', { name: '测试故事' }).first().click();
 
     await page.locator('aside').getByRole('button', { name: /语料/ }).click();
-    await expect(page.getByText('语料库 · 测试故事')).toBeVisible({ timeout: 10000 });
+    // v0.81.3 起页头为「语料库」（PageHeader），故事名不再拼进标题
+    await expect(page.getByRole('heading', { name: '语料库' })).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('老街雨夜').first()).toBeVisible();
 
     await page.getByText('老街雨夜').first().click();

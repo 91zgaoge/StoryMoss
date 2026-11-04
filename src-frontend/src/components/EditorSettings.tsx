@@ -314,7 +314,7 @@ export function EditorSettings({ onChange }: EditorSettingsProps) {
             )}
 
             <div className="text-xs text-gray-500 bg-cinema-900/50 p-3 rounded-lg">
-              <p>提示：自定义字体需要系统中已安装该字体，或通过 @import 引入 Web Font。</p>
+              <p>自定义字体需系统已安装，或通过 @import 引入 Web Font。</p>
             </div>
           </div>
         )}

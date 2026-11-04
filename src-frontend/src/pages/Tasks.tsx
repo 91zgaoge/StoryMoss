@@ -2,7 +2,9 @@ import { useState, useEffect, type CSSProperties } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { ListChecks, Play, Square, Trash2, Loader2, Plus } from 'lucide-react';
 import { cn } from '@/utils/cn';
-import { EmptyHint } from '@/components/ui/EmptyHint';
+import { Button } from '@/components/ui/Button';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { AiCodeBlock } from '@/components/ui/ai/AiCodeBlock';
 import { AiToolChips } from '@/components/ui/ai/AiToolChips';
 import { AiRecommendationCard } from '@/components/ui/ai/AiRecommendationCard';
@@ -519,22 +521,23 @@ export function Tasks() {
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-6 max-w-6xl mx-auto min-w-0">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <ListChecks className="w-6 h-6 text-cinema-gold" />
-          <h1 className="text-2xl font-display font-bold text-white">任务管理</h1>
-          <span className="text-sm text-gray-500">({filteredTasks.length})</span>
-        </div>
-        <button
-          onClick={() => setShowCreate(!showCreate)}
-          className="flex items-center gap-2 px-4 py-2 bg-cinema-gold/20 text-cinema-gold rounded-lg hover:bg-cinema-gold/30 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          新建任务
-        </button>
-      </div>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-3">
+            <ListChecks className="w-6 h-6 text-cinema-gold" />
+            任务
+          </span>
+        }
+        count={filteredTasks.length}
+        actions={
+          <Button variant="secondary" onClick={() => setShowCreate(!showCreate)}>
+            <Plus className="w-4 h-4" />
+            新建任务
+          </Button>
+        }
+      />
 
       {/* Create form */}
       {showCreate && (
@@ -631,11 +634,11 @@ export function Tasks() {
 
       {/* Empty state */}
       {!isLoading && filteredTasks.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 text-gray-500">
-          <ListChecks className="w-12 h-12 mb-3 opacity-30" />
-          <EmptyHint>暂无任务</EmptyHint>
-          <p className="text-xs mt-1 opacity-50">创建一次性或定时任务来自动化工作流</p>
-        </div>
+        <EmptyState
+          icon={ListChecks}
+          title="暂无任务"
+          action={{ label: '新建任务', onClick: () => setShowCreate(true) }}
+        />
       )}
 
       {/* Task list */}

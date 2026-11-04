@@ -10,6 +10,8 @@ import {
   Wand2,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import { Button } from '@/components/ui/Button';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyHint } from '@/components/ui/EmptyHint';
 import { useAppStore } from '@/stores/appStore';
 import {
@@ -91,26 +93,29 @@ export function CascadeCenter() {
   };
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-2">
-        <h1 className="text-2xl font-display font-bold text-white flex items-center gap-2">
-          <GitBranch className="w-6 h-6 text-cinema-gold" />
-          级联中心
-        </h1>
-        <button
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-cinema-800/60 text-ai-ink-2 hover:text-ai-ink border border-cinema-700 transition-colors disabled:opacity-50"
-          data-testid="cascade-refresh"
-        >
-          <RefreshCw className={cn('w-3.5 h-3.5', isFetching && 'animate-spin')} />
-          刷新
-        </button>
-      </div>
-      <p className="text-sm text-ai-ink-3 mb-6">
-        编辑旧章节后系统自动列出受影响的下游章节与疑似冲突。系统不会自动改写后文，
-        每条都由你决定处理方式。
-      </p>
+    <div className="p-6 max-w-5xl mx-auto min-w-0">
+      <PageHeader
+        className="mb-3"
+        title={
+          <span className="flex items-center gap-2">
+            <GitBranch className="w-6 h-6 text-cinema-gold" />
+            级联中心
+          </span>
+        }
+        meta="系统不会自动改写后文，每条由你决定处理方式。"
+        actions={
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            data-testid="cascade-refresh"
+          >
+            <RefreshCw className={cn('w-3.5 h-3.5', isFetching && 'animate-spin')} />
+            刷新
+          </Button>
+        }
+      />
 
       {isLoading ? (
         <div className="flex items-center gap-2 text-ai-ink-3 py-10 justify-center">

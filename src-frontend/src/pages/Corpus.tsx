@@ -34,7 +34,8 @@ import { createCharacter, createWorldBuilding } from '@/services/api/stories';
 import { loggedInvoke } from '@/services/tauri';
 import { AiContextCards } from '@/components/ui/ai/AiContextCards';
 import { AiThinking } from '@/components/ui/ai/AiThinking';
-import { EmptyHint } from '@/components/ui/EmptyHint';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { cn } from '@/utils/cn';
 
 const KINDS = [
@@ -337,7 +338,13 @@ export default function Corpus() {
     if (typeof selected === 'string') setImportFilePath(selected);
   };
 
-  if (!story) return <p className="p-6 text-ai-ink-3">请先选择一个故事</p>;
+  if (!story) {
+    return (
+      <div className="p-6 flex items-center justify-center h-full">
+        <EmptyState icon={Library} title="先选择一个故事" />
+      </div>
+    );
+  }
 
   const distilled = detail?.distilled ?? null;
   const distilledCards = useMemo(() => {
@@ -354,33 +361,35 @@ export default function Corpus() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 p-6">
-      <div className="flex flex-wrap items-end gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">语料库 · {story.title}</h1>
-          <p className="mt-1 text-xs text-ai-ink-3">
+      <PageHeader
+        title="语料库"
+        meta={
+          <>
             {items.length} 条 · {pending} 条待提炼 · {used} 条已用于创作
-          </p>
-        </div>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-1.5 rounded border border-ai-line bg-ai-field px-2 py-1.5 text-xs">
-            <Search className="h-3.5 w-3.5 text-ai-ink-3" />
-            <input
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="搜索标题 / 内容 / 标签"
-              className="w-52 bg-transparent text-xs outline-none"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={() => setImportOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded border border-ai-line bg-ai-accent px-3 py-1.5 text-xs font-medium text-ai-on-accent"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            导入语料
-          </button>
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          <>
+            <label className="flex items-center gap-1.5 rounded border border-ai-line bg-ai-field px-2 py-1.5 text-xs">
+              <Search className="h-3.5 w-3.5 text-ai-ink-3" />
+              <input
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="搜索标题 / 内容 / 标签"
+                className="w-52 bg-transparent text-xs outline-none"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => setImportOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded border border-ai-line bg-ai-accent px-3 py-1.5 text-xs font-medium text-ai-on-accent"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              导入语料
+            </button>
+          </>
+        }
+      />
 
       <div className="flex flex-wrap gap-1.5">
         {KINDS.map(k => (
@@ -414,10 +423,11 @@ export default function Corpus() {
           {corpusQuery.isLoading ? (
             <AiThinking title="正在加载语料" working rows={[{ id: '1', primary: '读取语料库…' }]} />
           ) : items.length === 0 ? (
-            <EmptyHint>
-              还没有语料。点击「导入语料」添加新闻、概念、灵感或图片；它们会成为导演和子 agent
-              可调用的创作原料。
-            </EmptyHint>
+            <EmptyState
+              icon={Library}
+              title="还没有语料"
+              action={{ label: '导入语料', onClick: () => setImportOpen(true) }}
+            />
           ) : (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
               {items.map(item => {
@@ -468,7 +478,7 @@ export default function Corpus() {
 
         <div className="min-h-0 overflow-y-auto rounded border border-ai-line bg-ai-surface p-3">
           {!detail ? (
-            <EmptyHint>选择一条语料查看原文、AI 提炼和关联资产。</EmptyHint>
+            <EmptyState title="选择一条语料查看详情" />
           ) : (
             <div className="flex flex-col gap-3">
               <div className="flex items-start gap-2">

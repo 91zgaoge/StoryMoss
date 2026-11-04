@@ -29,6 +29,7 @@ import {
 import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
 import { cn } from '@/utils/cn';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 const kgLogger = createLogger('ui:KnowledgeGraph');
 import {
@@ -288,12 +289,8 @@ export const KnowledgeGraph: React.FC = () => {
 
   if (!currentStory) {
     return (
-      <div className="h-full flex items-center justify-center text-gray-500">
-        <div className="text-center">
-          <Network className="w-16 h-16 mx-auto mb-4 text-cinema-800" />
-          <p className="text-lg">请先选择一个故事</p>
-          <p className="text-sm text-gray-600 mt-2">在故事库中选择一部小说以查看其知识图谱</p>
-        </div>
+      <div className="h-full flex items-center justify-center">
+        <EmptyState icon={Network} title="先选择一个故事" />
       </div>
     );
   }
@@ -471,7 +468,6 @@ export const KnowledgeGraph: React.FC = () => {
                 <Sparkles className="w-5 h-5 text-cinema-gold" />
                 知识蒸馏
               </h3>
-              <p className="text-sm text-gray-500 mt-1">基于知识图谱自动生成故事摘要与洞察</p>
             </div>
             <button
               onClick={handleDistill}
@@ -486,13 +482,11 @@ export const KnowledgeGraph: React.FC = () => {
           </div>
 
           {summaries.length === 0 ? (
-            <div className="bg-cinema-900/80 border border-cinema-800 rounded-xl p-8 text-center">
-              <Sparkles className="w-12 h-12 mx-auto mb-4 text-cinema-700" />
-              <p className="text-gray-300 mb-2">暂无知识摘要</p>
-              <p className="text-sm text-gray-500">
-                点击右上角按钮，AI 将基于当前知识图谱生成故事摘要
-              </p>
-            </div>
+            <EmptyState
+              icon={Sparkles}
+              title="暂无知识摘要"
+              action={{ label: '生成摘要', onClick: handleDistill }}
+            />
           ) : (
             <div className="space-y-4">
               {summaries.map(summary => (
@@ -586,7 +580,6 @@ export const KnowledgeGraph: React.FC = () => {
             知识图谱
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            {currentStory.title} ·{' '}
             {graphData
               ? `${graphData.entities.length} 实体 · ${graphData.relations.length} 关系`
               : '加载中...'}

@@ -477,7 +477,6 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                     <Target className="w-4 h-4 text-cinema-gold" />
                     戏剧目标
                   </h3>
-                  <p className="text-xs text-gray-500 mb-2">这个场景要完成什么？推动什么情节？</p>
                   <textarea
                     value={formData.dramatic_goal || ''}
                     onChange={e => setFormData({ ...formData, dramatic_goal: e.target.value })}
@@ -512,9 +511,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
               <Card>
                 <CardContent className="p-4">
                   <h3 className="font-medium text-white mb-3">AI 生成置信度</h3>
-                  <p className="text-xs text-gray-500 mb-3">
-                    评估此场景内容的质量置信度（0-1），用于版本管理和记忆保留策略。
-                  </p>
+                  <p className="text-xs text-gray-500 mb-3">取值 0-1，用于版本管理与记忆保留</p>
                   <div className="flex items-center gap-3">
                     <input
                       type="range"

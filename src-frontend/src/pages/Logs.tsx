@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/utils/cn';
 import {
   useWorkflowLogs,
@@ -100,39 +102,40 @@ export function Logs() {
   const isFetching = source === 'workflow' ? workflowLogs.isFetching : systemLogs.isFetching;
 
   return (
-    <div className="space-y-4 p-6 max-w-[1600px] mx-auto">
+    <div className="flex h-full flex-col gap-4 p-6 max-w-[1600px] mx-auto min-w-0">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-display text-cinema-gold">日志查看器</h1>
-          <p className="text-sm text-cinema-300 mt-1">实时查看创作工作流日志与系统 tracing 日志</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setAutoRefresh(v => !v)}
-            className="gap-1.5"
-          >
-            {autoRefresh ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-            {autoRefresh ? '暂停' : '自动刷新'}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => (source === 'workflow' ? workflowLogs.refetch() : systemLogs.refetch())}
-            isLoading={isFetching}
-            className="gap-1.5"
-          >
-            <RefreshCw className="w-4 h-4" />
-            刷新
-          </Button>
-          <Button variant="ghost" size="sm" onClick={handleCopy} className="gap-1.5">
-            <Copy className="w-4 h-4" />
-            复制
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="日志"
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setAutoRefresh(v => !v)}
+              className="gap-1.5"
+            >
+              {autoRefresh ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+              {autoRefresh ? '暂停' : '自动刷新'}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                source === 'workflow' ? workflowLogs.refetch() : systemLogs.refetch()
+              }
+              isLoading={isFetching}
+              className="gap-1.5"
+            >
+              <RefreshCw className="w-4 h-4" />
+              刷新
+            </Button>
+            <Button variant="ghost" size="sm" onClick={handleCopy} className="gap-1.5">
+              <Copy className="w-4 h-4" />
+              复制
+            </Button>
+          </>
+        }
+      />
 
       {/* Source Tabs + Filters */}
       <Card glass className="p-4 space-y-3">
@@ -145,7 +148,7 @@ export function Logs() {
                 'px-3 py-1.5 text-sm font-medium flex items-center gap-1.5 transition-colors',
                 source === 'workflow'
                   ? 'bg-cinema-gold/20 text-cinema-gold'
-                  : 'text-cinema-300 hover:bg-cinema-800'
+                  : 'text-ai-ink-2 hover:bg-cinema-800'
               )}
             >
               <FileText className="w-4 h-4" />
@@ -157,7 +160,7 @@ export function Logs() {
                 'px-3 py-1.5 text-sm font-medium flex items-center gap-1.5 transition-colors',
                 source === 'system'
                   ? 'bg-cinema-gold/20 text-cinema-gold'
-                  : 'text-cinema-300 hover:bg-cinema-800'
+                  : 'text-ai-ink-2 hover:bg-cinema-800'
               )}
             >
               <Terminal className="w-4 h-4" />
@@ -191,7 +194,7 @@ export function Logs() {
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="搜索消息、phase 或 details..."
-              className="w-full pl-8 pr-3 py-1.5 text-sm bg-cinema-900 border border-cinema-700 rounded-lg text-cinema-100 placeholder:text-cinema-500 focus:outline-none focus:border-cinema-gold/50"
+              className="w-full pl-8 pr-3 py-1.5 text-sm bg-cinema-900 border border-cinema-700 rounded-lg text-ai-ink placeholder:text-cinema-500 focus:outline-none focus:border-cinema-gold/50"
             />
           </div>
 
@@ -199,7 +202,7 @@ export function Logs() {
           <select
             value={count}
             onChange={e => setCount(Number(e.target.value))}
-            className="px-3 py-1.5 text-sm bg-cinema-900 border border-cinema-700 rounded-lg text-cinema-100 focus:outline-none focus:border-cinema-gold/50"
+            className="px-3 py-1.5 text-sm bg-cinema-900 border border-cinema-700 rounded-lg text-ai-ink focus:outline-none focus:border-cinema-gold/50"
           >
             {COUNT_OPTIONS.map(n => (
               <option key={n} value={n}>
@@ -216,15 +219,23 @@ export function Logs() {
       </Card>
 
       {/* Log Content */}
-      <Card glass className="p-0 overflow-hidden">
-        <div className="max-h-[calc(100vh-320px)] overflow-y-auto">
+      <Card glass className="p-0 overflow-hidden flex-1 min-h-0 flex flex-col">
+        <div className="flex-1 min-h-0 overflow-y-auto">
           {source === 'workflow' ? (
             /* Workflow Logs */
             workflowLogs.error ? (
               <div className="p-4 text-red-400 text-sm">加载失败：{String(workflowLogs.error)}</div>
             ) : filteredLogs.length === 0 ? (
-              <div className="p-8 text-center text-cinema-400">
-                {workflowLogs.isLoading ? '加载中...' : '暂无日志'}
+              <div className="p-8 text-center text-ai-ink-3">
+                {workflowLogs.isLoading ? (
+                  <div className="space-y-3">
+                    {Array.from({ length: 4 }, (_, i) => (
+                      <Skeleton key={i} className="h-4 w-full" />
+                    ))}
+                  </div>
+                ) : (
+                  '暂无日志'
+                )}
               </div>
             ) : (
               <div className="divide-y divide-cinema-800/50">
@@ -244,7 +255,11 @@ export function Logs() {
               {systemLogs.error ? (
                 <div className="text-red-400 text-sm">加载失败：{String(systemLogs.error)}</div>
               ) : systemLogs.isLoading ? (
-                <div className="text-cinema-400 text-sm">加载中...</div>
+                <div className="space-y-3">
+                  {Array.from({ length: 4 }, (_, i) => (
+                    <Skeleton key={i} className="h-4 w-full" />
+                  ))}
+                </div>
               ) : (
                 <AiCodeBlock code={systemLogs.data || '暂无系统日志'} copyable={false} />
               )}
@@ -281,10 +296,7 @@ function LogRow({
     <div className="px-3 py-2 hover:bg-cinema-800/30 transition-colors">
       <div className="flex items-start gap-2">
         {/* Expand toggle */}
-        <button
-          onClick={onToggle}
-          className="mt-0.5 text-cinema-500 hover:text-cinema-300 shrink-0"
-        >
+        <button onClick={onToggle} className="mt-0.5 text-cinema-500 hover:text-ai-ink-2 shrink-0">
           {hasDetails ? (
             expanded ? (
               <ChevronDown className="w-3.5 h-3.5" />
@@ -303,7 +315,7 @@ function LogRow({
         <span
           className={cn(
             'px-1.5 py-0.5 text-[10px] font-mono font-bold rounded border shrink-0 mt-0.5',
-            LEVEL_COLORS[entry.level] || 'bg-cinema-700/30 text-cinema-400 border-cinema-600/30'
+            LEVEL_COLORS[entry.level] || 'bg-cinema-700/30 text-ai-ink-3 border-cinema-600/30'
           )}
         >
           {entry.level}
@@ -315,7 +327,7 @@ function LogRow({
         </span>
 
         {/* Message */}
-        <span className="text-xs text-cinema-200 flex-1 break-all mt-0.5">{entry.message}</span>
+        <span className="text-xs text-ai-ink flex-1 break-all mt-0.5">{entry.message}</span>
       </div>
 
       {/* Details (expandable) */}

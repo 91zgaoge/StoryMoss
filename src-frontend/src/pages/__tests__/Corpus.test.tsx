@@ -98,7 +98,8 @@ describe('Corpus', () => {
 
   it('渲染语料列表与统计', async () => {
     renderPage();
-    expect(await screen.findByText('语料库 · 测试书')).toBeInTheDocument();
+    // v0.81.3 起页头为「语料库」（PageHeader），计数与统计在 meta 行
+    expect(await screen.findByRole('heading', { name: '语料库' })).toBeInTheDocument();
     expect(await screen.findByText(/1 条/)).toBeInTheDocument();
     expect((await screen.findAllByText('老街雨夜')).length).toBeGreaterThanOrEqual(1);
   });

@@ -246,7 +246,7 @@ test.describe('Backstage 页面加载测试', () => {
     await expect(aside).toBeVisible({ timeout: 10000 });
     await aside.getByRole('button', { name: /运维/ }).click();
     await aside.getByRole('button', { name: /^日志/ }).click();
-    await expect(page.locator('h1')).toContainText('日志查看器', { timeout: 10000 });
+    await expect(page.locator('h1')).toContainText('日志', { exact: true, timeout: 10000 });
 
     // 启动器应可见（mock 实现了 get_window_state），但位于右下角
     const launcher = page.getByRole('button', { name: /^(开幕前|幕前已开启)$/ });

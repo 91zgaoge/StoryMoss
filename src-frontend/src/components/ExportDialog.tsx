@@ -318,12 +318,6 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
                       </p>
                     </div>
                   </div>
-
-                  <div className="space-y-2">
-                    <p className="text-xs text-gray-400">
-                      导出前可选择运行 Anti-AI 审查，帮助识别文本中可能被读者察觉的 AI 生成痕迹。
-                    </p>
-                  </div>
                 </div>
               </div>
 

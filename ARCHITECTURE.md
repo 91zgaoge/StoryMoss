@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.81.2 架构文档
+# StoryMoss (草苔) v0.81.3 架构文档
 
+> **v0.81.3**：**P2 数据诊断页模板化**——Logs/Tasks/Corpus/Maintenance/CascadeCenter/Skills/StorySystem/TracingPanel/NarrativeAnalysis/IntentionGraphDiagnostics 接 `PageHeader`；Logs 撤 `calc(100vh-320px)`、TracingPanel 撤 `calc(100%-5rem)`，高度关系改 `h-full/flex-1/min-h-0` 链；`backstage-viewport-acceptance.spec.ts` 覆盖全部 21 个导航视图 ×2 档视口。
+>
 > **v0.81.2**：**核心页模板化**——Characters/Stories/WorldBuilding/Foreshadowing 接 `PageHeader`（新增 `meta` 状态行插槽）；Scenes 双栏改 `grid lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]`（<lg 堆叠，右栏 70dvh 保底），消除 800px 最小窗口横向溢出；空态统一 `EmptyState`；`e2e/backstage-viewport-acceptance.spec.ts` 为常驻视口验收门。
 >
 > **v0.81.1**：**侧边导航重组**——`Sidebar.tsx` 的 `NAV_GROUPS` 五组调整为创作（dashboard/stories/agency-studio/skills/book-deconstruction）、故事资产（7 项不变）、运维（tasks/maintenance/cascade-center/logs/tracing，默认折叠）、分析（usage-stats/narrative-analysis/agency-eval/agency-learning/intention-graph，默认折叠）、系统；条目 label/view key/impact 不变。Sidebar 与 `StudioNavRail` 统一 active 契约：左 2px 金条 + `bg-cinema-gold/10` + `aria-current`；Sidebar 灰阶全部走 `--ai-ink-*`。

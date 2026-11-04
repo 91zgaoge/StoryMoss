@@ -11,6 +11,7 @@ import {
 } from '@/services/tauri';
 import { getStorySummaries } from '@/services/api/knowledge';
 import { createLogger } from '@/utils/logger';
+import { PageHeader } from '@/components/ui/PageHeader';
 
 const logger = createLogger('ui:NarrativeAnalysis');
 
@@ -53,14 +54,14 @@ function ReadingPowerChart({ data }: { data: ReadingPowerPoint[] }) {
             y1={yFor(tick)}
             x2={padding.left + chartWidth}
             y2={yFor(tick)}
-            stroke="#374151"
+            stroke="var(--ai-line)"
             strokeDasharray="4 4"
             strokeWidth={1}
           />
           <text
             x={padding.left - 8}
             y={yFor(tick) + 4}
-            fill="#9CA3AF"
+            fill="var(--ai-ink-3)"
             fontSize={10}
             textAnchor="end"
           >
@@ -70,19 +71,19 @@ function ReadingPowerChart({ data }: { data: ReadingPowerPoint[] }) {
       ))}
 
       {/* Area */}
-      <path d={areaD} fill="rgba(251, 191, 36, 0.15)" />
+      <path d={areaD} fill="color-mix(in srgb, var(--status-warning) 15%, transparent)" />
 
       {/* Line */}
-      <path d={pathD} fill="none" stroke="#FBBF24" strokeWidth={2} />
+      <path d={pathD} fill="none" stroke="var(--status-warning)" strokeWidth={2} />
 
       {/* Data points */}
       {data.map(d => (
         <g key={d.chapter}>
-          <circle cx={xFor(d.chapter)} cy={yFor(d.score)} r={3} fill="#FBBF24" />
+          <circle cx={xFor(d.chapter)} cy={yFor(d.score)} r={3} fill="var(--status-warning)" />
           <text
             x={xFor(d.chapter)}
             y={padding.top + chartHeight + 16}
-            fill="#9CA3AF"
+            fill="var(--ai-ink-3)"
             fontSize={9}
             textAnchor="middle"
           >
@@ -178,12 +179,16 @@ export function NarrativeAnalysis() {
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center gap-3">
-        <GitBranch className="w-6 h-6 text-cinema-gold" />
-        <h1 className="text-2xl font-bold text-white">叙事分析</h1>
-        {loading && <span className="text-sm text-gray-500">加载中...</span>}
-      </div>
+    <div className="p-6 space-y-6 min-w-0">
+      <PageHeader
+        title={
+          <span className="flex items-center gap-3">
+            <GitBranch className="w-6 h-6 text-cinema-gold" />
+            叙事分析
+          </span>
+        }
+        meta={loading ? '加载中...' : undefined}
+      />
 
       {/* 幕级结构 */}
       <section className="space-y-3">
@@ -194,7 +199,7 @@ export function NarrativeAnalysis() {
         {structure.length === 0 ? (
           <p className="text-gray-500 text-sm">暂无分析数据。保存章节后将自动分析。</p>
         ) : (
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
             {structure.map(act => (
               <div
                 key={act.act_number}

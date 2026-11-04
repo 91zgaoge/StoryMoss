@@ -3,6 +3,7 @@ import { loggedInvoke } from '@/services/tauri';
 import { createLogger } from '@/utils/logger';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { AiCodeBlock } from '@/components/ui/ai/AiCodeBlock';
 import { BrainCircuit, Activity, Network, ArrowRight, Clock, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -116,11 +117,15 @@ export function IntentionGraphDiagnostics() {
 
   if (loading) {
     return (
-      <div className="p-6 space-y-6">
-        <div className="flex items-center gap-3 mb-6">
-          <BrainCircuit className="w-6 h-6 text-cinema-gold" />
-          <h1 className="text-2xl font-bold text-white">意图诊断</h1>
-        </div>
+      <div className="p-6 space-y-6 min-w-0">
+        <PageHeader
+          title={
+            <span className="flex items-center gap-3">
+              <BrainCircuit className="w-6 h-6 text-cinema-gold" />
+              意图诊断
+            </span>
+          }
+        />
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {[1, 2, 3].map(i => (
             <Card key={i}>
@@ -131,18 +136,22 @@ export function IntentionGraphDiagnostics() {
             </Card>
           ))}
         </div>
-        <div className="h-96 w-full bg-cinema-700/30 rounded-2xl animate-pulse" />
+        <div className="h-96 w-full bg-cinema-700/30 rounded-xl animate-pulse" />
       </div>
     );
   }
 
   if (!data) {
     return (
-      <div className="p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <BrainCircuit className="w-6 h-6 text-cinema-gold" />
-          <h1 className="text-2xl font-bold text-white">意图诊断</h1>
-        </div>
+      <div className="p-6 min-w-0">
+        <PageHeader
+          title={
+            <span className="flex items-center gap-3">
+              <BrainCircuit className="w-6 h-6 text-cinema-gold" />
+              意图诊断
+            </span>
+          }
+        />
         <Card>
           <CardContent className="p-8 text-center">
             <AlertCircle className="w-12 h-12 text-gray-500 mx-auto mb-4" />
@@ -159,16 +168,20 @@ export function IntentionGraphDiagnostics() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <BrainCircuit className="w-6 h-6 text-cinema-gold" />
-          <h1 className="text-2xl font-bold text-white">意图诊断</h1>
-        </div>
-        <Button onClick={fetchDiagnostics} variant="ghost" size="sm">
-          <Activity className="w-4 h-4 mr-2" />
-          刷新
-        </Button>
-      </div>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-3">
+            <BrainCircuit className="w-6 h-6 text-cinema-gold" />
+            意图诊断
+          </span>
+        }
+        actions={
+          <Button onClick={fetchDiagnostics} variant="ghost" size="sm">
+            <Activity className="w-4 h-4 mr-2" />
+            刷新
+          </Button>
+        }
+      />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -360,17 +373,14 @@ export function IntentionGraphDiagnostics() {
           </h2>
         </div>
         <CardContent>
-          <div className="text-sm text-gray-400 space-y-2">
+          <div className="text-sm text-ai-ink-2 space-y-2">
             <p>
-              SING（Synthetic Intention Graph）是一种基于意图-工具异构图的智能创作调度系统。
-              它将用户的自然语言输入合成为原子化意图，通过分层发现机制动态匹配最合适的创作工具（Agent、Skill、MCP）。
+              将自然语言输入合成为原子化意图，通过分层发现机制动态匹配创作工具（Agent、Skill、MCP）；
+              通过执行反馈持续优化意图-资产关联。
             </p>
-            <p>
-              意图图持续学习用户的创作习惯，通过执行反馈优化意图-资产关联，实现"越写越懂"的自适应进化。
-            </p>
-            <div className="flex gap-4 mt-4 text-xs">
-              <span className="text-gray-500">论文: arXiv:2606.16591v2</span>
-              <span className="text-gray-500">集成版本: v0.17.0</span>
+            <div className="flex gap-4 mt-4 text-xs text-ai-ink-3">
+              <span>论文: arXiv:2606.16591v2</span>
+              <span>集成版本: v0.17.0</span>
             </div>
           </div>
         </CardContent>
