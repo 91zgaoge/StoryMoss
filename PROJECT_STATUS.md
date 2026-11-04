@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.82.0 项目完成状态
+# StoryMoss (草苔) v0.82.1 项目完成状态
 
+> 最后更新: 2026-11-04（**v0.82.1：续写主路径伏笔限额修正**——`WriteTimeBundle::load_sync` 的 pending/overdue 从 3/1 改 8/2，与 snapshot/adapter 对齐；此前 v0.82.0 扩容在真实续写路径未生效。Rust **2002 / 13**；cargo check/nightly fmt 全绿；前端基线不变。）
+>
 > 最后更新: 2026-11-04（**v0.82.0：伏笔进入续写热路径**——本机 127 条未回收伏笔实证旧实现只取最老 3 条且伏笔块预算首选清空；改为逾期/临期/窗口排序、去重截断、配额 8、块前置与 900 上限、【本拍伏笔（必须使用）】硬指令。Rust **2002 / 13**（+3）；前端基线不变；cargo check/nightly fmt 全绿。**未关闭**：结构化回收窗口样本全空；需真机复测。）
 >
 > 最后更新: 2026-11-04（**v0.81.6：设置控件作用域统一 + 页面级错误边界**——`.settings-panel-scope` 一次覆盖 13 面板原生控件并豁免 range/checkbox/file；App 每视图包 ErrorBoundary（单页崩溃不再全屏空白）。vitest **679 / 3**；playwright **94 / 5**；tsc/prettier/guard 全绿。**未关闭**：自定义向导弹窗保持自绘；真机复测。）

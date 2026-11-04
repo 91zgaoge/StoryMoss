@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.82.1（2026-11-04）
+
+**续写主路径限额修正：`WriteTimeBundle` 层仍写死 3/1。**
+
+v0.82.0 已把 snapshot/adapter/continue_assets/chapter_contract 的 pending 限额升到 8、overdue 到 2，但续写 writer 实际消费的是 `WriteTimeBundle::load_sync`——它在 bundle 层调用 `snapshot.pending_foreshadowings(3)` / `overdue_foreshadowings(1)`，又截了一次。结果 App/batch 续写仍只拿 3 条伏笔，v0.82.0 的扩容在真实路径上未生效。
+
+- **修复**：`write_time_bundle.rs` 改 `pending_foreshadowings(8)` / `overdue_foreshadowings(2)`，与 CreativeAssetSnapshot/Adapter 对齐。
+- **验证**：Rust **2002 passed / 13 ignored**；`cargo check` / nightly fmt 全绿；前端未改动。
+- **未关闭**：同 v0.82.0——结构化回收窗口样本全空；真机复测 3 章内伏笔使用。
+
 ## v0.82.0（2026-11-04）
 
 **伏笔真正进入续写热路径：选取排序、配额 8、预算保护、硬指令。**

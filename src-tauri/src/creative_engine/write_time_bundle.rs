@@ -385,8 +385,8 @@ impl WriteTimeBundle {
         );
 
         let narrative_phase_guidance = snapshot.narrative_phase_guidance();
-        let pending_foreshadowings = snapshot.pending_foreshadowings(3);
-        let overdue_foreshadowings = snapshot.overdue_foreshadowings(1);
+        let pending_foreshadowings = snapshot.pending_foreshadowings(8);
+        let overdue_foreshadowings = snapshot.overdue_foreshadowings(2);
         let style_dna_summary = snapshot.style_dna_summary;
 
         // P1b: KG 相关设定摘要（与 StoryContextBuilder 共用 MemoryFacade）
