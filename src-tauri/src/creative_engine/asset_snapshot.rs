@@ -49,7 +49,7 @@ impl CreativeAssetSnapshot {
         foreshadowing_port: Arc<dyn ForeshadowingPort>,
         payoff_ledger_port: Arc<dyn PayoffLedgerPort>,
     ) -> Self {
-        let pending_foreshadowings = match foreshadowing_port.get_writing_hints(story_id, 3) {
+        let pending_foreshadowings = match foreshadowing_port.get_writing_hints(story_id, 8) {
             Ok(hints) => hints,
             Err(e) => {
                 log::warn!("[CreativeAssetSnapshot] 读取待回收伏笔失败: {}", e);

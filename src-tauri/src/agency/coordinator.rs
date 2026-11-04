@@ -5152,7 +5152,7 @@ impl AgencyCoordinator {
                 .bundle
                 .pending_foreshadowings
                 .iter()
-                .take(3)
+                .take(8)
                 .cloned()
                 .collect();
             fores.extend(parts.bundle.overdue_foreshadowings.iter().take(2).cloned());

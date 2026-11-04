@@ -14,6 +14,8 @@ pub const WORLD_CONCEPT_CHAR_CAP: usize = 400;
 pub const WORLD_RULE_CAP: usize = 5;
 pub const ROSTER_NAME_CAP: usize = 40;
 pub const ASSET_CHAR_BUDGET: usize = 6000;
+/// 单拍伏笔块上限：6 条 hint + 使用指令，超出截断但不整块丢弃。
+pub const FORESHADOW_CHAR_CAP: usize = 900;
 /// 长章双窗：开篇窗口。与 `PRIOR_TAIL_CHAR_CAP` 合计为注入上限。
 pub const PRIOR_HEAD_CHAR_CAP: usize = 600;
 /// 长章双窗：近文窗口（衔接用）。预算收缩时也优先保住这段。
@@ -1009,11 +1011,11 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
             .bundle
             .pending_foreshadowings
             .iter()
-            .take(3)
+            .take(8)
             .map(|f| format!("  - {f}"))
             .collect();
         foreshadow.push_str(&format!(
-            "【待回收伏笔（请在续写中适时推进）】\n{}",
+            "【本拍伏笔（必须使用）】\n未回收伏笔（按优先级）：\n{}\n本拍正文必须至少推进其中 1 条：以具体物件、对话或行动落地；未到计划窗口的只可铺垫呼应，不得提前揭示真相。",
             lines.join("\n")
         ));
     }
@@ -1025,14 +1027,21 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
             .bundle
             .overdue_foreshadowings
             .iter()
-            .take(1)
+            .take(2)
             .map(|f| format!("  ⚠️ {f}"))
             .collect();
         foreshadow.push_str(&format!(
-            "【⚠️ 逾期伏笔——请在续写中优先回收】\n{}",
+            "【⚠️ 逾期伏笔——本拍优先回收】\n{}",
             lines.join("\n")
         ));
     }
+    // 预算契约：伏笔块是动态块中最优先保住的内容（旧实现排最后，
+    // apply_asset_budget 从尾部裁剪时第一个被清空，直接导致「续写没伏笔」）。
+    let foreshadow = if foreshadow.chars().count() > FORESHADOW_CHAR_CAP {
+        truncate_chars(&foreshadow, FORESHADOW_CHAR_CAP)
+    } else {
+        foreshadow
+    };
 
     // 前缀缓存契约：稳定区（红线/故事大纲/世界观/方法论/叙事策略/Logline/
     // 本章大纲）必须在最前且逐字节稳定；下一节点之后的角色卡/名册/关系/
@@ -1049,6 +1058,7 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         (next_node, true),
         (cards, true),
         (roster, true),
+        (foreshadow, false),
         (relationships, false),
         (conflicts, false),
         (goals, false),
@@ -1056,7 +1066,6 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         (prior, false),
         (tensions, false),
         (arcs, false),
-        (foreshadow, false),
     ];
     let mut parts: Vec<(String, bool)> = parts.into_iter().collect();
     for block in input.continuity_blocks {
@@ -1367,6 +1376,44 @@ mod tests {
         assert!(out.chars().count() <= ASSET_CHAR_BUDGET);
         assert!(out.contains("禁止时间旅行"));
         assert!(out.contains("章末必须留下"), "预算截前文须保近文 out={out}");
+    }
+
+    /// 旧实现只取前 3 条且把伏笔块放动态尾部，预算裁剪时整块最先被清空；
+    /// 契约：伏笔块必须出现在最终资产里且带「至少推进 1 条」的硬指令。
+    #[test]
+    fn foreshadow_block_survives_budget_pressure() {
+        let mut bundle = empty_bundle();
+        bundle.pending_foreshadowings = (1..=6)
+            .map(|i| format!("【重要】 未回收伏笔: 伏笔{i}"))
+            .collect();
+        bundle.overdue_foreshadowings = vec!["旧剑将出鞘（逾期）".into()];
+        let prior = "哈".repeat(9000);
+        let tensions = vec![format!("{}", "哼".repeat(3000))];
+        let arcs = vec![format!("{}", "啊".repeat(3000))];
+        let input = ContinueAssetsInput {
+            bundle: &bundle,
+            admitted: &[],
+            roster: &[],
+            location: None,
+            next_node: "下一节点",
+            chapter_outline: "本章大纲",
+            progress_lines: &[],
+            prior_prose: prior.as_str(),
+            tension_lines: &tensions,
+            arc_lines: &arcs,
+            logline: None,
+            full_card_names: &[],
+            continuity_blocks: &[],
+        };
+        let out = render_continue_assets(&input);
+        assert!(
+            out.contains("【本拍伏笔（必须使用）】"),
+            "伏笔块丢失: {out}"
+        );
+        assert!(out.contains("本拍正文必须至少推进其中 1 条"));
+        assert!(out.contains("逾期伏笔"));
+        assert!(out.contains("伏笔6"), "6 条 hint 均须进入上下文");
+        assert!(out.chars().count() <= ASSET_CHAR_BUDGET);
     }
 
     #[test]

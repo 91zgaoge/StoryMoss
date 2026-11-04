@@ -167,8 +167,8 @@ impl CreativeEnginePort for CreativeEngineAdapter {
         let canonical = manager.get_snapshot_sync(story_id).ok();
 
         let narrative_phase_guidance = internal.narrative_phase_guidance();
-        let pending_foreshadowings = internal.pending_foreshadowings(3);
-        let overdue_foreshadowings = internal.overdue_foreshadowings(1);
+        let pending_foreshadowings = internal.pending_foreshadowings(8);
+        let overdue_foreshadowings = internal.overdue_foreshadowings(2);
         let style_dna_summary = internal.style_dna_summary;
 
         let (character_states, active_conflicts) = canonical

@@ -376,30 +376,95 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
     ) -> Result<Vec<String>, ForeshadowingError> {
         let unresolved = self.get_unresolved(story_id)?;
         let current = self.current_scene_number(story_id).unwrap_or(0);
-        let hints: Vec<String> = unresolved
+
+        // v0.82.0：127 条未回收伏笔时旧实现只取 ORDER BY importance,created_at
+        // 的前 N 条（全 importance=5 → 最老的几条永久占位，计划窗口与逾期项
+        // 可能永不进 prompt）。改为按「逾期/已进窗口 > 临期 > 有未来窗口 >
+        // 无窗口」排序，再按 importance 与创建时间稳定排序，并去重/截断。
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut ranked: Vec<(u8, i32, String, ForeshadowingRecord)> = Vec::new();
+        for r in unresolved {
+            let key = r.content.trim().to_lowercase();
+            if key.is_empty() || !seen.insert(key) {
+                continue;
+            }
+            let overdue = r
+                .target_end_scene
+                .map(|end| current > 0 && end <= current)
+                .unwrap_or(false);
+            let near = r
+                .target_end_scene
+                .map(|end| current > 0 && end > current && end - current <= 5)
+                .unwrap_or(false);
+            let started = r
+                .target_start_scene
+                .map(|start| current > 0 && start <= current)
+                .unwrap_or(false);
+            // rank 越小越优先：0 逾期/已进入窗口，1 临期，2 有未来窗口，3
+            // 无窗口
+            let rank = if overdue || started {
+                0
+            } else if near {
+                1
+            } else if r.target_end_scene.is_some() {
+                2
+            } else {
+                3
+            };
+            ranked.push((rank, r.importance, r.created_at.clone(), r));
+        }
+        ranked.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| b.1.cmp(&a.1))
+                .then_with(|| a.2.cmp(&b.2))
+        });
+
+        let hints: Vec<String> = ranked
             .into_iter()
             .take(limit)
-            .map(|r| {
-                let importance_marker = match r.importance {
+            .map(|(_, importance, _, r)| {
+                let importance_marker = match importance {
                     8..=10 => "【关键】",
                     5..=7 => "【重要】",
                     _ => "【次要】",
                 };
-                // v0.62.0 P2-C：把「计划回收窗口」与「实际回收」分离后，
-                // 注入话术可以分档——临近窗口的明确禁止提前回收，
-                // 已过窗口的要求尽快回收（对齐外部项目的最佳实践）。
-                let window_note = match r.target_end_scene {
-                    Some(end) if current > 0 && end > current && end - current <= 5 => {
+                // 单条 hint 截断：普通线索 60
+                // 字符；含「埋/收/回收计划」的清单类
+                // 记录保留 240 字符，避免把用户/创世写下的回收计划一刀切掉。
+                let raw: String = r
+                    .content
+                    .replace('\n', " ")
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let blob_like = r.content.contains('埋') && r.content.contains('收');
+                let cap = if blob_like { 240 } else { 60 };
+                let content = if raw.chars().count() > cap {
+                    format!("{}…", raw.chars().take(cap).collect::<String>())
+                } else {
+                    raw
+                };
+                // v0.62.0 P2-C
+                // 契约保持：临近窗口禁止提前回收，已过窗口尽快回收；
+                // 新增「未来窗口只可铺垫」档，避免模型把远期伏笔提前揭露。
+                let window_note = match (r.target_start_scene, r.target_end_scene) {
+                    (_, Some(end)) if current > 0 && end <= current => {
+                        format!("（已到/超过计划回收点第{end}章，请尽快回收）")
+                    }
+                    (_, Some(end)) if current > 0 && end > current && end - current <= 5 => {
                         format!("（计划第{end}章前后回收，请勿提前回收）")
                     }
-                    Some(end) if current > 0 && end <= current => {
-                        format!("（已到/超过计划回收点第{end}章，请尽快回收）")
+                    (_, Some(end)) if end > 0 => {
+                        format!("（计划第{end}章前后回收，本拍只可铺垫）")
+                    }
+                    (Some(start), None) if start > 0 => {
+                        format!("（计划第{start}章起回收）")
                     }
                     _ => String::new(),
                 };
                 format!(
                     "{} 未回收伏笔: {}{}",
-                    importance_marker, r.content, window_note
+                    importance_marker, content, window_note
                 )
             })
             .collect();
@@ -897,6 +962,93 @@ mod tests {
         }
         let plain = service.get_writing_hints("story-1", 3).unwrap();
         assert!(!plain[0].contains("回收）"), "无窗口不应加注: {plain:?}");
+    }
+
+    #[test]
+    fn service_hints_prioritize_overdue_and_window_over_oldest() {
+        let pool = in_memory_pool();
+        seed_story_and_scenes(&pool, "story-1");
+        let service = ForeshadowingServiceImpl::new(pool.clone());
+
+        // 先塞一批无窗口的旧伏笔（旧实现按 created_at 会让它们永久占前三）
+        for i in 0..6 {
+            service
+                .create("story-1", &format!("旧线索{i}"), Some("s1"), 5)
+                .unwrap();
+        }
+        let overdue = service
+            .create("story-1", "逾期线索", Some("s1"), 5)
+            .unwrap();
+        let near = service
+            .create("story-1", "临期线索", Some("s1"), 5)
+            .unwrap();
+        let future = service
+            .create("story-1", "远期线索", Some("s1"), 5)
+            .unwrap();
+        {
+            let conn = pool.get().unwrap();
+            // 当前场景 5：4=已过窗口；7=临期（差 2）；20=远期
+            conn.execute(
+                "UPDATE foreshadowing_tracker SET target_end_scene = 4 WHERE id = ?1",
+                rusqlite::params![&overdue],
+            )
+            .unwrap();
+            conn.execute(
+                "UPDATE foreshadowing_tracker SET target_end_scene = 7 WHERE id = ?1",
+                rusqlite::params![&near],
+            )
+            .unwrap();
+            conn.execute(
+                "UPDATE foreshadowing_tracker SET target_end_scene = 20 WHERE id = ?1",
+                rusqlite::params![&future],
+            )
+            .unwrap();
+        }
+
+        let hints = service.get_writing_hints("story-1", 3).unwrap();
+        assert_eq!(hints.len(), 3);
+        assert!(
+            hints[0].contains("逾期线索") && hints[0].contains("尽快回收"),
+            "逾期项应排第一: {hints:?}"
+        );
+        assert!(
+            hints[1].contains("临期线索") && hints[1].contains("请勿提前回收"),
+            "临期项应排第二: {hints:?}"
+        );
+        assert!(
+            hints[2].contains("远期线索") && hints[2].contains("本拍只可铺垫"),
+            "远期窗口应排第三并标只可铺垫: {hints:?}"
+        );
+    }
+
+    #[test]
+    fn service_hints_dedupe_truncate_and_cap() {
+        let pool = in_memory_pool();
+        seed_story_and_scenes(&pool, "story-1");
+        let service = ForeshadowingServiceImpl::new(pool);
+
+        service
+            .create("story-1", "重复线索", Some("s1"), 5)
+            .unwrap();
+        service
+            .create("story-1", " 重复线索 ", Some("s2"), 5)
+            .unwrap();
+        let long: String = "长".repeat(120);
+        service.create("story-1", &long, Some("s3"), 5).unwrap();
+
+        let hints = service.get_writing_hints("story-1", 10).unwrap();
+        // 去重后只剩「重复线索」与长文本两条
+        assert_eq!(hints.len(), 2, "重复内容应去重: {hints:?}");
+        let long_hint = hints
+            .iter()
+            .find(|h| h.contains("长"))
+            .expect("长文本 hint");
+        assert!(
+            long_hint.chars().count() < 90,
+            "单条 hint 应截断到 60 字符: {}",
+            long_hint.chars().count()
+        );
+        assert!(long_hint.contains('…'));
     }
 
     #[test]
