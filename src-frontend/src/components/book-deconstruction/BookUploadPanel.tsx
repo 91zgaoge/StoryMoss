@@ -63,7 +63,7 @@ export function BookUploadPanel({ onUpload, isUploading }: BookUploadPanelProps)
     <div
       onDrop={handleDrop}
       onDragOver={e => e.preventDefault()}
-      className="flex flex-col items-center justify-center p-12 border-2 border-dashed border-cinema-700 rounded-2xl bg-cinema-900/50 hover:border-cinema-gold/50 hover:bg-cinema-900 transition-all cursor-pointer"
+      className="flex flex-col items-center justify-center p-12 border-2 border-dashed border-cinema-700 rounded-xl bg-cinema-900/50 hover:border-cinema-gold/50 hover:bg-cinema-900 transition-all cursor-pointer"
       onClick={handleClick}
     >
       <div className="w-16 h-16 rounded-full bg-cinema-800 flex items-center justify-center mb-4">

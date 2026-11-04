@@ -126,8 +126,8 @@ function RuleModal({ isOpen, onClose, onSave, initialRule }: RuleModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <Card className="w-full max-w-lg mx-4">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <Card className="w-full max-w-lg mx-4 max-h-[85dvh] overflow-y-auto">
         <CardContent className="p-6">
           <h2 className="font-display text-xl font-bold text-white mb-4">
             {initialRule ? '编辑规则' : '添加世界规则'}
@@ -242,8 +242,8 @@ function CultureModal({ isOpen, onClose, onSave, initialCulture }: CultureModalP
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <Card className="w-full max-w-lg mx-4">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <Card className="w-full max-w-lg mx-4 max-h-[85dvh] overflow-y-auto">
         <CardContent className="p-6">
           <h2 className="font-display text-xl font-bold text-white mb-4">
             {initialCulture ? '编辑文化' : '添加文化体系'}

@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.81.5（2026-11-04）
+
+**幕后重设计收尾：手写弹窗限高内滚补齐 + 圆角契约落地。**
+
+- **弹窗**：8 处无 max-height 的手写弹窗补 `max-h-[85dvh] + overflow-y-auto` 与遮罩内边距——WorldBuilding 规则/文化、Dashboard 新建/向导、Characters 添加角色、Stories 新建/生成进度/风格样例、体裁模板。600px 最小窗口下不再撑出视口，内容可滚到底。
+- **圆角契约**：`Card` 默认 `rounded-2xl` → `rounded-xl`（12px 契约）；UpgradeModal、ErrorBoundary、BookUploadPanel 同步；幕后 `rounded-2xl` 清零（幕前保持原样）。
+- **验证**：tsc / prettier 全绿；vitest **679 / 3**；playwright **94 / 5**（46 视口用例全过）；architecture guard 通过。
+- **未关闭**：Settings 13 面板原生输入控件未逐面板替换 Field/Input（组件已就绪，视觉统一性迁移留作 P3.1）；真机安装包需重启复测弹窗滚动与 600px 窗口。
+
 ## v0.81.4（2026-11-04）
 
 **幕后 UI 重设计 P3：确认体系收口 + UserMenu 暗色化 + Settings 文案删除 + Agency 页头对齐。**

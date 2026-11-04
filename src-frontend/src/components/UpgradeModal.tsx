@@ -65,7 +65,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-md mx-4 rounded-2xl border border-cinema-700 bg-cinema-900 p-6 shadow-2xl"
+        className="relative w-full max-w-md mx-4 rounded-xl border border-cinema-700 bg-cinema-900 p-6 shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         <button

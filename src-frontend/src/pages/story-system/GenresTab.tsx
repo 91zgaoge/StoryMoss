@@ -123,8 +123,8 @@ export function GenresTab() {
       </div>
 
       {showGenreForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-cinema-900 border border-cinema-700 rounded-lg p-6 w-full max-w-lg">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-cinema-900 border border-cinema-700 rounded-lg p-6 w-full max-w-lg max-h-[85dvh] overflow-y-auto">
             <h3 className="text-white font-semibold mb-4">
               {editingGenre?.id ? '编辑体裁' : '新建体裁'}
             </h3>

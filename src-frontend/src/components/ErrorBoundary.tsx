@@ -58,7 +58,7 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return (
         <div className="min-h-screen bg-cinema-950 flex items-center justify-center p-8">
-          <div className="max-w-lg w-full bg-cinema-900 border border-cinema-700 rounded-2xl p-8 text-center">
+          <div className="max-w-lg w-full bg-cinema-900 border border-cinema-700 rounded-xl p-8 text-center">
             <h1 className="text-2xl font-display font-bold text-white mb-4">应用出错</h1>
             <p className="text-gray-400 mb-6">应用遇到了问题。请尝试刷新页面或重启应用。</p>
             {this.state.error && (

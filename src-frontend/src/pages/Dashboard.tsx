@@ -396,8 +396,8 @@ export function Dashboard() {
 
       {/* Create Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fade-in">
-          <Card className="w-full max-w-md mx-4 animate-slide-up">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fade-in p-4">
+          <Card className="w-full max-w-md mx-4 max-h-[85dvh] overflow-y-auto animate-slide-up">
             <CardContent className="p-6">
               <h2 className="font-display text-xl font-bold text-ai-ink mb-4">新建故事</h2>
 
@@ -464,7 +464,7 @@ export function Dashboard() {
       {/* Wizard Modal */}
       {isWizardOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-fade-in overflow-y-auto py-8">
-          <Card className="w-full max-w-3xl mx-4 animate-slide-up my-auto">
+          <Card className="w-full max-w-3xl mx-4 max-h-[85dvh] overflow-y-auto animate-slide-up my-auto">
             <CardContent className="p-8">
               {isCreating ? (
                 <div className="text-center py-12">

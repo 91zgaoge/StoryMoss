@@ -1098,8 +1098,8 @@ export function Stories() {
 
       {/* Create Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-md mx-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md mx-4 max-h-[85dvh] overflow-y-auto">
             <CardContent className="p-6">
               <h2 className="font-display text-xl font-bold text-white mb-4">新建故事</h2>
 
@@ -1172,8 +1172,8 @@ export function Stories() {
 
       {/* Workflow Progress Modal */}
       {isWorkflowActive && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <Card className="w-full max-w-md mx-4">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md mx-4 max-h-[85dvh] overflow-y-auto">
             <CardContent className="p-6 space-y-4">
               <div className="flex items-center gap-3">
                 <Loader2 className="w-6 h-6 text-cinema-gold animate-spin" />
@@ -1243,8 +1243,8 @@ export function Stories() {
 
       {/* Style Sample Input Modal */}
       {showStyleSampleInput && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-lg mx-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-lg mx-4 max-h-[85dvh] overflow-y-auto">
             <CardContent className="p-6 space-y-4">
               <h2 className="font-display text-xl font-bold text-white">从文本样例生成风格</h2>
               <p className="text-sm text-gray-400">

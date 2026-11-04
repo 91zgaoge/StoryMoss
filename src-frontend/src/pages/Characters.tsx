@@ -668,8 +668,8 @@ export function Characters() {
 
       {/* Create Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-lg mx-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-lg mx-4 max-h-[85dvh] overflow-y-auto">
             <CardContent className="p-6">
               <h2 className="font-display text-xl font-bold text-white mb-4">添加角色</h2>
 
