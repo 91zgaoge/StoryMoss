@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.82.2（2026-11-04）
+
+**导演新增 `target_scene`：可调度主创修订指定场景，不只按章调度。**
+
+- **动作语义**：`DirectorActionSpec.target_scene`（场景序号，1-based，对应 `scenes.sequence_number`），仅 `dispatch lead_writer` 可用且 ≥1；与 `target_chapter` 互斥（同时只能指定一种修订目标）。
+- **调度链路**：执行器把 `target_scene` 写入 task meta；`TaskScheduler` 校验场景存在、按 `scene.chapter_id` 映射所属章号，调用新增的 `run_revise_scene_with_cancel`；`run_batch_inner` 用显式 scene override 选中目标场景（不再按章号找第一场），writer key 为「第N章场景修订」，prompt 标注「指定场景」；gate/revision 仍走 GateRunner，`handle_gate` 收到该 scene id 后 `assemble_existing_chapter` 只更新目标场景内容，不新增场景/章节、不推进 beat。
+- **提示词**：`agency_director_system.md` 升 0.82.2，新增 target_scene 参数、JSON 示例与规则（填已有场景序号；与 target_chapter 二选一；不存在会被执行器拒绝）。
+- **验证**：Rust **2003 passed / 13 ignored**（+1 集成测试：target_scene 修订指定场景——目标场景更新、非目标场景不变、gate 执行、prompt 含导演指令与「指定场景」；导演动作校验补 target_scene 合法/非法 4 断言）；`cargo check` / nightly fmt 全绿；前端未改动（基线 vitest 679/3、playwright 94/5）。
+- **未关闭**：导演巡检快照尚未列出场景编号，LLM 需按作者描述或场景序号填写；场景级修订仍只支持 lead_writer；需真机复测（派发「修改第N场」并确认只改该场景）。
+
 ## v0.82.1（2026-11-04）
 
 **续写主路径限额修正：`WriteTimeBundle` 层仍写死 3/1。**

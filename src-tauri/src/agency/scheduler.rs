@@ -20,7 +20,10 @@ use crate::{
         repository::{AgencyRepository, MAX_ACTIVE_WRITE_RUNS_PER_STORY},
         task_repository::TaskRepository,
     },
-    db::{repositories::SceneRepository, DbPool},
+    db::{
+        repositories::{ChapterRepository, SceneRepository},
+        DbPool,
+    },
     error::AppError,
 };
 
@@ -141,6 +144,17 @@ impl TaskScheduler {
             .and_then(|v| v.get("target_chapter").and_then(|x| x.as_i64()))
             .and_then(|n| i32::try_from(n).ok())
             .filter(|n| *n >= 1);
+        // v0.82.2：导演派发指定场景修订（scenes.sequence_number）
+        let target_scene: Option<i32> = meta
+            .as_ref()
+            .and_then(|v| v.get("target_scene").and_then(|x| x.as_i64()))
+            .and_then(|n| i32::try_from(n).ok())
+            .filter(|n| *n >= 1);
+        let target_chapter = if target_scene.is_some() {
+            None
+        } else {
+            target_chapter
+        };
         tokio::spawn(async move {
             if directed_chapter {
                 sched
@@ -149,6 +163,7 @@ impl TaskScheduler {
                         instruction,
                         depends_on_task_id,
                         target_chapter,
+                        target_scene,
                     )
                     .await;
             } else {
@@ -320,6 +335,7 @@ impl TaskScheduler {
         instruction: String,
         depends_on_task_id: Option<String>,
         target_chapter: Option<i32>,
+        target_scene: Option<i32>,
     ) {
         if let Some(parent) = depends_on_task_id {
             if !self.wait_for_parent(&parent).await {
@@ -422,6 +438,98 @@ impl TaskScheduler {
                 )),
             )
             .await;
+            return;
+        }
+
+        // v0.82.2: target_scene 表示「修订指定场景」——按 scenes.sequence_number
+        // 找到场景与其所属章，走场景修订管线（gate 通过只更新该 scene）。
+        if let Some(scene_seq) = target_scene {
+            let pool = self.pool.clone();
+            let sid = task.story_id.clone();
+            let resolved = tokio::task::spawn_blocking(move || {
+                let scenes = SceneRepository::new(pool.clone())
+                    .get_by_story(&sid)
+                    .map_err(AppError::from)?;
+                let scene = scenes.into_iter().find(|s| s.sequence_number == scene_seq);
+                let Some(scene) = scene else {
+                    return Ok::<Option<(String, i32)>, AppError>(None);
+                };
+                let chapter_number = scene
+                    .chapter_id
+                    .and_then(|cid| ChapterRepository::new(pool).get_by_id(&cid).ok().flatten())
+                    .map(|c| c.chapter_number)
+                    .unwrap_or(scene.sequence_number);
+                Ok(Some((scene.id, chapter_number)))
+            })
+            .await;
+            let (scene_id, chapter_number) = match resolved {
+                Ok(Ok(Some(v))) => v,
+                Ok(Ok(None)) => {
+                    self.finish_directed_task(
+                        &task,
+                        &reporter,
+                        "failed",
+                        None,
+                        Some(format!("目标场景不存在: 场景{scene_seq}")),
+                    )
+                    .await;
+                    return;
+                }
+                Ok(Err(e)) => {
+                    self.finish_directed_task(
+                        &task,
+                        &reporter,
+                        "failed",
+                        None,
+                        Some(e.to_string()),
+                    )
+                    .await;
+                    return;
+                }
+                Err(e) => {
+                    self.finish_directed_task(
+                        &task,
+                        &reporter,
+                        "failed",
+                        None,
+                        Some(format!("目标场景校验失败: {e}")),
+                    )
+                    .await;
+                    return;
+                }
+            };
+            let result = self
+                .coordinator
+                .run_revise_scene_with_cancel(
+                    &task.id,
+                    &task.story_id,
+                    &scene_id,
+                    chapter_number,
+                    &instruction,
+                    cancel.clone(),
+                )
+                .await;
+            let cancelled = cancel.load(Ordering::SeqCst);
+            let (status, summary, error) = match result {
+                Ok(chapter_result) if !cancelled => (
+                    "completed",
+                    Some(format!(
+                        "第{}章场景{}已按导演指令修订并通过质量门并装配（scene={}，verdict={}）",
+                        chapter_result.chapter_number,
+                        scene_seq,
+                        chapter_result.scene_id,
+                        chapter_result.verdict.verdict
+                    )),
+                    None,
+                ),
+                Ok(_) => ("cancelled", Some("已取消".to_string()), None),
+                Err(e) if cancelled => {
+                    ("cancelled", Some("已取消".to_string()), Some(e.to_string()))
+                }
+                Err(e) => ("failed", None, Some(e.to_string())),
+            };
+            self.finish_directed_task(&task, &reporter, status, summary, error)
+                .await;
             return;
         }
 

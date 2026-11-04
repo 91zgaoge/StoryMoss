@@ -6472,10 +6472,16 @@ impl AgencyCoordinator {
         premise: &str,
         chapter_number: i32,
         directive: &str,
+        target_scene_id: Option<&str>,
     ) -> Result<BatchChapterArtifacts, AppError> {
-        let key = format!("第{}章修订", chapter_number);
+        let key = if target_scene_id.is_some() {
+            format!("第{}章场景修订", chapter_number)
+        } else {
+            format!("第{}章修订", chapter_number)
+        };
         let pool = self.pool.clone();
         let sid = story_id.to_string();
+        let target_scene_owned = target_scene_id.map(str::to_string);
         let (parts, card, existing, outline, prior) = self
             .db({
                 let pool = pool.clone();
@@ -6483,28 +6489,46 @@ impl AgencyCoordinator {
                 move || {
                     let parts = load_continue_context_parts(&pool, &sid)
                         .ok_or_else(|| AppError::from("修订章缺少故事上下文"))?;
-                    let target = parts
-                        .scenes
-                        .iter()
-                        .find(|s| s.sequence_number == chapter_number)
-                        .ok_or_else(|| {
-                            AppError::validation_failed(
-                                format!("目标章不存在: 第{}章", chapter_number),
-                                Some("target_chapter"),
-                            )
-                        })?;
+                    let target = if let Some(scene_id) = target_scene_owned.as_deref() {
+                        parts
+                            .scenes
+                            .iter()
+                            .find(|s| s.id == scene_id)
+                            .ok_or_else(|| {
+                                AppError::validation_failed(
+                                    "目标场景不存在".to_string(),
+                                    Some("target_scene"),
+                                )
+                            })?
+                    } else {
+                        parts
+                            .scenes
+                            .iter()
+                            .find(|s| s.sequence_number == chapter_number)
+                            .ok_or_else(|| {
+                                AppError::validation_failed(
+                                    format!("目标章不存在: 第{}章", chapter_number),
+                                    Some("target_chapter"),
+                                )
+                            })?
+                    };
                     let existing = target.content.clone().unwrap_or_default();
                     if existing.trim().is_empty() {
                         return Err(AppError::from(format!(
-                            "第{}章正文为空，无法修订",
-                            chapter_number
+                            "目标{}正文为空，无法修订",
+                            if target_scene_owned.is_some() {
+                                "场景"
+                            } else {
+                                "章"
+                            }
                         )));
                     }
                     let outline = target.outline_content.clone().unwrap_or_default();
+                    let before_seq = target.sequence_number;
                     let prior = parts
                         .scenes
                         .iter()
-                        .filter(|s| s.sequence_number < chapter_number)
+                        .filter(|s| s.sequence_number < before_seq)
                         .max_by_key(|s| s.sequence_number)
                         .and_then(|s| s.content.clone())
                         .unwrap_or_default();
@@ -6536,8 +6560,8 @@ impl AgencyCoordinator {
         );
         let existing_chars = existing.chars().count();
         let writer_task = format!(
-            "修订第{ch}章正文（原正文约 {existing_chars} 字；只修订这一章，不新增章节、\
-             不覆盖手写资产）。\n\
+            "修订第{ch}章{scope}正文（原正文约 {existing_chars} 字；只修订这一{scope_unit}，\
+             不新增章节、不覆盖手写资产）。\n\
              【本章现有正文（修订基底；保留既有事实、人物关系、时间线与未兑现伏笔，\
              按导演指令改写冲突、节奏与情感）】\n{existing}\n\n\
              【本章大纲】\n{outline}\n\n\
@@ -6553,6 +6577,16 @@ impl AgencyCoordinator {
             existing = existing,
             outline = outline,
             assets_ctx = assets_ctx,
+            scope = if target_scene_id.is_some() {
+                "指定场景"
+            } else {
+                ""
+            },
+            scope_unit = if target_scene_id.is_some() {
+                "场景"
+            } else {
+                "章"
+            },
             key = key
         );
         let writer_task = inject_director_directive(writer_task, directive);
@@ -7159,6 +7193,7 @@ impl AgencyCoordinator {
                 count,
                 instruction,
                 None,
+                None,
                 &cancel,
             )
             .await;
@@ -7184,6 +7219,7 @@ impl AgencyCoordinator {
             count,
             instruction,
             None,
+            None,
             &cancel,
         )
         .await
@@ -7208,6 +7244,7 @@ impl AgencyCoordinator {
                 1,
                 instruction,
                 Some(chapter_number),
+                None,
                 &cancel,
             )
             .await?;
@@ -7218,6 +7255,36 @@ impl AgencyCoordinator {
             .ok_or_else(|| AppError::internal("修订管线未产出章节".to_string()))
     }
 
+    /// v0.82.2：导演修订指定场景——不分配新章号，writer 以目标场景现有
+    /// 正文为修订基底；gate/revision 后只更新该 scene，不新增场景/章节。
+    pub async fn run_revise_scene_with_cancel(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        scene_id: &str,
+        chapter_number: i32,
+        instruction: &str,
+        cancel: Arc<AtomicBool>,
+    ) -> Result<AgencyContinueResult, AppError> {
+        let result = self
+            .run_continue_batch_body(
+                run_id,
+                story_id,
+                chapter_number,
+                1,
+                instruction,
+                Some(chapter_number),
+                Some(scene_id.to_string()),
+                &cancel,
+            )
+            .await?;
+        result
+            .chapters
+            .into_iter()
+            .next()
+            .ok_or_else(|| AppError::internal("场景修订管线未产出结果".to_string()))
+    }
+
     async fn run_continue_batch_body(
         &self,
         run_id: &str,
@@ -7226,6 +7293,7 @@ impl AgencyCoordinator {
         count: usize,
         instruction: &str,
         revision: Option<i32>,
+        revision_scene_id: Option<String>,
         cancel: &Arc<AtomicBool>,
     ) -> Result<AgencyBatchResult, AppError> {
         let repo = AgencyRepository::new(self.pool.clone());
@@ -7242,6 +7310,7 @@ impl AgencyCoordinator {
                 count,
                 instruction,
                 revision,
+                revision_scene_id,
                 &repo,
                 cancel,
                 &budget,
@@ -7321,6 +7390,7 @@ impl AgencyCoordinator {
         count: usize,
         instruction: &str,
         revision: Option<i32>,
+        revision_scene_id_override: Option<String>,
         repo: &AgencyRepository,
         cancel: &Arc<AtomicBool>,
         budget: &Arc<AgencyBudget>,
@@ -7332,10 +7402,15 @@ impl AgencyCoordinator {
             .await
             .unwrap_or_else(|| "未命名".to_string());
         let premise = if let Some(ch) = revision {
-            format!("修订《{}》第{}章", title, ch)
+            if revision_scene_id_override.is_some() {
+                format!("修订《{}》第{}章指定场景", title, ch)
+            } else {
+                format!("修订《{}》第{}章", title, ch)
+            }
         } else {
             format!("续写《{}》第{}章起", title, start_chapter)
         };
+        let explicit_scene_target = revision_scene_id_override.is_some();
         let revision_scene_id: Option<String> = if let Some(ch) = revision {
             if count != 1 || start_chapter != ch {
                 return Err(AppError::validation_failed(
@@ -7345,24 +7420,33 @@ impl AgencyCoordinator {
             }
             let pool = self.pool.clone();
             let sid = story_id.to_string();
+            let override_id = revision_scene_id_override.clone();
             let scene = tokio::task::spawn_blocking(move || {
                 SceneRepository::new(pool)
                     .get_by_story(&sid)
                     .map(|scenes| {
-                        scenes
-                            .into_iter()
-                            .find(|s| s.sequence_number == ch)
-                            .map(|s| s.id)
+                        if let Some(target) = override_id {
+                            scenes.into_iter().find(|s| s.id == target).map(|s| s.id)
+                        } else {
+                            scenes
+                                .into_iter()
+                                .find(|s| s.sequence_number == ch)
+                                .map(|s| s.id)
+                        }
                     })
                     .map_err(AppError::from)
             })
             .await
             .map_err(|e| AppError::from(format!("revision scene lookup join error: {e}")))??
             .ok_or_else(|| {
-                AppError::validation_failed(
-                    format!("目标章不存在: 第{ch}章"),
-                    Some("target_chapter"),
-                )
+                if revision_scene_id_override.is_some() {
+                    AppError::validation_failed("目标场景不存在".to_string(), Some("target_scene"))
+                } else {
+                    AppError::validation_failed(
+                        format!("目标章不存在: 第{ch}章"),
+                        Some("target_chapter"),
+                    )
+                }
             })?;
             Some(scene)
         } else {
@@ -7442,6 +7526,11 @@ impl AgencyCoordinator {
 
             let write_fut = async {
                 if revision.is_some() {
+                    let write_scene_id = if explicit_scene_target {
+                        revision_scene_id.as_deref()
+                    } else {
+                        None
+                    };
                     self.write_revision_chapter(
                         budget,
                         &board,
@@ -7451,6 +7540,7 @@ impl AgencyCoordinator {
                         &premise,
                         chapter_number,
                         instruction,
+                        write_scene_id,
                     )
                     .await
                 } else {

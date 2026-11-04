@@ -3585,6 +3585,132 @@ async fn test_director_target_chapter_revises_existing_scene_with_gate() {
     );
 }
 
+/// v0.82.2：target_scene 表示修订指定场景——只更新该 scene，不新增场景/章节，
+/// 且仍过 GateRunner。
+#[tokio::test]
+async fn test_director_target_scene_revises_specific_scene_with_gate() {
+    let pool = create_test_pool().unwrap();
+    let story_id = seed_story_with_assets(&pool);
+    let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
+    let first = scene_repo.create(&story_id, 1, Some("第一场")).unwrap();
+    let first_original = pass_grade_content("第一场旧稿：阿苔尚未穿过星环。");
+    scene_repo
+        .update(
+            &first.id,
+            &crate::db::repositories::SceneUpdate {
+                content: Some(first_original.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let target = scene_repo.create(&story_id, 2, Some("第二场")).unwrap();
+    let target_original = pass_grade_content("第二场旧稿：阿苔站在观测台前。");
+    scene_repo
+        .update(
+            &target.id,
+            &crate::db::repositories::SceneUpdate {
+                content: Some(target_original.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let mock = RoutingMock::new(0);
+    let revised = pass_grade_content("第二场修订稿：阿苔穿过星环，观测台崩裂。");
+    let revise_line = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第2章场景修订","content":"{}","summary":"修订"}}}}"#,
+        revised
+    );
+    mock.push(
+        "writer",
+        vec![
+            revise_line.as_str(),
+            r#"{"type":"final","content":"修订完成"}"#,
+        ],
+    );
+    mock.push("editor", vec![
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过\"}"}"#,
+    ]);
+    let coordinator = Arc::new(AgencyCoordinator::for_test(pool.clone(), mock.clone()));
+    let scheduler = crate::agency::scheduler::TaskScheduler::new(pool.clone(), coordinator, None);
+    let meta = serde_json::json!({
+        "chat_session_id": "s1",
+        "chat_message_id": "m1",
+        "premise": "前提",
+        "directed_chapter": true,
+        "target_scene": 2,
+    })
+    .to_string();
+    let task_id = scheduler
+        .dispatch_sub_agent(
+            &story_id,
+            "chat:s1",
+            crate::agency::models::AgentRole::LeadWriter,
+            "前提",
+            "强化第二场的冲突与情感冲击",
+            None,
+            None,
+            meta,
+        )
+        .await
+        .unwrap();
+    let mut task = None;
+    for _ in 0..60 {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        task = crate::agency::task_repository::TaskRepository::new(pool.clone())
+            .get_task(&task_id)
+            .unwrap();
+        if task
+            .as_ref()
+            .map(|t| matches!(t.status.as_str(), "completed" | "failed" | "cancelled"))
+            .unwrap_or(false)
+        {
+            break;
+        }
+    }
+    let task = task.expect("任务应落库");
+    assert_eq!(
+        task.status, "completed",
+        "target_scene 修订应完成并装配: {:?}",
+        task.error
+    );
+    let scenes = scene_repo.get_by_story(&story_id).unwrap();
+    assert_eq!(scenes.len(), 2, "场景修订不得新增场景/章节");
+    let first_after = scenes
+        .iter()
+        .find(|s| s.sequence_number == 1)
+        .expect("第一场仍然存在");
+    assert_eq!(
+        first_after.content.as_deref(),
+        Some(first_original.as_str()),
+        "非目标场景不得被修改"
+    );
+    let target_after = scenes
+        .iter()
+        .find(|s| s.sequence_number == 2)
+        .expect("目标场景仍然存在");
+    assert_eq!(target_after.id, target.id, "必须更新目标 scene");
+    assert!(target_after
+        .content
+        .as_deref()
+        .unwrap_or("")
+        .contains("观测台崩裂"));
+    let board = crate::agency::board::BlackboardService::new(pool.clone());
+    let reviews = board.list_zone(&task_id, BoardZone::Review).unwrap();
+    assert!(
+        reviews.iter().any(|i| i.item_type == "gate"),
+        "场景修订也必须执行质量门"
+    );
+    assert!(
+        mock.writer_prompts
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|p| p.contains("强化第二场") && p.contains("指定场景")),
+        "场景修订 writer prompt 应含导演指令与指定场景语义"
+    );
+}
+
 /// resume_run story 级护栏：旧 run 的 story 存在其他 pending/running run
 /// 时拒绝恢复。
 #[tokio::test]

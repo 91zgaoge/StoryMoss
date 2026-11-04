@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.82.1 项目完成状态
+# StoryMoss (草苔) v0.82.2 项目完成状态
 
+> 最后更新: 2026-11-04（**v0.82.2：导演 target_scene 场景级修订**——target_scene（场景序号，仅 lead_writer，与 target_chapter 互斥）；调度器校验场景并按 chapter_id 映射章号；批量管线显式 scene override，gate 通过只更新目标 scene。Rust **2003 / 13**（+1）；cargo check/nightly fmt 全绿；前端基线不变。）
+>
 > 最后更新: 2026-11-04（**v0.82.1：续写主路径伏笔限额修正**——`WriteTimeBundle::load_sync` 的 pending/overdue 从 3/1 改 8/2，与 snapshot/adapter 对齐；此前 v0.82.0 扩容在真实续写路径未生效。Rust **2002 / 13**；cargo check/nightly fmt 全绿；前端基线不变。）
 >
 > 最后更新: 2026-11-04（**v0.82.0：伏笔进入续写热路径**——本机 127 条未回收伏笔实证旧实现只取最老 3 条且伏笔块预算首选清空；改为逾期/临期/窗口排序、去重截断、配额 8、块前置与 900 上限、【本拍伏笔（必须使用）】硬指令。Rust **2002 / 13**（+3）；前端基线不变；cargo check/nightly fmt 全绿。**未关闭**：结构化回收窗口样本全空；需真机复测。）

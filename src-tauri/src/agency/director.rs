@@ -57,9 +57,14 @@ pub struct DirectorActionSpec {
     /// 可用；缺省表示续写下一章。
     #[serde(default)]
     pub target_chapter: Option<i32>,
+    /// v0.82.2：主创修订指定场景的目标场景序号（1-based，对应
+    /// scenes.sequence_number）。仅 `dispatch lead_writer` 可用；
+    /// 与 target_chapter 互斥（同时只能指定一种修订目标）。
+    #[serde(default)]
+    pub target_scene: Option<i32>,
 }
 
-const DIRECTOR_FALLBACK_SYSTEM: &str = "你是「导演」，代理工作室总控。你的职责是巡检、调度、修复、汇报；不写正文/资产。只输出严格 JSON：{\"reply\":\"...\",\"intent\":\"inspect|dispatch|repair|chat|corpus|none\",\"actions\":[{\"id\":\"a1\",\"type\":\"dispatch\",\"role\":\"producer\",\"instruction\":\"...\",\"corpus_ids\":[],\"depends_on_action\":null,\"reason\":\"...\"}],\"needs_confirmation\":false,\"confirmation\":null}。target_id 只能来自巡检快照 tasks[].id / runs[].id；没有对应 id 就不要生成动作。target_chapter 仅用于 lead_writer 修订既有章：填已有章号则修订该章，留空则续写下一章。覆盖手写资产、主创续写/修订、批量、取消/恢复必须 needs_confirmation=true。";
+const DIRECTOR_FALLBACK_SYSTEM: &str = "你是「导演」，代理工作室总控。你的职责是巡检、调度、修复、汇报；不写正文/资产。只输出严格 JSON：{\"reply\":\"...\",\"intent\":\"inspect|dispatch|repair|chat|corpus|none\",\"actions\":[{\"id\":\"a1\",\"type\":\"dispatch\",\"role\":\"producer\",\"instruction\":\"...\",\"corpus_ids\":[],\"depends_on_action\":null,\"reason\":\"...\"}],\"needs_confirmation\":false,\"confirmation\":null}。target_id 只能来自巡检快照 tasks[].id / runs[].id；没有对应 id 就不要生成动作。target_chapter 仅用于 lead_writer 修订既有章：填已有章号则修订该章，留空则续写下一章。target_scene 仅用于 lead_writer 修订指定场景：填已有场景序号（scenes.sequence_number）则只修订该场景，与 target_chapter 只能二选一。覆盖手写资产、主创续写/修订、批量、取消/恢复必须 needs_confirmation=true。";
 
 /// 导演规划：巡检快照 + 用户消息 + 会话历史 → 严格 JSON。
 pub struct DirectorPlanner;
@@ -160,6 +165,17 @@ fn validate_action(action: &DirectorActionSpec) -> Option<String> {
                     return Some("target_chapter 必须 >= 1".to_string());
                 }
             }
+            if let Some(sc) = action.target_scene {
+                if role != AgentRole::LeadWriter {
+                    return Some("target_scene 仅用于 lead_writer 修订".to_string());
+                }
+                if sc < 1 {
+                    return Some("target_scene 必须 >= 1".to_string());
+                }
+                if action.target_chapter.is_some() {
+                    return Some("target_chapter 与 target_scene 只能二选一".to_string());
+                }
+            }
             None
         }
         "retry_task" | "cancel_task" => {
@@ -255,6 +271,9 @@ impl DirectorExecutor {
                         meta_obj["directed_chapter"] = serde_json::Value::Bool(true);
                         if let Some(ch) = action.target_chapter {
                             meta_obj["target_chapter"] = serde_json::Value::from(ch);
+                        }
+                        if let Some(sc) = action.target_scene {
+                            meta_obj["target_scene"] = serde_json::Value::from(sc);
                         }
                     }
                     let meta = meta_obj.to_string();
@@ -717,6 +736,42 @@ mod tests {
             ..Default::default()
         })
         .is_none());
+        // v0.82.2：lead_writer 修订指定场景可带 target_scene
+        assert!(validate_action(&DirectorActionSpec {
+            action_type: "dispatch".into(),
+            role: Some("lead_writer".into()),
+            instruction: Some("修订第12个场景".into()),
+            target_scene: Some(12),
+            ..Default::default()
+        })
+        .is_none());
+        // target_scene 只允许 lead_writer
+        assert!(validate_action(&DirectorActionSpec {
+            action_type: "dispatch".into(),
+            role: Some("producer".into()),
+            instruction: Some("补资产".into()),
+            target_scene: Some(12),
+            ..Default::default()
+        })
+        .is_some());
+        // 场景序号必须 >= 1，且与 target_chapter 互斥
+        assert!(validate_action(&DirectorActionSpec {
+            action_type: "dispatch".into(),
+            role: Some("lead_writer".into()),
+            instruction: Some("修订".into()),
+            target_scene: Some(0),
+            ..Default::default()
+        })
+        .is_some());
+        assert!(validate_action(&DirectorActionSpec {
+            action_type: "dispatch".into(),
+            role: Some("lead_writer".into()),
+            instruction: Some("修订".into()),
+            target_chapter: Some(9),
+            target_scene: Some(12),
+            ..Default::default()
+        })
+        .is_some());
         // target_chapter 只允许 lead_writer
         assert!(validate_action(&DirectorActionSpec {
             action_type: "dispatch".into(),
