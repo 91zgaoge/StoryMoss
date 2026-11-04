@@ -437,7 +437,7 @@ function App() {
           className="flex-1 overflow-auto transition-colors duration-500 ease-out"
         >
           <div key={currentView} className="animate-fade-in">
-            {renderView()}
+            <ErrorBoundary key={currentView}>{renderView()}</ErrorBoundary>
           </div>
         </main>
       </div>

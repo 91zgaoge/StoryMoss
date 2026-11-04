@@ -179,7 +179,7 @@ export function Settings() {
           </div>
         </header>
 
-        <div className="flex-1 p-6 overflow-auto">
+        <div className="settings-panel-scope flex-1 p-6 overflow-auto">
           {/* Tab 水平轨 */}
           <div
             className="flex items-center gap-2 border-b border-borderSubtle pb-4 overflow-x-auto"

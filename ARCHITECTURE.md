@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.81.5 架构文档
+# StoryMoss (草苔) v0.81.6 架构文档
 
+> **v0.81.6**：**设置控件作用域统一与页面级错误边界**——`Settings` 内容区 `.settings-panel-scope`，`index.css` 作用域选择器（input/select/textarea，豁免 range/checkbox/radio/color/file）统一走 controlClass 视觉；`App.tsx` 每个视图包 `<ErrorBoundary key={currentView}>`，单页崩溃不整屏空白。
+>
 > **v0.81.5**：**弹窗与圆角契约收尾**——8 处手写弹窗补 `max-h-[85dvh] overflow-y-auto` 与遮罩 p-4；`Card` 默认圆角 `rounded-2xl → rounded-xl`，幕后 `rounded-2xl` 清零（幕前保持原样）。
 >
 > **v0.81.4**：**全局确认入口**——`components/ui/confirm.tsx` 提供 `confirmDialog(opts): Promise<boolean>` 与根节点 `<ConfirmPortal/>`（挂 `App.tsx`），全站 20 处 `confirm()` 统一迁移到 ConfirmDialog（危险文案原样保留）；未挂载 Portal 时回退 `window.confirm` 以保持组件隔离单测。UserMenu 暗色令牌化；Agency 三页页头对齐；视口探针 23 视图。

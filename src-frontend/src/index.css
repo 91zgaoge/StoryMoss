@@ -260,3 +260,43 @@
 .stream-markdown em {
   @apply italic text-gray-300;
 }
+
+/* ===== v0.81.6 设置面板控件统一（P3.1）=====
+   作用域样式一次覆盖 13 个子面板的原生 input/select/textarea，
+   对齐 ui/controls.tsx 的 controlClass 视觉契约（不逐字段改写 onChange）。 */
+.settings-panel-scope
+  input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='color']):not(
+    [type='file']
+  ),
+.settings-panel-scope select,
+.settings-panel-scope textarea {
+  background-color: var(--ai-field);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--ai-ink);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.settings-panel-scope input::placeholder,
+.settings-panel-scope textarea::placeholder {
+  color: var(--ai-ink-3);
+}
+
+.settings-panel-scope input:focus,
+.settings-panel-scope select:focus,
+.settings-panel-scope textarea:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--cinema-gold) 50%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cinema-gold) 20%, transparent);
+}
+
+.settings-panel-scope input:disabled,
+.settings-panel-scope select:disabled,
+.settings-panel-scope textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

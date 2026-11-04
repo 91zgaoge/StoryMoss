@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.81.6（2026-11-04）
+
+**P3.1 收尾：设置面板控件视觉统一 + 页面级错误边界。**
+
+- **设置控件统一**：`Settings` 内容区加 `.settings-panel-scope`，作用域样式一次覆盖 13 个子面板的原生 `input/select/textarea`——背景 `--ai-field`、边框 `border-subtle`、圆角 8px、占位/禁用/焦点环对齐 `ui/controls.tsx` 的 controlClass；`range/checkbox/radio/color/file` 豁免，避免破坏滑块与开关。不逐字段改写 91 个受控控件的 onChange，风险最小。
+- **页面级错误边界**：`App` 在 `main` 内给每个视图包 `ErrorBoundary key={currentView}`——单页崩溃不再整屏空白，切换视图即可恢复其他页面。
+- **验证**：tsc / prettier 全绿；vitest **679 / 3**；playwright **94 / 5**（46 视口用例全过）；architecture guard 通过。
+- **未关闭**：自定义向导弹窗（Stories/Dashboard 自绘）保持原样；真机安装包需重启复测设置输入框外观与错误边界。
+
 ## v0.81.5（2026-11-04）
 
 **幕后重设计收尾：手写弹窗限高内滚补齐 + 圆角契约落地。**

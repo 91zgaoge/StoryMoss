@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.81.5 项目完成状态
+# StoryMoss (草苔) v0.81.6 项目完成状态
 
+> 最后更新: 2026-11-04（**v0.81.6：设置控件作用域统一 + 页面级错误边界**——`.settings-panel-scope` 一次覆盖 13 面板原生控件并豁免 range/checkbox/file；App 每视图包 ErrorBoundary（单页崩溃不再全屏空白）。vitest **679 / 3**；playwright **94 / 5**；tsc/prettier/guard 全绿。**未关闭**：自定义向导弹窗保持自绘；真机复测。）
+>
 > 最后更新: 2026-11-04（**v0.81.5：弹窗限高内滚补齐 + 圆角契约**——8 处手写弹窗补 85dvh 限高与内滚；Card 默认圆角 xl，幕后 rounded-2xl 清零。vitest **679 / 3**；playwright **94 / 5**；tsc/prettier/guard 全绿。**未关闭**：Settings Field/Input 逐面板迁移；真机复测弹窗滚动。）
 >
 > 最后更新: 2026-11-04（**v0.81.4：P3 确认体系收口 + UserMenu 暗色化 + Settings 文案删除 + Agency 页头对齐**——confirmDialog 全局入口 + ConfirmPortal，20 处 confirm 迁移（文案逐字保留）；UserMenu token 化；Settings 七处文案删除/压缩；Agency 三页对齐；探针 23 视图 ×2 档。vitest **679 / 3**（+2）；playwright **94 / 5**（+14）；tsc/prettier 全绿。**未关闭**：设置面板原生输入逐面板迁移 Field/Input。）
