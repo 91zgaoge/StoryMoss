@@ -1,3 +1,4 @@
+import { confirmDialog } from '@/components/ui/confirm';
 import { useState } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import {
@@ -82,8 +83,8 @@ function RelationshipCard({
     reverse_emotional_intensity: rel.reverse_emotional_intensity ?? 0.5,
   });
 
-  const handleDelete = () => {
-    if (confirm('确定要删除这个关系吗？')) {
+  const handleDelete = async () => {
+    if (await confirmDialog({ title: '确定要删除这个关系吗？' })) {
       deleteRelationship.mutate({ relationshipId: rel.id, storyId });
     }
   };
@@ -292,16 +293,16 @@ export function Characters() {
   const setLifeStatus = useSetCharacterLifeStatus();
 
   // v0.64.7：正文判定死亡即持久化（续写不得复活）；此处是作者的改判出口
-  const handleToggleLifeStatus = (char: Character) => {
+  const handleToggleLifeStatus = async (char: Character) => {
     if (!currentStory) return;
     const isDead = char.life_status === 'dead';
     const ok = isDead
-      ? confirm(
-          `把「${char.name}」改回存活？\n\n用于假死/诈死情节：改回后，续写不再把他/她当作已死人物。`
-        )
-      : confirm(
-          `把「${char.name}」标记为身故？\n\n标记后，续写会把他/她当作已死人物——不得说话、行动，只能作为尸体/回忆出现。`
-        );
+      ? await confirmDialog({
+          title: `把「${char.name}」改回存活？\n\n用于假死/诈死情节：改回后，续写不再把他/她当作已死人物。`,
+        })
+      : await confirmDialog({
+          title: `把「${char.name}」标记为身故？\n\n标记后，续写会把他/她当作已死人物——不得说话、行动，只能作为尸体/回忆出现。`,
+        });
     if (!ok) return;
     setLifeStatus.mutate({ storyId: currentStory.id, name: char.name, alive: isDead });
   };
@@ -333,8 +334,8 @@ export function Characters() {
     );
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('确定要删除这个角色吗？')) {
+  const handleDelete = async (id: string) => {
+    if (await confirmDialog({ title: '确定要删除这个角色吗？' })) {
       deleteCharacter.mutate(id);
       if (selectedCharacterId === id) {
         setSelectedCharacterId(null);

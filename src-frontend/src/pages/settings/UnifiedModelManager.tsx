@@ -1,3 +1,4 @@
+import { confirmDialog } from '@/components/ui/confirm';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Plus,
@@ -128,7 +129,11 @@ export function UnifiedModelManager() {
 
   // 处理删除模型
   const handleDelete = async (modelId: string) => {
-    if (!confirm('确定要删除该模型配置吗？如果该模型正被 Agent 使用，对应映射会被自动清除。')) {
+    if (
+      !(await confirmDialog({
+        title: '确定要删除该模型配置吗？如果该模型正被 Agent 使用，对应映射会被自动清除。',
+      }))
+    ) {
       return;
     }
     setDeletingId(modelId);
@@ -229,7 +234,6 @@ export function UnifiedModelManager() {
           <CardContent className="p-12 text-center">
             <Database className="w-16 h-16 text-gray-600 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-white mb-2">暂无模型配置</h3>
-            <p className="text-gray-500 mb-4">点击下方按钮添加第一个模型配置</p>
             <Button variant="primary" onClick={() => handleAdd('chat')}>
               <Plus className="w-4 h-4 mr-2" />
               添加模型

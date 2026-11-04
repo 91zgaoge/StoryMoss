@@ -1,3 +1,4 @@
+import { confirmDialog } from '@/components/ui/confirm';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import {
@@ -142,7 +143,7 @@ export function Skills() {
 
   const handleUninstall = useCallback(
     async (skill: Skill) => {
-      if (!window.confirm(`确定要卸载技能「${skill.name}」吗？`)) return;
+      if (!(await confirmDialog({ title: `确定要卸载技能「${skill.name}」吗？` }))) return;
       try {
         await uninstallSkill(skill.id);
         await fetchSkills();

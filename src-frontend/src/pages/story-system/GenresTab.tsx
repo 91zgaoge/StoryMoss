@@ -1,3 +1,4 @@
+import { confirmDialog } from '@/components/ui/confirm';
 import { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -36,7 +37,7 @@ export function GenresTab() {
   };
 
   const handleDelete = async (g: GenreProfile) => {
-    if (!window.confirm('确认删除此体裁模板？')) return;
+    if (!(await confirmDialog({ title: '确认删除此体裁模板？' }))) return;
     try {
       await deleteGenreProfile(String(g.id));
       toast.success('已删除');

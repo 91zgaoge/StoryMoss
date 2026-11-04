@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
 import { useAppStore } from '@/stores/appStore';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Button } from '@/components/ui/Button';
 import {
   getLearningOverview,
   analyzeLearning,
@@ -67,16 +69,19 @@ export default function AgencyLearning() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">学习中心 · {currentStory.title}</h1>
-        <button
-          onClick={onAnalyze}
-          disabled={analyzing || data.unanalyzed_count < data.analyze_min_new}
-          className="rounded bg-indigo-600 px-3 py-1 text-sm text-white disabled:opacity-40"
-        >
-          {analyzing ? '分析中…' : `立即分析（${data.unanalyzed_count} 条未分析观察）`}
-        </button>
-      </div>
+      <PageHeader
+        title="学习中心"
+        actions={
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={onAnalyze}
+            disabled={analyzing || data.unanalyzed_count < data.analyze_min_new}
+          >
+            {analyzing ? '分析中…' : `立即分析（${data.unanalyzed_count} 条未分析观察）`}
+          </Button>
+        }
+      />
 
       {data.candidates.length > 0 && (
         <section>

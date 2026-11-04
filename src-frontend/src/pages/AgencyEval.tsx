@@ -5,6 +5,7 @@ import { getEvalOverview, listCheckpoints, compareCheckpoints } from '@/services
 import type { GateHistoryItem, PurposeUsage } from '@/services/api/agency';
 import { AiDiffTable } from '@/components/ui/ai/AiDiffTable';
 import { AiInsightCards } from '@/components/ui/ai/AiInsightCards';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { AiRecordsTable, type AiRecordsSort } from '@/components/ui/ai/AiRecordsTable';
 
 /** 解析 checkpoint metrics_json；key 与后端 agency/coordinator.rs compare_checkpoints 对齐
@@ -224,7 +225,7 @@ export default function AgencyEval() {
 
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-xl font-semibold">创作评估 · {currentStory.title}</h1>
+      <PageHeader title="创作评估" />
       <AiInsightCards
         columns={3}
         items={[

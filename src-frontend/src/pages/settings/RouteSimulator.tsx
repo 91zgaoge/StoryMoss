@@ -62,7 +62,6 @@ export function RouteSimulator() {
         <Route className="w-6 h-6 text-cinema-gold" />
         <div>
           <h2 className="text-xl font-semibold text-white">路由模拟器</h2>
-          <p className="text-sm text-gray-500">模拟不同任务场景下系统会选择哪个模型</p>
         </div>
       </div>
 

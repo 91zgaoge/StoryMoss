@@ -33,6 +33,8 @@ const VIEWS: { view: string; navLabel: string; group?: '运维' | '分析' }[] =
   { view: 'agency-learning', navLabel: '学习中心', group: '分析' },
   { view: 'intention-graph', navLabel: '意图诊断', group: '分析' },
   { view: 'story-system', navLabel: '故事合同' },
+  { view: 'agency-studio', navLabel: '代理工作室' },
+  { view: 'settings', navLabel: '设置' },
 ];
 
 for (const vp of VIEWPORTS) {
@@ -53,11 +55,26 @@ for (const vp of VIEWPORTS) {
           .click();
         const aside = page.locator('aside');
         if (group) {
-          // 折叠组：当前组会强制展开；先进入该组任一项即可
-          await aside.getByRole('button', { name: new RegExp(`^${group}`) }).first().click();
+          // 折叠组（运维/分析）：窄态下组头是 hidden lg:flex，不可见但可程序点击展开；
+          // 宽态直接点组头。
+          if (vp.width < 1024) {
+            const groupId = group === '运维' ? 'ops' : 'analysis';
+            await page.evaluate(id => {
+              const groupEl = document.querySelector(`[data-testid="nav-group-${id}"]`);
+              groupEl?.querySelector('button')?.click();
+            }, groupId);
+          } else {
+            await aside
+              .getByRole('button', { name: new RegExp(`^${group}`) })
+              .first()
+              .click();
+          }
         }
         if (navLabel !== '故事') {
-          await aside.getByRole('button', { name: new RegExp(`^${navLabel}`) }).first().click();
+          await aside
+            .getByRole('button', { name: new RegExp(`^${navLabel}`) })
+            .first()
+            .click();
         }
       }
       await page.waitForTimeout(500);

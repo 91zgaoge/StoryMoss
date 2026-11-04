@@ -1,3 +1,4 @@
+import { confirmDialog } from '@/components/ui/confirm';
 import { useState, useEffect, type CSSProperties } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { ListChecks, Play, Square, Trash2, Loader2, Plus } from 'lucide-react';
@@ -79,7 +80,7 @@ function TaskRow({
   const heartbeat = getHeartbeatStatus(task);
 
   const handleDelete = async () => {
-    if (!confirm(`确定要删除任务「${task.name}」吗？`)) return;
+    if (!(await confirmDialog({ title: `确定要删除任务「${task.name}」吗？` }))) return;
     setIsDeleting(true);
     try {
       await deleteMutation.mutateAsync(task.id);

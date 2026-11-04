@@ -35,9 +35,7 @@ export function WorkflowSettings() {
         <div className="text-center py-12 text-gray-500">
           <GitBranch className="w-8 h-8 mx-auto mb-3 opacity-50" />
           <p>暂无工作流模板</p>
-          <p className="text-sm mt-1">
-            在应用数据目录 workflows/ 文件夹中放入 .json 或 .yaml 文件即可自动加载
-          </p>
+          <p className="text-sm mt-1">放入应用数据目录的 workflows/ 文件夹即可自动加载</p>
         </div>
       ) : (
         <div className="space-y-3">

@@ -45,7 +45,7 @@ test.describe('语料库与代理工作室', () => {
     await page.getByRole('heading', { name: '测试故事' }).first().click();
 
     await page.locator('aside').getByRole('button', { name: /代理工作室/ }).click();
-    await expect(page.getByText('代理工作室 · 测试故事')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: '代理工作室' })).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('剧组').first()).toBeVisible();
     await expect(page.getByText(/剧组已就位/)).toBeVisible();
     await expect(page.getByText('任务进程')).toBeVisible();

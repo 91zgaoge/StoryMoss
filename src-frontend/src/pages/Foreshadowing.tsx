@@ -1,3 +1,4 @@
+import { confirmDialog } from '@/components/ui/confirm';
 import { useState, useMemo, useEffect } from 'react';
 import {
   Eye,
@@ -229,7 +230,7 @@ function ForeshadowingRow({
   };
 
   const handleDelete = async () => {
-    if (!confirm('确定删除该伏笔？此操作不可撤销。')) return;
+    if (!(await confirmDialog({ title: '确定删除该伏笔？此操作不可撤销。' }))) return;
     try {
       await deleteMutation.mutateAsync({ id: item.id, story_id: item.story_id });
       toast.success('伏笔已删除');

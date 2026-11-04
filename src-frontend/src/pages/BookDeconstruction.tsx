@@ -1,3 +1,4 @@
+import { confirmDialog } from '@/components/ui/confirm';
 import { useState } from 'react';
 import { Search, Plus, Settings2, ChevronDown } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -67,7 +68,7 @@ export function BookDeconstruction() {
   };
 
   const handleDelete = async (bookId: string) => {
-    if (!confirm('确定要删除这本书的分析结果吗？')) return;
+    if (!(await confirmDialog({ title: '确定要删除这本书的分析结果吗？' }))) return;
     try {
       await deleteMutation.mutateAsync(bookId);
       if (selectedBookId === bookId) {
@@ -98,7 +99,7 @@ export function BookDeconstruction() {
 
   const handleCancel = async () => {
     if (!selectedBookId) return;
-    if (!confirm('确定要取消当前分析吗？已处理的部分不会被保存。')) return;
+    if (!(await confirmDialog({ title: '确定要取消当前分析吗？已处理的部分不会被保存。' }))) return;
     try {
       await cancelMutation.mutateAsync(selectedBookId);
       toast.success('分析已取消');

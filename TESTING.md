@@ -1,8 +1,13 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.81.3)
+# 🧪 StoryMoss 自动化测试环境 (v0.81.4)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.81.4 变更说明
+
+- **P3（Rust 1999 / 13 不变）**：confirmDialog 单测 +2（回退 window.confirm / Portal 确认与取消）；视口探针扩到 23 视图 ×2 档 = 46 用例（窄态折叠组程序化展开）。vitest **679 / 3**；playwright **94 / 5**；tsc / prettier 全绿。
+- **未关闭**：设置面板 Field/Input 逐面板迁移。
 
 ### v0.81.3 变更说明
 

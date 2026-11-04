@@ -1,3 +1,4 @@
+import { confirmDialog } from '@/components/ui/confirm';
 import { useState } from 'react';
 import {
   BookOpen,
@@ -81,7 +82,7 @@ function GuidebookCard({ guidebook, selected, onSelect, onDelete }: GuidebookCar
 
   const handleCancel = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm('确定要取消当前提炼吗？已处理的部分不会被保存。')) return;
+    if (!(await confirmDialog({ title: '确定要取消当前提炼吗？已处理的部分不会被保存。' }))) return;
     try {
       await cancelMutation.mutateAsync(guidebook.id);
       toast.success('提炼已取消');
@@ -237,7 +238,8 @@ function MethodologyEditor({ methodology }: MethodologyEditorProps) {
   };
 
   const handleDelete = async () => {
-    if (!confirm('确定要删除该方法论吗？引用它的故事将恢复为无方法论。')) return;
+    if (!(await confirmDialog({ title: '确定要删除该方法论吗？引用它的故事将恢复为无方法论。' })))
+      return;
     try {
       await deleteMutation.mutateAsync(methodology.id);
       toast.success('方法论已删除');
@@ -563,7 +565,12 @@ export function GuidebookDistillationPanel() {
   };
 
   const handleDelete = async (guidebookId: string) => {
-    if (!confirm('确定要删除这本指导书吗？提炼出的方法论会保留但失去来源关联。')) return;
+    if (
+      !(await confirmDialog({
+        title: '确定要删除这本指导书吗？提炼出的方法论会保留但失去来源关联。',
+      }))
+    )
+      return;
     try {
       await deleteMutation.mutateAsync(guidebookId);
       if (selectedId === guidebookId) {

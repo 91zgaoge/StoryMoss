@@ -1,3 +1,4 @@
+import { confirmDialog } from '@/components/ui/confirm';
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -231,7 +232,7 @@ export default function Corpus() {
 
   const handleDelete = async () => {
     if (!selectedId) return;
-    if (!window.confirm('删除这条语料及其文件？')) return;
+    if (!(await confirmDialog({ title: '删除这条语料及其文件？' }))) return;
     setBusy('delete');
     try {
       await deleteCorpus(selectedId);

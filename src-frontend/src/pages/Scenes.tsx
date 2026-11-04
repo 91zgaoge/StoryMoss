@@ -1,3 +1,4 @@
+import { confirmDialog } from '@/components/ui/confirm';
 import { useState, useEffect } from 'react';
 import { Plus, BookOpen, AlertCircle, History, FileText } from 'lucide-react';
 import { ExecutionPanel } from '@/components/ExecutionPanel';
@@ -151,10 +152,10 @@ export function Scenes() {
     );
   };
 
-  const handleDeleteScene = (sceneId: string) => {
+  const handleDeleteScene = async (sceneId: string) => {
     if (!currentStory) return;
 
-    if (confirm('确定要删除这个场景吗？此操作不可撤销。')) {
+    if (await confirmDialog({ title: '确定要删除这个场景吗？此操作不可撤销。' })) {
       deleteScene.mutate(
         { sceneId, storyId: currentStory.id },
         {

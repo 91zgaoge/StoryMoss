@@ -1,3 +1,4 @@
+import { confirmDialog } from '@/components/ui/confirm';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import {
@@ -564,8 +565,8 @@ export function WorldBuilding() {
     triggerSave();
   };
 
-  const handleDeleteRule = (id: string) => {
-    if (!confirm('确定删除这条世界规则吗？')) return;
+  const handleDeleteRule = async (id: string) => {
+    if (!(await confirmDialog({ title: '确定删除这条世界规则吗？' }))) return;
     setLocalRules(prev => prev.filter(r => r.id !== id));
     triggerSave();
   };
@@ -579,8 +580,8 @@ export function WorldBuilding() {
     triggerSave();
   };
 
-  const handleDeleteCulture = (name: string) => {
-    if (!confirm('确定删除这个文化体系吗？')) return;
+  const handleDeleteCulture = async (name: string) => {
+    if (!(await confirmDialog({ title: '确定删除这个文化体系吗？' }))) return;
     setLocalCultures(prev => prev.filter(c => c.name !== name));
     triggerSave();
   };

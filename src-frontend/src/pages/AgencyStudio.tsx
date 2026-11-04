@@ -643,7 +643,7 @@ export default function AgencyStudio() {
     <div className="flex h-full min-h-0 flex-col gap-3 p-4">
       <div className="flex flex-wrap items-end gap-3">
         <div>
-          <h1 className="text-lg font-semibold">代理工作室 · {currentStory.title}</h1>
+          <h1 className="text-xl font-semibold tracking-tight">代理工作室</h1>
           <p className="text-[11px] text-ai-ink-3">
             导演统筹 · 管理补资产 · 编审看质量 · 主创写正文 · {activeCount} 个子任务在跑
           </p>

@@ -1,3 +1,4 @@
+import { confirmDialog } from '@/components/ui/confirm';
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   FileText,
@@ -296,7 +297,7 @@ export function PromptsPanel() {
   };
 
   const handleReset = async (id: string) => {
-    if (!confirm('确定重置为内置默认值吗？该操作不可撤销。')) return;
+    if (!(await confirmDialog({ title: '确定重置为内置默认值吗？该操作不可撤销。' }))) return;
     try {
       await loggedInvoke('reset_prompt_override', { prompt_id: id });
       toast.success('已重置为默认值');
@@ -456,10 +457,6 @@ export function PromptsPanel() {
             <FileText className="w-5 h-5 text-cinema-gold" />
             提示词注册表
           </h2>
-          <p className="text-sm text-gray-500 mt-1">
-            所有内置 LLM
-            提示词都可以在此查看、编辑、保存覆盖。已覆盖的提示词在运行时自动取代内置默认。
-          </p>
           {!dirLoading && promptsDir && (
             <p
               className="text-xs text-gray-600 mt-1 font-mono truncate max-w-xl"

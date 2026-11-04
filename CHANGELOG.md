@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.81.4（2026-11-04）
+
+**幕后 UI 重设计 P3：确认体系收口 + UserMenu 暗色化 + Settings 文案删除 + Agency 页头对齐。**
+
+- **统一确认入口**：新增 `ui/confirm.tsx`（`confirmDialog()` + 挂根节点的 `ConfirmPortal`）——Promise 式、全站单一 ConfirmDialog 样式；`window.confirm` 与裸 `confirm()` 共 20 处（Characters/Stories/WorldBuilding/Scenes/Foreshadowing/Tasks/Corpus/Skills/KGView/BookDeconstruction/VersionTimeline/Guidebook×3/UnifiedModelManager/PromptsPanel/GenresTab）一次性迁移，危险文案逐字保留；未挂 Portal 时回退 `window.confirm`（既有单测不破）。
+- **UserMenu 暗色化**：stone/bg-white 全改 ai-ink/cinema 令牌，菜单 bg-cinema-900 + shadow-float + borderSubtle，退出登录走 status-danger。
+- **Settings 文案删除（附录 A）**：GeneralSettings（主创说明句、健康探测长段压缩、字数上限 helper、冲突强度提示、提示词注册表介绍段）、PromptsPanel（面板介绍段）、UnifiedModelManager（空态教点句）、AgentConfig（策略说明压缩）、ModelHealthPanel（副标题删除、空态压缩）、RouteSimulator（介绍句删除）、WorkflowSettings（路径教程压缩）。约束/行为语义句保留。
+- **Agency 页头对齐**：Studio/Eval/Learning 标题去故事名，Learning 原生 indigo 按钮改 Button primary，Eval/Learning 接 PageHeader。
+- **探针**：扩到 23 个导航视图 × 2 档 = 46 用例（新增 agency-studio/settings；窄态折叠组用程序化展开点击）。
+- **验证**：tsc / prettier 全绿；vitest **679 / 3**（+2 confirmDialog 用例）；playwright **94 / 5**（+14）。
+- **未关闭**：设置 13 面板的原生输入控件尚未逐面板替换为 Field/Input（组件已就绪，逐面板迁移留作 P3.1）；自定义确认弹窗（Stories 新建向导等）保持自绘不改。
+
 ## v0.81.3（2026-11-04）
 
 **幕后 UI 重设计 P2：数据诊断页模板化 + 文案删除 + 视口探针全量覆盖。**

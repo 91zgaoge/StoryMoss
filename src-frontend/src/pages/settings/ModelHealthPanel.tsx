@@ -122,14 +122,11 @@ export function ModelHealthPanel() {
           <HeartPulse className="w-6 h-6 text-cinema-gold" />
           <div>
             <h2 className="text-xl font-semibold text-white">模型健康报告</h2>
-            <p className="text-sm text-gray-500">
-              基于最近调用记录评估模型可用性与质量
-              {reports[0]?.generated_at && (
-                <span className="ml-2 text-gray-600">
-                  · 数据更新于 {new Date(reports[0].generated_at).toLocaleString()}
-                </span>
-              )}
-            </p>
+            {reports[0]?.generated_at && (
+              <p className="text-sm text-ai-ink-3 mt-1">
+                数据更新于 {new Date(reports[0].generated_at).toLocaleString()}
+              </p>
+            )}
           </div>
         </div>
         <Button variant="ghost" onClick={handleRefreshAll} isLoading={isRefreshingAll || isLoading}>
@@ -141,7 +138,7 @@ export function ModelHealthPanel() {
       {reports.length === 0 && !isLoading ? (
         <Card>
           <CardContent className="p-12 text-center text-gray-500">
-            暂无调用记录，执行一次生成任务后将自动生成健康报告。
+            暂无调用记录，执行一次生成后自动生成。
           </CardContent>
         </Card>
       ) : (

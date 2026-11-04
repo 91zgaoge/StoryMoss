@@ -559,9 +559,6 @@ export function GeneralSettings({
                     <option value="fast">快速 — 单次生成</option>
                     <option value="full">精修 — 含质检改写</option>
                   </select>
-                  <p className="text-xs text-gray-500 mt-1.5">
-                    续写已统一走三角色主创，不受此选项影响。本项仅用于划词改写/审稿。
-                  </p>
                 </div>
 
                 {/* v0.30.50（issue #14）: 后台健康探测模式 */}
@@ -580,8 +577,7 @@ export function GeneralSettings({
                     <option value="on_demand">仅按需探测 — 闲置时完全静默</option>
                   </select>
                   <p className="text-xs text-gray-500 mt-1.5">
-                    持续探测：后台每 10
-                    秒对已开启模型发一次轻量请求，保持连接与模型状态新鲜。仅按需探测：不使用时不发任何请求，首次生成前会多花几秒做一次前置探测；中转站限流敏感时推荐。
+                    后台每 10 秒轻量保活；仅按需探测在首次生成前多花几秒做前置探测。
                   </p>
                 </div>
 
@@ -633,9 +629,7 @@ export function GeneralSettings({
                       disabled={isPending}
                       className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-cinema-gold/30"
                     />
-                    <p className="text-xs text-gray-500 mt-1.5">
-                      留空使用系统默认 3000 字。按情节模式时此上限仍作「过长才切」的门槛参考。
-                    </p>
+                    <p className="text-xs text-gray-500 mt-1.5">留空使用默认 3000 字。</p>
                   </div>
                 )}
 
@@ -708,8 +702,7 @@ export function GeneralSettings({
                   {writingStrategy.conflict_level >= 80 && (
                     <div className="p-3 bg-cinema-900/50 rounded-lg border border-cinema-800">
                       <p className="text-xs text-gray-400">
-                        <span className="text-cinema-gold font-medium">提示：</span>
-                        冲突强度 ≥ 80 时，AI 会确保每 500 字至少安排一次冲突或张力。
+                        强度 ≥ 80 时每 500 字至少一次冲突或张力。
                       </p>
                     </div>
                   )}
@@ -1048,9 +1041,6 @@ export function GeneralSettings({
                 </div>
                 <div>
                   <h3 className="text-lg font-medium text-white">提示词注册表</h3>
-                  <p className="text-sm text-gray-500">
-                    查看和编辑所有 {promptCount} 条内置 LLM 提示词。支持按分类筛选、搜索、批量重置。
-                  </p>
                 </div>
               </div>
               <Button

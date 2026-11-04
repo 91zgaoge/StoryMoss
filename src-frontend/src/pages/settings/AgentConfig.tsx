@@ -194,9 +194,7 @@ export function AgentConfig() {
           </div>
           <div>
             <h3 className="text-lg font-medium text-white">Agent 模型映射</h3>
-            <p className="text-sm text-gray-400 mt-1">
-              为不同创作 Agent 指定专用模型与任务策略。未指定时回退到默认模型与内置策略。
-            </p>
+            <p className="text-sm text-gray-400 mt-1">未指定时回退默认模型与内置策略。</p>
           </div>
         </div>
 

@@ -38,6 +38,7 @@ import { useWorkflowNodes } from '@/hooks/useWorkflowNodes';
 import { useWebViewRedrawFix } from '@/hooks/useWebViewRedrawFix';
 import { useBackstageTheme } from '@/hooks/useBackstageTheme';
 import { LoginModal } from '@/pages/Login';
+import { ConfirmPortal } from '@/components/ui/confirm';
 import { useAppStore } from '@/stores/appStore';
 import {
   useAgencyActivityStore,
@@ -407,6 +408,7 @@ function App() {
       <div className="flex h-screen bg-cinema-950 film-grain dark">
         <DataLoader />
         <ConnectionStatus />
+        <ConfirmPortal />
         <UpdateNotification
           isOpen={hasUpdate}
           currentVersion={currentVersion}

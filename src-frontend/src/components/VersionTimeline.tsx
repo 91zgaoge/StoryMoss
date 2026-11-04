@@ -1,3 +1,4 @@
+import { confirmDialog } from '@/components/ui/confirm';
 import React, { useState, useMemo } from 'react';
 import {
   History,
@@ -385,7 +386,11 @@ export function VersionTimeline({
   };
 
   const handleRestore = async (version: SceneVersion) => {
-    if (confirm(`确定要恢复到 ${formatVersionNumber(version.version_number)} 吗？`)) {
+    if (
+      await confirmDialog({
+        title: `确定要恢复到 ${formatVersionNumber(version.version_number)} 吗？`,
+      })
+    ) {
       await restoreMutation.mutateAsync({
         sceneId,
         versionId: version.id,
@@ -395,7 +400,11 @@ export function VersionTimeline({
   };
 
   const handleDelete = async (version: SceneVersion) => {
-    if (confirm(`确定要删除 ${formatVersionNumber(version.version_number)} 吗？此操作不可撤销。`)) {
+    if (
+      await confirmDialog({
+        title: `确定要删除 ${formatVersionNumber(version.version_number)} 吗？此操作不可撤销。`,
+      })
+    ) {
       await deleteMutation.mutateAsync({
         versionId: version.id,
         sceneId,

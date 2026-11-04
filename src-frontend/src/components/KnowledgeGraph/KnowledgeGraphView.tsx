@@ -1,3 +1,4 @@
+import { confirmDialog } from '@/components/ui/confirm';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import ReactFlow, {
   Background,
@@ -419,7 +420,7 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
 
   const handleDeleteEntity = useCallback(async () => {
     if (!selectedEntity) return;
-    if (!window.confirm(`确定要归档实体「${selectedEntity.name}」吗？`)) return;
+    if (!(await confirmDialog({ title: `确定要归档实体「${selectedEntity.name}」吗？` }))) return;
     try {
       const { archiveEntity } = await import('@/services/api/genesis');
       await archiveEntity(selectedEntity.id);
@@ -434,7 +435,7 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
 
   const handleDeleteRelation = useCallback(
     async (relation: Relation) => {
-      if (!window.confirm('确定要删除这条关系吗？')) return;
+      if (!(await confirmDialog({ title: '确定要删除这条关系吗？' }))) return;
       try {
         const { deleteRelation } = await import('@/services/api/genesis');
         await deleteRelation(relation.id);
