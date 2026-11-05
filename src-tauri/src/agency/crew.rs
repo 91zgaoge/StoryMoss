@@ -27,6 +27,16 @@ pub struct CrewAlert {
     pub run_id: Option<String>,
 }
 
+/// 导演巡检用的场景摘要（v0.82.3）：让导演能填 target_scene。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrewScene {
+    pub scene_id: String,
+    pub sequence_number: i32,
+    pub chapter_number: Option<i32>,
+    pub title: String,
+    pub word_count: i32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrewSnapshot {
     pub story_id: String,
@@ -36,6 +46,8 @@ pub struct CrewSnapshot {
     pub leases: Vec<ResourceLease>,
     pub corpus_count: i64,
     pub alerts: Vec<CrewAlert>,
+    /// 最近 24 个场景（按 sequence_number 升序），供导演指定 target_scene。
+    pub scenes: Vec<CrewScene>,
 }
 
 /// 巡检：只读、确定性、不调 LLM。导演/现场面板共用。
@@ -51,6 +63,39 @@ impl CrewInspector {
             .list_for_story(story_id, 20)
             .map_err(AppError::from)?;
         let leases = LeaseManager::new(pool.clone()).list_for_story(story_id)?;
+        let scenes: Vec<CrewScene> = {
+            let conn = pool
+                .get()
+                .map_err(|e| AppError::from(format!("pool: {e}")))?;
+            let mut stmt = conn
+                .prepare(
+                    "SELECT sc.id, sc.sequence_number, ch.chapter_number, \
+                     COALESCE(NULLIF(TRIM(sc.title), ''), ''), \
+                     COALESCE(LENGTH(sc.content), 0) \
+                     FROM scenes sc LEFT JOIN chapters ch ON ch.id = sc.chapter_id \
+                     WHERE sc.story_id = ?1 ORDER BY sc.sequence_number DESC \
+                     LIMIT 24",
+                )
+                .map_err(|e| AppError::from(format!("scenes query: {e}")))?;
+            let rows = stmt
+                .query_map(rusqlite::params![story_id], |row| {
+                    Ok(CrewScene {
+                        scene_id: row.get(0)?,
+                        sequence_number: row.get(1)?,
+                        chapter_number: row.get(2)?,
+                        title: row.get(3)?,
+                        word_count: row.get(4)?,
+                    })
+                })
+                .map_err(|e| AppError::from(format!("scenes rows: {e}")))?;
+            let mut scenes = rows
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| AppError::from(format!("scenes collect: {e}")))?;
+            // SQL 取最近 24 场（DESC），这里恢复升序，便于提示词按场景序号阅读
+            scenes.sort_by_key(|s| s.sequence_number);
+            scenes
+        };
+
         let corpus_count: i64 = {
             let conn = pool
                 .get()
@@ -173,6 +218,7 @@ impl CrewInspector {
             leases,
             corpus_count,
             alerts,
+            scenes,
         })
     }
 }

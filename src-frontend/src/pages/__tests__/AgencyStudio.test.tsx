@@ -495,7 +495,8 @@ describe('AgencyStudio', () => {
               params_json: JSON.stringify({
                 type: 'dispatch',
                 role: 'lead_writer',
-                instruction: '按编审建议修订第 12 章',
+                instruction: '按编审建议修订指定场景',
+                target_scene: 12,
               }),
             },
           ],
@@ -506,6 +507,8 @@ describe('AgencyStudio', () => {
 
     renderStudio();
     expect(await screen.findByText('需要你确认')).toBeInTheDocument();
+    // v0.82.3：导演动作的目标场景在审批卡里可见
+    expect(await screen.findByText(/场景12/)).toBeInTheDocument();
     fireEvent.click(await screen.findByText('确认执行'));
     await waitFor(() => {
       expect(directorExecute).toHaveBeenCalledWith(

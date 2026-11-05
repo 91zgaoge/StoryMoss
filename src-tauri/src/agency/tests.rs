@@ -3711,6 +3711,29 @@ async fn test_director_target_scene_revises_specific_scene_with_gate() {
     );
 }
 
+/// v0.82.3：导演巡检快照必须带场景列表（序号/章/标题），供 target_scene 使用。
+#[test]
+fn test_crew_snapshot_includes_scene_numbers_for_director() {
+    let pool = create_test_pool().unwrap();
+    let story_id = seed_story_with_assets(&pool);
+    let scene_repo = SceneRepository::new(pool.clone());
+    scene_repo.create(&story_id, 1, Some("第一场")).unwrap();
+    scene_repo
+        .create(&story_id, 5, Some("第五场·雨夜观测台"))
+        .unwrap();
+
+    let snapshot = crate::agency::crew::CrewInspector::inspect(&pool, &story_id).unwrap();
+    assert_eq!(snapshot.scenes.len(), 2, "导演快照应列出场景");
+    assert_eq!(snapshot.scenes[0].sequence_number, 1);
+    let target = snapshot
+        .scenes
+        .iter()
+        .find(|s| s.sequence_number == 5)
+        .expect("第五场");
+    assert_eq!(target.title, "第五场·雨夜观测台");
+    assert!(target.word_count >= 0);
+}
+
 /// resume_run story 级护栏：旧 run 的 story 存在其他 pending/running run
 /// 时拒绝恢复。
 #[tokio::test]

@@ -215,8 +215,16 @@ function actionSummary(action: Record<string, unknown>) {
   }
   const type = String(spec.type ?? action.action_type ?? '动作');
   const role = spec.role ? roleName(String(spec.role)) : '';
+  // v0.82.3：导演动作目标可视化——场景序号优先于章号
+  const target = spec.target_scene
+    ? `场景${spec.target_scene}`
+    : spec.target_chapter
+      ? `第${spec.target_chapter}章`
+      : '';
   const instruction = spec.instruction ? String(spec.instruction) : '';
-  return `${type}${role ? ` · ${role}` : ''}${instruction ? `：${instruction}` : ''}`;
+  return `${type}${role ? ` · ${role}` : ''}${target ? ` · ${target}` : ''}${
+    instruction ? `：${instruction}` : ''
+  }`;
 }
 
 export default function AgencyStudio() {

@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.82.2 架构文档
+# StoryMoss (草苔) v0.82.3 架构文档
 
+> **v0.82.3**：**导演场景调度可用化**——`CrewSnapshot.scenes: Vec<CrewScene>`（最近 24 场：sequence_number/chapter_number/title/word_count）；`render_director_user_prompt` 输出 Scenes 区块并标注可作 target_scene；`AgencyStudio.actionSummary` 显示 `场景N`（优先于 `第N章`）。
+>
 > **v0.82.2**：**导演场景级调度**——`DirectorActionSpec.target_scene`（`scenes.sequence_number`，仅 dispatch lead_writer，与 target_chapter 互斥）；执行器写 meta，`TaskScheduler` 校验场景存在并映射章号，调用 `run_revise_scene_with_cancel`；`run_batch_inner` 接受显式 scene override，`write_revision_chapter` 以目标场景正文为基底（key「第N章场景修订」），gate 后 `assemble_existing_chapter` 只更新该 scene。
 >
 > **v0.82.1**：**续写主路径伏笔限额**——`WriteTimeBundle::load_sync` 调用 `snapshot.pending_foreshadowings(8)` / `overdue_foreshadowings(2)`（此前 3/1 在 bundle 层二次截断，v0.82.0 扩容对真实续写不生效）。

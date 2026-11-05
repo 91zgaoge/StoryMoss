@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.82.3（2026-11-04）
+
+**导演场景调度可用化：巡检快照列出场景序号，审批卡显示目标场景。**
+
+- **巡检快照**：`CrewSnapshot` 新增 `scenes`（最近 24 个场景：`sequence_number` / 所属章号 / 标题 / 字数）。导演提示词新增 `Scenes（场景序号 | 所属章 | 标题，可作 target_scene）` 区块，LLM 不再需要猜场景序号，可直接按快照填 `target_scene`。
+- **审批卡**：`AgencyStudio` 的动作摘要显示目标——`场景12` 优先于 `第12章`，作者在确认派发前能看到修订落在哪个场景。
+- **验证**：Rust **2004 passed / 13 ignored**（+1：CrewSnapshot 场景序号/标题；导演 prompt 场景行断言增强）；vitest **679 / 3**（AgencyStudio 审批断言含「场景12」）；playwright **94 / 5**；tsc / prettier / nightly fmt / guard 全绿。
+- **未关闭**：真机复测（对导演说「修改第 12 场」确认审批卡显示场景、派发后只更新该场景）；场景清单只取最近 24 场（更早场景需作者报序号）。
+
 ## v0.82.2（2026-11-04）
 
 **导演新增 `target_scene`：可调度主创修订指定场景，不只按章调度。**

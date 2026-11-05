@@ -64,7 +64,7 @@ pub struct DirectorActionSpec {
     pub target_scene: Option<i32>,
 }
 
-const DIRECTOR_FALLBACK_SYSTEM: &str = "你是「导演」，代理工作室总控。你的职责是巡检、调度、修复、汇报；不写正文/资产。只输出严格 JSON：{\"reply\":\"...\",\"intent\":\"inspect|dispatch|repair|chat|corpus|none\",\"actions\":[{\"id\":\"a1\",\"type\":\"dispatch\",\"role\":\"producer\",\"instruction\":\"...\",\"corpus_ids\":[],\"depends_on_action\":null,\"reason\":\"...\"}],\"needs_confirmation\":false,\"confirmation\":null}。target_id 只能来自巡检快照 tasks[].id / runs[].id；没有对应 id 就不要生成动作。target_chapter 仅用于 lead_writer 修订既有章：填已有章号则修订该章，留空则续写下一章。target_scene 仅用于 lead_writer 修订指定场景：填已有场景序号（scenes.sequence_number）则只修订该场景，与 target_chapter 只能二选一。覆盖手写资产、主创续写/修订、批量、取消/恢复必须 needs_confirmation=true。";
+const DIRECTOR_FALLBACK_SYSTEM: &str = "你是「导演」，代理工作室总控。你的职责是巡检、调度、修复、汇报；不写正文/资产。只输出严格 JSON：{\"reply\":\"...\",\"intent\":\"inspect|dispatch|repair|chat|corpus|none\",\"actions\":[{\"id\":\"a1\",\"type\":\"dispatch\",\"role\":\"producer\",\"instruction\":\"...\",\"corpus_ids\":[],\"depends_on_action\":null,\"reason\":\"...\"}],\"needs_confirmation\":false,\"confirmation\":null}。target_id 只能来自巡检快照 tasks[].id / runs[].id；没有对应 id 就不要生成动作。target_chapter 仅用于 lead_writer 修订既有章：填已有章号则修订该章，留空则续写下一章。target_scene 仅用于 lead_writer 修订指定场景：填巡检快照 Scenes 列表里的场景序号（scenes.sequence_number）则只修订该场景，与 target_chapter 只能二选一。覆盖手写资产、主创续写/修订、批量、取消/恢复必须 needs_confirmation=true。";
 
 /// 导演规划：巡检快照 + 用户消息 + 会话历史 → 严格 JSON。
 pub struct DirectorPlanner;
@@ -489,6 +489,22 @@ pub(crate) fn render_director_user_prompt(
             t.task.chars().take(80).collect::<String>()
         ));
     }
+    out.push_str("Scenes（场景序号 | 所属章 | 标题，可作 target_scene）：\n");
+    for sc in snapshot.scenes.iter().take(24) {
+        let chapter = sc
+            .chapter_number
+            .map(|n| format!("第{n}章"))
+            .unwrap_or_else(|| "-".to_string());
+        let title = if sc.title.trim().is_empty() {
+            "-".to_string()
+        } else {
+            sc.title.chars().take(24).collect::<String>()
+        };
+        out.push_str(&format!(
+            "- {} | {} | {} | {}字\n",
+            sc.sequence_number, chapter, title, sc.word_count
+        ));
+    }
     out.push_str("Leases：\n");
     for l in snapshot.leases.iter().take(6) {
         out.push_str(&format!(
@@ -676,6 +692,13 @@ mod tests {
             tasks: vec![],
             leases: vec![],
             corpus_count: 2,
+            scenes: vec![crate::agency::crew::CrewScene {
+                scene_id: "sc-12".into(),
+                sequence_number: 12,
+                chapter_number: Some(8),
+                title: "雨夜观测台".into(),
+                word_count: 640,
+            }],
             alerts: vec![CrewAlert {
                 severity: "high".into(),
                 kind: "StaleTask".into(),
@@ -688,6 +711,10 @@ mod tests {
         let text = render_director_user_prompt(&snapshot, "巡检", &[], "", &[]);
         assert!(text.contains("编审卡住"));
         assert!(text.contains("语料：2 条"));
+        assert!(
+            text.contains("12 | 第8章 | 雨夜观测台") && text.contains("Scenes"),
+            "导演提示词应列出场景序号供 target_scene 使用: {text}"
+        );
     }
 
     #[test]
