@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Eye, EyeOff, RefreshCw, MessageSquare, Database, Sparkles, Image } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
+import { Input, Select, Textarea } from '@/components/ui/controls';
 import { Button } from '@/components/ui/Button';
 import { useForm } from 'react-hook-form';
 import { useSettingsContext } from '@/hooks/useSettingsContext';
@@ -323,33 +324,25 @@ export function ModelModal({
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
               <label className="block text-sm text-gray-400 mb-1">名称 *</label>
-              <input
-                {...register('name', { required: true })}
-                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
-                placeholder="例如: GPT-4"
-              />
+              <Input {...register('name', { required: true })} placeholder="例如: GPT-4" />
             </div>
 
             <div>
               <label className="block text-sm text-gray-400 mb-1">提供商 *</label>
-              <select
-                {...register('provider', { required: true })}
-                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
-              >
+              <Select {...register('provider', { required: true })}>
                 {providers.map(p => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
 
             <div>
               <label className="block text-sm text-gray-400 mb-1">模型 *</label>
-              <input
+              <Input
                 {...register('model', { required: true })}
                 list="model-suggestions"
-                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
                 placeholder="例如: gpt-4"
               />
               <datalist id="model-suggestions">
@@ -389,10 +382,10 @@ export function ModelModal({
               <div>
                 <label className="block text-sm text-gray-400 mb-1">API Key</label>
                 <div className="flex gap-2">
-                  <input
+                  <Input
                     {...register('api_key')}
                     type={showApiKey ? 'text' : 'password'}
-                    className="flex-1 px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                    className="flex-1"
                     placeholder={model?.api_key === '***' ? '****' : 'sk-...'}
                   />
                   {model?.api_key === '***' && (
@@ -444,11 +437,7 @@ export function ModelModal({
             <div className="flex items-end gap-2">
               <div className="flex-1">
                 <label className="block text-sm text-gray-400 mb-1">API Base (可选)</label>
-                <input
-                  {...register('api_base')}
-                  className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
-                  placeholder="https://api.openai.com/v1"
-                />
+                <Input {...register('api_base')} placeholder="https://api.openai.com/v1" />
               </div>
               <button
                 type="button"
@@ -497,61 +486,53 @@ export function ModelModal({
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">Temperature</label>
-                  <input
+                  <Input
                     {...register('temperature', { valueAsNumber: true })}
                     type="number"
                     step="0.1"
                     min="0"
                     max="2"
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
                   />
                 </div>
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">Max Tokens</label>
-                  <input
-                    {...register('max_tokens', { valueAsNumber: true })}
-                    type="number"
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
-                  />
+                  <Input {...register('max_tokens', { valueAsNumber: true })} type="number" />
                 </div>
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">Top P（可选）</label>
-                  <input
+                  <Input
                     {...register('top_p', { valueAsNumber: true })}
                     type="number"
                     step="0.05"
                     min="0"
                     max="1"
                     placeholder="默认不设置"
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
                   />
                 </div>
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">
                     Frequency Penalty（可选）
                   </label>
-                  <input
+                  <Input
                     {...register('frequency_penalty', { valueAsNumber: true })}
                     type="number"
                     step="0.1"
                     min="-2"
                     max="2"
                     placeholder="默认不设置"
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
                   />
                 </div>
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">
                     Presence Penalty（可选）
                   </label>
-                  <input
+                  <Input
                     {...register('presence_penalty', { valueAsNumber: true })}
                     type="number"
                     step="0.1"
                     min="-2"
                     max="2"
                     placeholder="默认不设置"
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
                   />
                 </div>
                 {/* v0.73.7: 上下文长度自动检测 */}
@@ -563,13 +544,13 @@ export function ModelModal({
                     </span>
                   </label>
                   <div className="flex gap-2">
-                    <input
+                    <Input
                       {...register('max_context_length', { valueAsNumber: true })}
                       type="number"
                       min={512}
                       step={1024}
                       placeholder="留空自动检测（默认 8192）"
-                      className="flex-1 px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                      className="flex-1"
                     />
                     <button
                       type="button"
@@ -603,10 +584,9 @@ export function ModelModal({
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">Dimensions</label>
-                  <input
+                  <Input
                     {...register('dimensions' as const, { valueAsNumber: true })}
                     type="number"
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
                   />
                 </div>
               </div>
@@ -639,9 +619,8 @@ export function ModelModal({
               <label className="block text-sm text-gray-400 mb-1">
                 系统提示词覆盖（可选，替换默认英文 system prompt）
               </label>
-              <textarea
+              <Textarea
                 {...register('system_prompt_override')}
-                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-y"
                 placeholder="留空则使用全局默认。例如：你是专业的中文小说创作助手，擅长…"
                 rows={3}
               />

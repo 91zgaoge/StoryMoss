@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.83.3 项目完成状态
+# StoryMoss (草苔) v0.83.4 项目完成状态
 
+> 最后更新: 2026-11-05（**v0.83.4：模型编辑控件组件化**——13 个控件迁 Input/Select/Textarea；复选框豁免；register/API Key/参数范围/系统提示词不变。其余面板仍作用域样式统一。vitest **679 / 3**；playwright **97 / 5**；tsc/prettier 全绿。）
+>
 > 最后更新: 2026-11-05（**v0.83.3：专用弹窗壳迁 Modal**——升级/角色编辑/模型编辑；字段、约束、API Key 显隐、系统提示词全部保留；StyleDnaModal/ExportDialog/Login 不动。vitest **679 / 3**；playwright **97 / 5**；tsc/prettier 全绿。）
 >
 > 最后更新: 2026-11-05（**v0.83.2：伏笔清单 blob 紧凑计划摘要**——`F1 代签笔迹（埋第1章 → 收第12章）`最多 6 条替代 240 字截断；真机复验 184 字续写命中 3/8。Rust **2008 / 15 ignored**（+1）；前端基线不变。）

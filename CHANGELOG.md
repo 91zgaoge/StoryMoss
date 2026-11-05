@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.83.4（2026-11-05）
+
+**设置控件组件化首个样板：模型编辑 13 个控件迁 Input/Select/Textarea。**
+
+- **迁移**：`settings/ModelModal` 的 13 个文本/数字/下拉/多行控件改用共享 `Input/Select/Textarea`（`controlClass` 单一来源），复选框仍保留原生 `<input type=checkbox>`（正确豁免）。
+- **保留**：react-hook-form 的 register/valueAsNumber、API Key 显隐/覆盖、获取模型、参数范围（0-2 / 0-1 / -2..2）、系统提示词覆盖与创建/保存全部不变。
+- **意义**：这是 Settings 13 面板逐字段迁移的首个样板；其余面板仍由 `.settings-panel-scope` 作用域样式统一（视觉一致）。
+- **验证**：tsc / prettier 全绿；vitest **679 / 3**；playwright **97 / 5**；Rust 未改（2008 / 15 ignored）。
+
 ## v0.83.3（2026-11-05）
 
 **专用弹窗壳迁入 Modal：升级、角色编辑、模型编辑。**

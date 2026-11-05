@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.83.3 架构文档
+# StoryMoss (草苔) v0.83.4 架构文档
 
+> **v0.83.4**：**设置控件组件化样板**——`settings/ModelModal` 13 个控件迁 `Input/Select/Textarea`（controlClass）；checkbox 豁免；其余面板仍走 `.settings-panel-scope` 作用域样式。
+>
 > **v0.83.3**：**专用弹窗壳迁 Modal**——UpgradeModal、CharacterEditModal、settings/ModelModal 迁共享 Modal；StyleDnaModal/ExportDialog/Login 因自带布局与 testid 契约保持原壳。
 >
 > **v0.83.2**：**伏笔清单摘要**——`plan_line_summaries` 将「伏笔清单」blob 行压成 `F1 代签笔迹（埋第1章 → 收第12章）`（≤6 条），替代 240 字截断原文；`chapter_after_marker` 解析埋/收章号。
