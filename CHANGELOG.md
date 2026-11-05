@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.83.0（2026-11-05）
+
+**弹窗统一收尾：剩余手写弹窗全部迁入 Modal。**
+
+- **迁移**：stor-system 体裁模板（编辑/新建）、Characters 添加角色、Characters AI 扩展角色、WorldBuilding 世界规则/文化体系/AI 生成世界观——全部改用共享 `Modal`（统一标题/关闭/Esc/85dvh 内滚/尺寸）。
+- **保留**：所有 label、必填星标、占位提示、JSON 有效性校验（体裁表单 `canSubmit`）、生成 loading/禁用逻辑、「生成角色组合」「应用选中的世界观」等操作文案逐字保留；无世界观前置提示保留。
+- **有意保留**：「AI 一键创作中」进度弹窗（非可关闭状态面板）；`StyleDnaModal`/`ExportDialog`/`Login`/`UpgradeModal`/`CharacterEditModal` 等自带壳的专用组件未改。
+- **验证**：tsc / prettier 全绿；vitest **679 / 3**；playwright **94 / 5**；Rust 未改（2007 / 15 ignored）。
+
 ## v0.82.9（2026-11-05）
 
 **UI 收尾：Dashboard / Stories 手写弹窗迁入统一 Modal。**

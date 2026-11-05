@@ -19,6 +19,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Modal } from '@/components/ui/Modal';
 import { CharacterStatePanel } from '@/components/CharacterStatePanel';
 import { CharacterEditModal } from '@/components/CharacterEditModal';
 import { CharacterRelationshipForm } from '@/components/CharacterRelationshipForm';
@@ -668,94 +669,88 @@ export function Characters() {
 
       {/* Create Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-lg mx-4 max-h-[85dvh] overflow-y-auto">
-            <CardContent className="p-6">
-              <h2 className="font-display text-xl font-bold text-white mb-4">添加角色</h2>
+        <Modal open onClose={() => setIsModalOpen(false)} title="添加角色" size="lg">
+          <form onSubmit={handleCreate} className="space-y-4">
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">角色名称 *</label>
+              <input
+                name="name"
+                required
+                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                placeholder="输入角色名称"
+              />
+            </div>
 
-              <form onSubmit={handleCreate} className="space-y-4">
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">角色名称 *</label>
-                  <input
-                    name="name"
-                    required
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
-                    placeholder="输入角色名称"
-                  />
-                </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">性别</label>
+                <input
+                  name="gender"
+                  className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                  placeholder="性别"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">年龄</label>
+                <input
+                  name="age"
+                  type="number"
+                  className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                  placeholder="年龄"
+                />
+              </div>
+            </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm text-gray-400 mb-1">性别</label>
-                    <input
-                      name="gender"
-                      className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
-                      placeholder="性别"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm text-gray-400 mb-1">年龄</label>
-                    <input
-                      name="age"
-                      type="number"
-                      className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
-                      placeholder="年龄"
-                    />
-                  </div>
-                </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">性格</label>
+              <textarea
+                name="personality"
+                rows={2}
+                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
+                placeholder="角色的性格特点..."
+              />
+            </div>
 
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">性格</label>
-                  <textarea
-                    name="personality"
-                    rows={2}
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
-                    placeholder="角色的性格特点..."
-                  />
-                </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">外貌</label>
+              <textarea
+                name="appearance"
+                rows={2}
+                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
+                placeholder="角色的外貌描述..."
+              />
+            </div>
 
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">外貌</label>
-                  <textarea
-                    name="appearance"
-                    rows={2}
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
-                    placeholder="角色的外貌描述..."
-                  />
-                </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">目标</label>
+              <textarea
+                name="goals"
+                rows={2}
+                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
+                placeholder="角色的目标与动机..."
+              />
+            </div>
 
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">目标</label>
-                  <textarea
-                    name="goals"
-                    rows={2}
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
-                    placeholder="角色的目标与动机..."
-                  />
-                </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">背景故事</label>
+              <textarea
+                name="background"
+                rows={3}
+                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
+                placeholder="角色的背景故事..."
+              />
+            </div>
 
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">背景故事</label>
-                  <textarea
-                    name="background"
-                    rows={3}
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
-                    placeholder="角色的背景故事..."
-                  />
-                </div>
-
-                <div className="flex gap-3 pt-4">
-                  <Button type="button" variant="ghost" onClick={() => setIsModalOpen(false)}>
-                    取消
-                  </Button>
-                  <Button type="submit" variant="primary" isLoading={createCharacter.isPending}>
-                    创建
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-        </div>
+            <div className="flex gap-3 pt-4">
+              <Button type="button" variant="ghost" onClick={() => setIsModalOpen(false)}>
+                取消
+              </Button>
+              <Button type="submit" variant="primary" isLoading={createCharacter.isPending}>
+                创建
+              </Button>
+            </div>
+          </form>
+        </Modal>
       )}
 
       <CharacterEditModal
@@ -777,96 +772,87 @@ export function Characters() {
 
       {/* AI Expansion Modal */}
       {aiModalOpen && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-            <CardContent className="p-6 space-y-5">
-              <div className="flex items-center justify-between">
-                <h2 className="font-display text-xl font-bold text-white flex items-center gap-2">
-                  <Wand2 className="w-5 h-5 text-cinema-gold" />
-                  AI 扩展角色
-                </h2>
-                <button
-                  onClick={() => {
-                    setAiModalOpen(false);
-                    setCharacterSets([]);
-                    setSelectedSetIndex(null);
-                  }}
-                  className="p-1.5 rounded-lg hover:bg-cinema-700 text-gray-400 hover:text-white transition-colors"
+        <Modal
+          open
+          onClose={() => {
+            setAiModalOpen(false);
+            setCharacterSets([]);
+            setSelectedSetIndex(null);
+          }}
+          title={
+            <span className="flex items-center gap-2">
+              <Wand2 className="w-5 h-5 text-cinema-gold" />
+              AI 扩展角色
+            </span>
+          }
+          size="lg"
+        >
+          {!worldBuilding ? (
+            <div className="text-center py-8 text-ai-ink-2">
+              <p>请先在世界构建页初始化世界观</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex justify-end">
+                <Button
+                  variant="secondary"
+                  onClick={handleGenerateCharacters}
+                  isLoading={aiGenerating}
+                  disabled={aiGenerating}
                 >
-                  <X className="w-5 h-5" />
-                </button>
+                  {aiGenerating ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4" />
+                  )}
+                  生成角色组合
+                </Button>
               </div>
 
-              {!worldBuilding ? (
-                <div className="text-center py-8 text-ai-ink-2">
-                  <p>请先在世界构建页初始化世界观</p>
-                </div>
-              ) : (
-                <>
-                  <div className="flex justify-end">
-                    <Button
-                      variant="secondary"
-                      onClick={handleGenerateCharacters}
-                      isLoading={aiGenerating}
-                      disabled={aiGenerating}
-                    >
-                      {aiGenerating ? (
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Sparkles className="w-4 h-4" />
-                      )}
-                      生成角色组合
-                    </Button>
-                  </div>
-
-                  {characterSets.length > 0 && (
-                    <div className="space-y-4">
-                      <p className="text-sm text-gray-400">选择一组角色：</p>
-                      <div className="grid gap-3">
-                        {characterSets.map((set, setIdx) => (
-                          <div
-                            key={setIdx}
-                            onClick={() => setSelectedSetIndex(setIdx)}
-                            className={`p-4 rounded-xl border cursor-pointer transition-all ${
-                              selectedSetIndex === setIdx
-                                ? 'border-cinema-gold bg-cinema-gold/10'
-                                : 'border-cinema-700 bg-cinema-800/50 hover:border-cinema-gold/40'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-medium text-white">
-                                组合 {setIdx + 1}
-                              </span>
-                              <span className="text-xs text-gray-500">{set.length} 个角色</span>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              {set.map(char => (
-                                <span
-                                  key={char.name}
-                                  className="text-xs px-2 py-1 rounded-full bg-cinema-900/80 text-gray-300 border border-cinema-700"
-                                >
-                                  {char.name}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      <Button
-                        variant="primary"
-                        onClick={handleApplyCharacterSet}
-                        disabled={selectedSetIndex === null || createCharacter.isPending}
-                        className="w-full"
+              {characterSets.length > 0 && (
+                <div className="space-y-4">
+                  <p className="text-sm text-gray-400">选择一组角色：</p>
+                  <div className="grid gap-3">
+                    {characterSets.map((set, setIdx) => (
+                      <div
+                        key={setIdx}
+                        onClick={() => setSelectedSetIndex(setIdx)}
+                        className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                          selectedSetIndex === setIdx
+                            ? 'border-cinema-gold bg-cinema-gold/10'
+                            : 'border-cinema-700 bg-cinema-800/50 hover:border-cinema-gold/40'
+                        }`}
                       >
-                        添加选中的角色组
-                      </Button>
-                    </div>
-                  )}
-                </>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium text-white">组合 {setIdx + 1}</span>
+                          <span className="text-xs text-gray-500">{set.length} 个角色</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {set.map(char => (
+                            <span
+                              key={char.name}
+                              className="text-xs px-2 py-1 rounded-full bg-cinema-900/80 text-gray-300 border border-cinema-700"
+                            >
+                              {char.name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <Button
+                    variant="primary"
+                    onClick={handleApplyCharacterSet}
+                    disabled={selectedSetIndex === null || createCharacter.isPending}
+                    className="w-full"
+                  >
+                    添加选中的角色组
+                  </Button>
+                </div>
               )}
-            </CardContent>
-          </Card>
-        </div>
+            </>
+          )}
+        </Modal>
       )}
     </div>
   );

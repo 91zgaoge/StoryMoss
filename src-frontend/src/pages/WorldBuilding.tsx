@@ -14,6 +14,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Modal } from '@/components/ui/Modal';
 import {
   Globe,
   Plus,
@@ -126,71 +127,64 @@ function RuleModal({ isOpen, onClose, onSave, initialRule }: RuleModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-lg mx-4 max-h-[85dvh] overflow-y-auto">
-        <CardContent className="p-6">
-          <h2 className="font-display text-xl font-bold text-white mb-4">
-            {initialRule ? '编辑规则' : '添加世界规则'}
-          </h2>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">规则名称 *</label>
-              <input
-                value={name}
-                onChange={e => setName(e.target.value)}
-                required
-                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
-                placeholder="例如：重力异常"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">规则类型</label>
-              <select
-                value={ruleType}
-                onChange={e => setRuleType(e.target.value as RuleType)}
-                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
-              >
-                {Object.entries(RULE_TYPE_LABELS).map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">重要性: {importance}</label>
-              <input
-                type="range"
-                min={1}
-                max={10}
-                value={importance}
-                onChange={e => setImportance(Number(e.target.value))}
-                className="w-full accent-cinema-gold"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">描述</label>
-              <textarea
-                value={description}
-                onChange={e => setDescription(e.target.value)}
-                rows={3}
-                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
-                placeholder="该规则的具体描述..."
-              />
-            </div>
-            <div className="flex gap-3 pt-4">
-              <Button type="button" variant="ghost" onClick={onClose}>
-                取消
-              </Button>
-              <Button type="submit" variant="primary">
-                <Save className="w-4 h-4" />
-                保存
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+    <Modal open onClose={onClose} title={initialRule ? '编辑规则' : '添加世界规则'} size="lg">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">规则名称 *</label>
+          <input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            required
+            className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+            placeholder="例如：重力异常"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">规则类型</label>
+          <select
+            value={ruleType}
+            onChange={e => setRuleType(e.target.value as RuleType)}
+            className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+          >
+            {Object.entries(RULE_TYPE_LABELS).map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">重要性: {importance}</label>
+          <input
+            type="range"
+            min={1}
+            max={10}
+            value={importance}
+            onChange={e => setImportance(Number(e.target.value))}
+            className="w-full accent-cinema-gold"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">描述</label>
+          <textarea
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            rows={3}
+            className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
+            placeholder="该规则的具体描述..."
+          />
+        </div>
+        <div className="flex gap-3 pt-4">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            取消
+          </Button>
+          <Button type="submit" variant="primary">
+            <Save className="w-4 h-4" />
+            保存
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -242,66 +236,59 @@ function CultureModal({ isOpen, onClose, onSave, initialCulture }: CultureModalP
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-lg mx-4 max-h-[85dvh] overflow-y-auto">
-        <CardContent className="p-6">
-          <h2 className="font-display text-xl font-bold text-white mb-4">
-            {initialCulture ? '编辑文化' : '添加文化体系'}
-          </h2>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">文化名称 *</label>
-              <input
-                value={name}
-                onChange={e => setName(e.target.value)}
-                required
-                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
-                placeholder="例如：东方修真文化"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">描述</label>
-              <textarea
-                value={description}
-                onChange={e => setDescription(e.target.value)}
-                rows={2}
-                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
-                placeholder="该文化的总体描述..."
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">习俗（每行一个）</label>
-              <textarea
-                value={customs}
-                onChange={e => setCustoms(e.target.value)}
-                rows={3}
-                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
-                placeholder="例如：&#10;晨间冥想&#10;拜师礼"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">价值观（每行一个）</label>
-              <textarea
-                value={values}
-                onChange={e => setValues(e.target.value)}
-                rows={3}
-                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
-                placeholder="例如：&#10;尊师重道&#10;天人合一"
-              />
-            </div>
-            <div className="flex gap-3 pt-4">
-              <Button type="button" variant="ghost" onClick={onClose}>
-                取消
-              </Button>
-              <Button type="submit" variant="primary">
-                <Save className="w-4 h-4" />
-                保存
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+    <Modal open onClose={onClose} title={initialCulture ? '编辑文化' : '添加文化体系'} size="lg">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">文化名称 *</label>
+          <input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            required
+            className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+            placeholder="例如：东方修真文化"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">描述</label>
+          <textarea
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            rows={2}
+            className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
+            placeholder="该文化的总体描述..."
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">习俗（每行一个）</label>
+          <textarea
+            value={customs}
+            onChange={e => setCustoms(e.target.value)}
+            rows={3}
+            className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
+            placeholder="例如：&#10;晨间冥想&#10;拜师礼"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">价值观（每行一个）</label>
+          <textarea
+            value={values}
+            onChange={e => setValues(e.target.value)}
+            rows={3}
+            className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
+            placeholder="例如：&#10;尊师重道&#10;天人合一"
+          />
+        </div>
+        <div className="flex gap-3 pt-4">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            取消
+          </Button>
+          <Button type="submit" variant="primary">
+            <Save className="w-4 h-4" />
+            保存
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -342,82 +329,75 @@ function AiWorldBuildingModal({ isOpen, onClose, storyTitle, onApply }: AiWorldB
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-        <CardContent className="p-6 space-y-5">
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-xl font-bold text-white flex items-center gap-2">
-              <Wand2 className="w-5 h-5 text-cinema-gold" />
-              AI 生成世界观
-            </h2>
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-lg hover:bg-cinema-700 text-gray-400 hover:text-white transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          <div className="space-y-2">
-            <label className="block text-sm text-gray-400">题材与核心设定</label>
-            <textarea
-              value={prompt}
-              onChange={e => setPrompt(e.target.value)}
-              rows={3}
-              className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
-              placeholder="例如：末世废土、东方修仙、赛博朋克侦探..."
-            />
-            <Button
-              variant="primary"
-              onClick={handleGenerate}
-              isLoading={generateOptions.isPending}
-              disabled={!prompt.trim()}
-            >
-              {generateOptions.isPending ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <Sparkles className="w-4 h-4" />
-              )}
-              生成选项
-            </Button>
-          </div>
-
-          {options.length > 0 && (
-            <div className="space-y-3">
-              <div className="grid gap-3">
-                {options.map((option, index) => (
-                  <div
-                    key={option.id}
-                    onClick={() => setSelectedIndex(index)}
-                    className={`p-4 rounded-xl border cursor-pointer transition-all ${
-                      selectedIndex === index
-                        ? 'border-cinema-gold bg-cinema-gold/10'
-                        : 'border-cinema-700 bg-cinema-800/50 hover:border-cinema-gold/40'
-                    }`}
-                  >
-                    <h3 className="font-medium text-white mb-1">{option.concept}</h3>
-                    <p className="text-xs text-gray-400 mb-2">
-                      {option.rules.length} 条规则 · {option.cultures.length} 种文化
-                    </p>
-                    {option.history && (
-                      <p className="text-sm text-gray-500 line-clamp-2">{option.history}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <Button
-                variant="primary"
-                onClick={handleApply}
-                disabled={selectedIndex === null}
-                className="w-full"
-              >
-                应用选中的世界观
-              </Button>
-            </div>
+    <Modal
+      open
+      onClose={onClose}
+      title={
+        <span className="flex items-center gap-2">
+          <Wand2 className="w-5 h-5 text-cinema-gold" />
+          AI 生成世界观
+        </span>
+      }
+      size="lg"
+    >
+      <div className="space-y-2">
+        <label className="block text-sm text-gray-400">题材与核心设定</label>
+        <textarea
+          value={prompt}
+          onChange={e => setPrompt(e.target.value)}
+          rows={3}
+          className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
+          placeholder="例如：末世废土、东方修仙、赛博朋克侦探..."
+        />
+        <Button
+          variant="primary"
+          onClick={handleGenerate}
+          isLoading={generateOptions.isPending}
+          disabled={!prompt.trim()}
+        >
+          {generateOptions.isPending ? (
+            <RefreshCw className="w-4 h-4 animate-spin" />
+          ) : (
+            <Sparkles className="w-4 h-4" />
           )}
-        </CardContent>
-      </Card>
-    </div>
+          生成选项
+        </Button>
+      </div>
+
+      {options.length > 0 && (
+        <div className="space-y-3">
+          <div className="grid gap-3">
+            {options.map((option, index) => (
+              <div
+                key={option.id}
+                onClick={() => setSelectedIndex(index)}
+                className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                  selectedIndex === index
+                    ? 'border-cinema-gold bg-cinema-gold/10'
+                    : 'border-cinema-700 bg-cinema-800/50 hover:border-cinema-gold/40'
+                }`}
+              >
+                <h3 className="font-medium text-white mb-1">{option.concept}</h3>
+                <p className="text-xs text-gray-400 mb-2">
+                  {option.rules.length} 条规则 · {option.cultures.length} 种文化
+                </p>
+                {option.history && (
+                  <p className="text-sm text-gray-500 line-clamp-2">{option.history}</p>
+                )}
+              </div>
+            ))}
+          </div>
+          <Button
+            variant="primary"
+            onClick={handleApply}
+            disabled={selectedIndex === null}
+            className="w-full"
+          >
+            应用选中的世界观
+          </Button>
+        </div>
+      )}
+    </Modal>
   );
 }
 

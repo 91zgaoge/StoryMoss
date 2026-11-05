@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.82.9 架构文档
+# StoryMoss (草苔) v0.83.0 架构文档
 
+> **v0.83.0**：**弹窗统一完成**——体裁模板、角色添加/AI 扩展、世界观规则/文化/AI 生成全部迁入共享 `Modal`；表单校验与约束文案逐字保留。进度弹窗与专用组件（StyleDnaModal/ExportDialog/Login/UpgradeModal/CharacterEditModal）保持自带壳。
+>
 > **v0.82.9**：**弹窗统一收尾**——Dashboard 新建故事、Stories 新建故事与风格样例迁移到共享 `Modal`（统一 Esc/遮罩关闭、85dvh 内滚、footer 操作区）；字段/校验/约束提示逐字保留。
 >
 > **v0.82.8**：**真机探针**——`real_machine_probe_director_scene_target`（CrewSnapshot scenes → 导演 prompt Scenes → 真实模型 target_scene）与 `real_machine_probe_foreshadow_hint_usage`（V154 副本 → bundle hints → 资产伏笔块 → 真实模型实际使用），均 `#[ignore]` 真机跑。

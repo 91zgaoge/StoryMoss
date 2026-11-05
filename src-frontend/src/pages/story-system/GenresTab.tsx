@@ -2,6 +2,7 @@ import { confirmDialog } from '@/components/ui/confirm';
 import { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
 import { Layers, Edit, Copy, Trash2, Plus } from 'lucide-react';
 import { getGenreProfiles, saveGenreProfile, deleteGenreProfile } from '@/services/tauri';
 import type { GenreProfile } from '@/services/tauri';
@@ -123,18 +124,18 @@ export function GenresTab() {
       </div>
 
       {showGenreForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-cinema-900 border border-cinema-700 rounded-lg p-6 w-full max-w-lg max-h-[85dvh] overflow-y-auto">
-            <h3 className="text-white font-semibold mb-4">
-              {editingGenre?.id ? '编辑体裁' : '新建体裁'}
-            </h3>
-            <GenreForm
-              initial={editingGenre}
-              onSave={handleSave}
-              onCancel={() => setShowGenreForm(false)}
-            />
-          </div>
-        </div>
+        <Modal
+          open
+          onClose={() => setShowGenreForm(false)}
+          title={editingGenre?.id ? '编辑体裁' : '新建体裁'}
+          size="lg"
+        >
+          <GenreForm
+            initial={editingGenre}
+            onSave={handleSave}
+            onCancel={() => setShowGenreForm(false)}
+          />
+        </Modal>
       )}
     </div>
   );
@@ -183,7 +184,7 @@ function GenreForm({ initial, onSave, onCancel }: GenreFormProps) {
     isJsonValid(form.typical_structure_json);
 
   return (
-    <div className="space-y-3 max-h-[80vh] overflow-y-auto pr-2">
+    <div className="space-y-3">
       <div>
         <label className="text-gray-400 text-xs">体裁名称</label>
         <input
