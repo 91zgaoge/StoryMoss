@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.82.8 架构文档
+# StoryMoss (草苔) v0.82.9 架构文档
 
+> **v0.82.9**：**弹窗统一收尾**——Dashboard 新建故事、Stories 新建故事与风格样例迁移到共享 `Modal`（统一 Esc/遮罩关闭、85dvh 内滚、footer 操作区）；字段/校验/约束提示逐字保留。
+>
 > **v0.82.8**：**真机探针**——`real_machine_probe_director_scene_target`（CrewSnapshot scenes → 导演 prompt Scenes → 真实模型 target_scene）与 `real_machine_probe_foreshadow_hint_usage`（V154 副本 → bundle hints → 资产伏笔块 → 真实模型实际使用），均 `#[ignore]` 真机跑。
 >
 > **v0.82.7**：**仓库完整性修复**——补交此前 `git add -u` 遗漏的 10 个 ui 组件（Modal/ConfirmDialog/PageHeader/Field/Table/EmptyState/Skeleton/confirm/controls/layers）、5 个单测与 V154 迁移，使推送仓库可构建。

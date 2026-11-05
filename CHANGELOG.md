@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.82.9（2026-11-05）
+
+**UI 收尾：Dashboard / Stories 手写弹窗迁入统一 Modal。**
+
+- **Dashboard 新建故事**：手写遮罩+Card 迁到 `Modal`（标题、关闭、85dvh 内滚、Esc/遮罩关闭统一）；表单字段、必填校验、`StoryFormatFields`、创建按钮全部保留。
+- **Stories 新建故事**：同上迁移；关闭时仍重置 `createFormat`。
+- **Stories 从文本样例生成风格**：迁到 `Modal` + `footer` 操作区（取消/生成风格，300 字下限禁用、生成中 loading 保留）；300-3000 字约束提示保留。
+- **有意保留**：「AI 一键创作中」进度弹窗不迁（非可关闭状态面板），其余 Characters/WorldBuilding/GenresTab 自绘弹窗留待后续。
+- **验证**：tsc / prettier 全绿；vitest **679 / 3**；playwright **94 / 5**（含新建故事/风格样例路径）；Rust 未改（2007 / 15 ignored）。
+
 ## v0.82.8（2026-11-05）
 
 **真机探针：导演场景目标 + 伏笔提示实际使用（本机实跑通过）。**

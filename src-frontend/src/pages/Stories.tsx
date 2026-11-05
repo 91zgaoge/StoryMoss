@@ -29,6 +29,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Modal } from '@/components/ui/Modal';
 import { useStories, useCreateStory, useDeleteStory, useUpdateStory } from '@/hooks/useStories';
 import { useAllMethodologies } from '@/hooks/useMethodologies';
 import { useCharacters } from '@/hooks/useCharacters';
@@ -1098,66 +1099,68 @@ export function Stories() {
 
       {/* Create Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-md mx-4 max-h-[85dvh] overflow-y-auto">
-            <CardContent className="p-6">
-              <h2 className="font-display text-xl font-bold text-white mb-4">新建故事</h2>
+        <Modal
+          open
+          onClose={() => {
+            setIsModalOpen(false);
+            setCreateFormat('novel');
+          }}
+          title="新建故事"
+          size="sm"
+        >
+          <form onSubmit={handleCreate} className="space-y-4">
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">标题</label>
+              <input
+                name="title"
+                required
+                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+              />
+            </div>
 
-              <form onSubmit={handleCreate} className="space-y-4">
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">标题</label>
-                  <input
-                    name="title"
-                    required
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
-                  />
-                </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">类型</label>
+              <select
+                name="genre"
+                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+              >
+                <option value="">选择类型</option>
+                <option value="科幻">科幻</option>
+                <option value="奇幻">奇幻</option>
+                <option value="悬疑">悬疑</option>
+                <option value="言情">言情</option>
+                <option value="历史">历史</option>
+              </select>
+            </div>
 
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">类型</label>
-                  <select
-                    name="genre"
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
-                  >
-                    <option value="">选择类型</option>
-                    <option value="科幻">科幻</option>
-                    <option value="奇幻">奇幻</option>
-                    <option value="悬疑">悬疑</option>
-                    <option value="言情">言情</option>
-                    <option value="历史">历史</option>
-                  </select>
-                </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">描述</label>
+              <textarea
+                name="description"
+                rows={3}
+                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
+              />
+            </div>
 
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">描述</label>
-                  <textarea
-                    name="description"
-                    rows={3}
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
-                  />
-                </div>
+            <StoryFormatFields format={createFormat} onFormatChange={setCreateFormat} />
 
-                <StoryFormatFields format={createFormat} onFormatChange={setCreateFormat} />
-
-                <div className="flex gap-3 pt-4">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => {
-                      setIsModalOpen(false);
-                      setCreateFormat('novel');
-                    }}
-                  >
-                    取消
-                  </Button>
-                  <Button type="submit" variant="primary" isLoading={createStory.isPending}>
-                    创建
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-        </div>
+            <div className="flex gap-3 pt-4">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setIsModalOpen(false);
+                  setCreateFormat('novel');
+                }}
+              >
+                取消
+              </Button>
+              <Button type="submit" variant="primary" isLoading={createStory.isPending}>
+                创建
+              </Button>
+            </div>
+          </form>
+        </Modal>
       )}
 
       {/* Export Dialog */}
@@ -1243,55 +1246,60 @@ export function Stories() {
 
       {/* Style Sample Input Modal */}
       {showStyleSampleInput && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-lg mx-4 max-h-[85dvh] overflow-y-auto">
-            <CardContent className="p-6 space-y-4">
-              <h2 className="font-display text-xl font-bold text-white">从文本样例生成风格</h2>
-              <p className="text-sm text-gray-400">
-                粘贴一段你喜欢的文字（300-3000字），AI 将分析其风格特征并生成风格 DNA。
-              </p>
-              <textarea
-                value={styleSampleText}
-                onChange={e => setStyleSampleText(e.target.value)}
-                rows={8}
-                placeholder="在此粘贴文本样例..."
-                className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-none"
-              />
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="ghost"
-                  onClick={() => {
+        <Modal
+          open
+          onClose={() => {
+            setShowStyleSampleInput(false);
+            setStyleSampleText('');
+          }}
+          title="从文本样例生成风格"
+          size="lg"
+          footer={
+            <>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setShowStyleSampleInput(false);
+                  setStyleSampleText('');
+                }}
+              >
+                取消
+              </Button>
+              <Button
+                variant="primary"
+                isLoading={isAnalyzingStyle}
+                disabled={styleSampleText.length < 30}
+                onClick={async () => {
+                  setIsAnalyzingStyle(true);
+                  try {
+                    const result = await analyzeStyleSample(styleSampleText);
+                    toast.success(`风格「${result.name}」生成成功！`);
+                    queryClient.invalidateQueries({ queryKey: ['style-dnas'] });
                     setShowStyleSampleInput(false);
                     setStyleSampleText('');
-                  }}
-                >
-                  取消
-                </Button>
-                <Button
-                  variant="primary"
-                  isLoading={isAnalyzingStyle}
-                  disabled={styleSampleText.length < 30}
-                  onClick={async () => {
-                    setIsAnalyzingStyle(true);
-                    try {
-                      const result = await analyzeStyleSample(styleSampleText);
-                      toast.success(`风格「${result.name}」生成成功！`);
-                      queryClient.invalidateQueries({ queryKey: ['style-dnas'] });
-                      setShowStyleSampleInput(false);
-                      setStyleSampleText('');
-                    } catch (err: any) {
-                      toast.error(`风格生成失败: ${extractMessage(err)}`);
-                    } finally {
-                      setIsAnalyzingStyle(false);
-                    }
-                  }}
-                >
-                  生成风格
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+                  } catch (err: any) {
+                    toast.error(`风格生成失败: ${extractMessage(err)}`);
+                  } finally {
+                    setIsAnalyzingStyle(false);
+                  }
+                }}
+              >
+                生成风格
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm text-gray-400">
+            粘贴一段你喜欢的文字（300-3000字），AI 将分析其风格特征并生成风格 DNA。
+          </p>
+          <textarea
+            value={styleSampleText}
+            onChange={e => setStyleSampleText(e.target.value)}
+            rows={8}
+            placeholder="在此粘贴文本样例..."
+            className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-none"
+          />
+        </Modal>
       )}
 
       {/* Novel Creation Wizard Modal */}

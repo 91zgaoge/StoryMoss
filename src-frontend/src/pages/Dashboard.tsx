@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
 import { Panel } from '@/components/ui/Panel';
 import { StudioNavRail } from '@/components/ui/StudioNavRail';
 import { useAppStore } from '@/stores/appStore';
@@ -396,69 +397,63 @@ export function Dashboard() {
 
       {/* Create Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fade-in p-4">
-          <Card className="w-full max-w-md mx-4 max-h-[85dvh] overflow-y-auto animate-slide-up">
-            <CardContent className="p-6">
-              <h2 className="font-display text-xl font-bold text-ai-ink mb-4">新建故事</h2>
+        <Modal open onClose={() => setIsModalOpen(false)} title="新建故事" size="sm">
+          <form onSubmit={handleCreate} className="space-y-4">
+            <div>
+              <label className="block text-sm text-ai-ink-2 mb-1">标题 *</label>
+              <input
+                name="title"
+                required
+                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-ai-ink focus:border-cinema-gold focus:outline-none"
+                placeholder="给你的故事起个名字"
+              />
+            </div>
 
-              <form onSubmit={handleCreate} className="space-y-4">
-                <div>
-                  <label className="block text-sm text-ai-ink-2 mb-1">标题 *</label>
-                  <input
-                    name="title"
-                    required
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-ai-ink focus:border-cinema-gold focus:outline-none"
-                    placeholder="给你的故事起个名字"
-                  />
-                </div>
+            <div>
+              <label className="block text-sm text-ai-ink-2 mb-1">类型</label>
+              <select
+                name="genre"
+                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-ai-ink focus:border-cinema-gold focus:outline-none"
+              >
+                <option value="">选择类型</option>
+                <option value="科幻">科幻</option>
+                <option value="奇幻">奇幻</option>
+                <option value="悬疑">悬疑</option>
+                <option value="言情">言情</option>
+                <option value="历史">历史</option>
+                <option value="武侠">武侠</option>
+                <option value="现代">现代</option>
+                <option value="其他">其他</option>
+              </select>
+            </div>
 
-                <div>
-                  <label className="block text-sm text-ai-ink-2 mb-1">类型</label>
-                  <select
-                    name="genre"
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-ai-ink focus:border-cinema-gold focus:outline-none"
-                  >
-                    <option value="">选择类型</option>
-                    <option value="科幻">科幻</option>
-                    <option value="奇幻">奇幻</option>
-                    <option value="悬疑">悬疑</option>
-                    <option value="言情">言情</option>
-                    <option value="历史">历史</option>
-                    <option value="武侠">武侠</option>
-                    <option value="现代">现代</option>
-                    <option value="其他">其他</option>
-                  </select>
-                </div>
+            <div>
+              <label className="block text-sm text-ai-ink-2 mb-1">描述</label>
+              <textarea
+                name="description"
+                rows={3}
+                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-ai-ink focus:border-cinema-gold focus:outline-none resize-none"
+                placeholder="简要描述一下你的故事..."
+              />
+            </div>
 
-                <div>
-                  <label className="block text-sm text-ai-ink-2 mb-1">描述</label>
-                  <textarea
-                    name="description"
-                    rows={3}
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-ai-ink focus:border-cinema-gold focus:outline-none resize-none"
-                    placeholder="简要描述一下你的故事..."
-                  />
-                </div>
+            <StoryFormatFields format={createFormat} onFormatChange={setCreateFormat} />
 
-                <StoryFormatFields format={createFormat} onFormatChange={setCreateFormat} />
-
-                <div className="flex gap-3 pt-4">
-                  <Button type="button" variant="ghost" onClick={() => setIsModalOpen(false)}>
-                    取消
-                  </Button>
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    isLoading={createStory.isPending}
-                    className="flex-1"
-                  >
-                    创建
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-        </div>
+            <div className="flex gap-3 pt-4">
+              <Button type="button" variant="ghost" onClick={() => setIsModalOpen(false)}>
+                取消
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                isLoading={createStory.isPending}
+                className="flex-1"
+              >
+                创建
+              </Button>
+            </div>
+          </form>
+        </Modal>
       )}
 
       {/* Wizard Modal */}
