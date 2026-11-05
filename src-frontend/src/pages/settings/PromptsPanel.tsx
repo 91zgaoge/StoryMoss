@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { Select } from '@/components/ui/controls';
 import { extractMessage } from '@/utils/errorHandler';
 import { loggedInvoke } from '@/services/api/core';
 import { cn } from '@/utils/cn';
@@ -560,10 +561,9 @@ export function PromptsPanel() {
               场景组合预览
               <span className="text-xs text-gray-500">（只读 · 改哪条会影响哪条路径）</span>
             </div>
-            <select
+            <Select
               value={compositionScene}
               onChange={e => setCompositionScene(e.target.value)}
-              className="px-3 py-1.5 bg-cinema-900 border border-cinema-700 rounded text-sm text-white"
               data-testid="composition-scene-select"
             >
               {COMPOSITION_SCENES.map(s => (
@@ -571,7 +571,7 @@ export function PromptsPanel() {
                   {s.label}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
           {composition && (
             <div className="space-y-1">
@@ -617,10 +617,10 @@ export function PromptsPanel() {
           emptyText="未找到匹配的提示词"
           emptyHint="尝试调整搜索条件或分类筛选"
         />
-        <select
+        <Select
           value={activeCategory}
           onChange={e => setActiveCategory(e.target.value as PromptCategory | 'all')}
-          className="h-10 px-3 bg-cinema-900 border border-cinema-700 rounded text-sm text-white"
+          className="h-10"
         >
           <option value="all">全部分类</option>
           {CATEGORY_ORDER.map(cat => (
@@ -628,7 +628,7 @@ export function PromptsPanel() {
               {CATEGORY_LABELS[cat]}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
 
       {/* Prompt Entries */}

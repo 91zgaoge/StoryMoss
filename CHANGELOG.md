@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.83.5（2026-11-05）
+
+**设置控件组件化继续：Agent 模型映射、路由模拟、提示词面板。**
+
+- **迁移**：`AgentConfig` 的两个模型下拉 + 约束输入改共享 `Select/Input`；`RouteSimulator` 的 token 输入 + 模型下拉改 `Input/Select`；`PromptsPanel` 的场景组合/分类下拉改 `Select`。复选框与提示词代码编辑 textarea 保留原生（正确豁免）。
+- **保留**：register/valueAsNumber、Enter 添加约束、模型选项、场景组合只读说明、提示词编辑（Monaco 替代 textarea）全部不变。
+- **验证**：tsc / prettier 全绿；vitest **679 / 3**；playwright **97 / 5**；Rust 未改（2008 / 15 ignored）。
+- **未关闭**：GeneralSettings、UnifiedModelManager 等大面板仍走 `.settings-panel-scope` 作用域样式。
+
 ## v0.83.4（2026-11-05）
 
 **设置控件组件化首个样板：模型编辑 13 个控件迁 Input/Select/Textarea。**

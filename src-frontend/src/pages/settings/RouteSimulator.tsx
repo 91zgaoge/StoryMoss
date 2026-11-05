@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Route, Play, AlertCircle, CheckCircle2, Clock, DollarSign, Cpu } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
+import { Input, Select } from '@/components/ui/controls';
 import { Button } from '@/components/ui/Button';
 import { useSimulateRoute } from '@/hooks/useRouter';
 import type { Complexity, Priority, RoutingDecision, RoutingRequest, TaskType } from '@/types/llm';
@@ -93,13 +94,13 @@ export function RouteSimulator() {
             <label className="block text-sm font-medium text-gray-300 mb-2">
               预计输入 Token 数
             </label>
-            <input
+            <Input
               type="number"
               min={0}
               step={256}
               value={estimatedTokens}
               onChange={e => setEstimatedTokens(Number(e.target.value))}
-              className="w-full md:w-64 bg-cinema-900 border border-cinema-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-cinema-gold"
+              className="md:w-64"
             />
             <p className="text-xs text-gray-500 mt-1">用于过滤上下文长度不足的模型，0 表示不限制</p>
           </div>
@@ -187,17 +188,13 @@ function SelectField<T extends string>({
   return (
     <div>
       <label className="block text-sm font-medium text-gray-300 mb-2">{label}</label>
-      <select
-        value={value}
-        onChange={e => onChange(e.target.value as T)}
-        className="w-full bg-cinema-900 border border-cinema-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-cinema-gold"
-      >
+      <Select value={value} onChange={e => onChange(e.target.value as T)}>
         {options.map(opt => (
           <option key={opt.value} value={opt.value}>
             {opt.label}
           </option>
         ))}
-      </select>
+      </Select>
     </div>
   );
 }

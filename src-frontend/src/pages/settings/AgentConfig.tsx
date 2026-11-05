@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Bot, SlidersHorizontal, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
+import { Input, Select } from '@/components/ui/controls';
 import { useSettingsContext } from '@/hooks/useSettingsContext';
 import type { AgentModelMapping, ModelConfig, TaskType, Complexity, Priority } from '@/types/llm';
 
@@ -73,18 +74,13 @@ function ModelSelect({
   disabled?: boolean;
 }) {
   return (
-    <select
-      value={value || ''}
-      onChange={e => onChange(e.target.value)}
-      disabled={disabled}
-      className="w-full bg-cinema-800 border border-cinema-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cinema-gold disabled:opacity-50"
-    >
+    <Select value={value || ''} onChange={e => onChange(e.target.value)} disabled={disabled}>
       {options.map(opt => (
         <option key={opt.id} value={opt.id}>
           {opt.name}
         </option>
       ))}
-    </select>
+    </Select>
   );
 }
 
@@ -128,11 +124,10 @@ function PolicySelect<T extends string>({
   placeholder?: string;
 }) {
   return (
-    <select
+    <Select
       value={value || ''}
       onChange={e => onChange((e.target.value as T) || undefined)}
       disabled={disabled}
-      className="w-full bg-cinema-800 border border-cinema-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cinema-gold disabled:opacity-50"
     >
       <option value="">{placeholder || '使用默认'}</option>
       {options.map(opt => (
@@ -140,7 +135,7 @@ function PolicySelect<T extends string>({
           {opt.label}
         </option>
       ))}
-    </select>
+    </Select>
   );
 }
 
@@ -261,7 +256,7 @@ export function AgentConfig() {
                   {/* v0.15.0: 强制锁定模型，网关不会根据算力档案替换 */}
                   <div className="px-4 pb-3">
                     <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-400">
-                      <input
+                      <Input
                         type="checkbox"
                         checked={agent.force_locked || false}
                         onChange={e => handleChange(agent, 'force_locked', e.target.checked)}
@@ -361,7 +356,7 @@ function ConstraintInput({
   return (
     <div className="space-y-2">
       <div className="flex gap-2">
-        <input
+        <Input
           type="text"
           value={input}
           onChange={e => setInput(e.target.value)}
@@ -373,7 +368,7 @@ function ConstraintInput({
           }}
           disabled={disabled}
           placeholder="例如 local_only、min_quality:high、requires:long_context"
-          className="flex-1 bg-cinema-800 border border-cinema-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-cinema-gold disabled:opacity-50"
+          className="flex-1"
         />
         <button
           type="button"
