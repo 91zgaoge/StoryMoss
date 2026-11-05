@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.82.5 架构文档
+# StoryMoss (草苔) v0.82.6 架构文档
 
+> **v0.82.6**：**V154 伏笔计划回填**——`db/migrations/V154__backfill_foreshadow_payoff_windows` 扫描 `target_end_scene IS NULL AND status='setup'` 的伏笔，从 content 解析「收/回收：第N章」（阿拉伯/中文数字），取最早计划章号回填 `target_end_scene`；幂等、无计划不写。
+>
 > **v0.82.5**：**伏笔计划解析补齐**——`parse_chapter_number` 支持中文数字；`parse_planned_payoff_chapters` 收集全部「收：第N章」，`get_writing_hints` 优先逾期（≤当前场）最小的一条，否则取最近未来窗口。
 >
 > **v0.82.4**：**伏笔文本回收计划解析**——`ForeshadowingServiceImpl::get_writing_hints` 在 `target_end_scene` 为空时调用 `parse_planned_payoff_chapter(content)`，解析「收/回收：第N章」作为计划窗口并按逾期/临期/远期分档。

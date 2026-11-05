@@ -1158,6 +1158,7 @@ pub mod V146__editor_gate_records;
 pub mod V147__beat_technique_log;
 pub mod V148__dedupe_character_entities;
 pub mod V149__corpus_and_director;
+pub mod V154__backfill_foreshadow_payoff_windows;
 
 /// Returns all Rust-coded migrations (versions 28-103, 115-117) ordered by
 /// version.
@@ -1253,5 +1254,6 @@ pub fn all_rust_migrations() -> Vec<Box<dyn RustMigration>> {
         Box::new(V147__beat_technique_log::Migration),
         Box::new(V148__dedupe_character_entities::Migration),
         Box::new(V149__corpus_and_director::Migration),
+        Box::new(V154__backfill_foreshadow_payoff_windows::Migration),
     ]
 }

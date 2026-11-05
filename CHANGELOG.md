@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.82.6（2026-11-04）
+
+**V154 迁移：把旧伏笔文本里的回收计划回填成结构化窗口。**
+
+- **问题**：本机 127 条未回收伏笔的 `target_start/end` 全空——计划只写在伏笔文本里（「埋：第1章；收：第9章」）。看板不显示计划窗口、逾期检测不触发，续写只能靠 v0.82.4/0.82.5 的文本解析兜底。
+- **迁移**：新增 Rust 迁移 V154（`V154__backfill_foreshadow_payoff_windows`）——扫描 `target_end_scene IS NULL AND status='setup'` 的记录，从 content 解析「收/回收：第N章」（阿拉伯/中文数字），取最早计划章号回填 `target_end_scene`；无计划文本不写，幂等（只处理 NULL）。
+- **效果**：伏笔看板显示目标窗口，`detect_overdue_payoffs` 能按窗口判逾期，续写 prompt 拿到结构化窗口（不再依赖文本解析）。
+- **验证**：Rust **2007 passed / 13 ignored**（+1：V154 回填阿拉伯/中文/多条取最早/幂等）；`cargo check` / nightly fmt 全绿；前端未改动（基线 vitest 679/3、playwright 94/5）。
+- **未关闭**：迁移只在启动时跑一次；之后新增的无窗口伏笔仍靠文本解析兜底（可后续在编辑/提炼时同步回填）；真机复测。
+
 ## v0.82.5（2026-11-04）
 
 **伏笔文本计划解析补齐：中文数字 + 多条计划优先逾期。**
