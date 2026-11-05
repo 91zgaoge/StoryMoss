@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.82.8（2026-11-05）
+
+**真机探针：导演场景目标 + 伏笔提示实际使用（本机实跑通过）。**
+
+- **导演场景目标探针**（`real_machine_probe_director_scene_target`）：真机库副本 → CrewSnapshot scenes → 导演提示词 Scenes 区块 → 本地 Qwen3.8 模型请求「只修订第9场」；结果 `scenes=9`、prompt Scenes ✅、模型返回 `target_scene=9`、`needs_confirmation=true`，7.6s。
+- **伏笔使用探针**（`real_machine_probe_foreshadow_hint_usage`）：真机副本经 V154 回填 → bundle pending 8 条 → 续写资产伏笔块 ✅（3387 字）→ 本地模型按提示写 192 字续写；按二字片段命中 3/7 伏笔候选（德良/沈望舒/小满/缺角裁切痕），5.9s，确认真机正文实际使用伏笔。
+- **真机发现**：V154 仅回填 1/127 条结构化窗口——计划清单只存在一条 blob 记录里，其余 126 条碎片没有「收：第N章」文本；文本解析兜底仍负责这些条目。
+- **验证**：Rust **2007 passed / 15 ignored**（+2 ignored 真机探针；全量 277s）；`cargo check` / nightly fmt 全绿；前端基线不变（vitest 679/3、playwright 94/5）。
+- **附带确认**：v0.82.7 的 CI 全绿——docs-guard、frontend-check、rust-check×3、e2e-check、tauri-build×3（macOS dmg / Windows msi / Linux AppImage+deb）全部 success。
+
 ## v0.82.7（2026-11-05）
 
 **补交遗漏的新增文件（仓库完整性修复）。**

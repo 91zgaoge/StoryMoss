@@ -1345,6 +1345,282 @@ async fn real_machine_probe_director_planning() {
     }
 }
 
+/// 探针 8（v0.82.x）：真机导演场景目标——快照列出 scenes + 导演提示词含
+/// Scenes 区块；用真实模型请求「只修订第N场」，检查计划是否带 target_scene。
+#[tokio::test]
+#[ignore]
+async fn real_machine_probe_director_scene_target() {
+    let Some(cfg) = real_config() else { return };
+    let creative = match pick_profile(&cfg, env_var(ENV_MODEL).as_deref()) {
+        Ok(p) => p,
+        Err(e) => {
+            println!("[真机探针] 跳过：{e}");
+            return;
+        }
+    };
+    let mut profile = resolve_tool_profile(&cfg, &creative);
+    if profile.timeout_seconds < 300 {
+        profile.timeout_seconds = 300;
+    }
+    let (tmp, _db_path, _vs_path) = copy_real_state();
+    let pool = crate::db::connection::init_db(&tmp, None).expect("打开副本库并迁移");
+    let Some((story_id, _, _, _)) = pick_latest_story(&pool) else {
+        println!("[真机探针] 跳过：副本库里没有带正文的场景");
+        return;
+    };
+    let snapshot = match crate::agency::crew::CrewInspector::inspect(&pool, &story_id) {
+        Ok(s) => s,
+        Err(e) => {
+            println!("[真机探针] 跳过：CrewSnapshot 失败 {e}");
+            return;
+        }
+    };
+    if snapshot.scenes.is_empty() {
+        println!("[真机探针] 跳过：快照没有场景（scenes 为空）");
+        return;
+    }
+    let target = snapshot
+        .scenes
+        .iter()
+        .filter(|s| s.word_count > 100)
+        .last()
+        .or_else(|| snapshot.scenes.last())
+        .cloned()
+        .expect("scenes 非空");
+    let seq = target.sequence_number;
+    println!(
+        "[真机探针] 导演场景目标：story={story_id} scenes={} target_seq={seq} title={} words={}",
+        snapshot.scenes.len(),
+        target.title,
+        target.word_count
+    );
+    let system =
+        crate::agency::director::resolve_director_prompt(&pool, &snapshot.story_title).await;
+    let user = crate::agency::director::render_director_user_prompt(
+        &snapshot,
+        &format!(
+            "只修订第{seq}场（场景序号 {seq}），派主控强化这一场的冲突与情感冲击；不要改其他场景、不要新增章节。"
+        ),
+        &[],
+        "",
+        &[],
+    );
+    let prompt_has_scenes = user.contains("Scenes") && user.contains(&format!("- {seq} |"));
+    println!(
+        "[真机探针] 导演提示词 Scenes 区块：{}",
+        if prompt_has_scenes { "✅" } else { "❌" }
+    );
+    let adapter = build_adapter(&profile);
+    let started = std::time::Instant::now();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(180),
+        adapter.generate(GenerateRequest {
+            prompt: user,
+            max_tokens: Some(4096),
+            temperature: Some(0.4),
+            system_prompt: Some(system),
+            ..Default::default()
+        }),
+    )
+    .await;
+    match result {
+        Ok(Ok(resp)) => {
+            println!(
+                "[真机探针] 场景目标原始应答 {} 字 / {:.1}s",
+                resp.content.chars().count(),
+                started.elapsed().as_secs_f64()
+            );
+            match crate::agency::director::parse_loose::<crate::agency::director::DirectorPlan>(
+                &resp.content,
+            ) {
+                Some(plan) => {
+                    let hit = plan.actions.iter().any(|a| a.target_scene == Some(seq));
+                    println!(
+                        "[真机探针] 导演场景目标 {} target_scene={} actions={} needs_confirmation={}",
+                        if hit { "✅" } else { "⚠️ 未填 target_scene" },
+                        plan.actions
+                            .iter()
+                            .map(|a| a.target_scene.map(|v| v.to_string()).unwrap_or_else(|| "-".into()))
+                            .collect::<Vec<_>>()
+                            .join(","),
+                        plan.actions.len(),
+                        plan.needs_confirmation
+                    );
+                }
+                None => println!(
+                    "[真机探针] 场景目标 ❌ 不是可解析 JSON：{}",
+                    resp.content.chars().take(160).collect::<String>()
+                ),
+            }
+        }
+        Ok(Err(e)) => println!("[真机探针] 场景目标 ❌ 调用失败：{e}"),
+        Err(_) => println!("[真机探针] 场景目标 ❌ 超时（>180s）"),
+    }
+}
+
+/// 探针 9（v0.82.x）：真机伏笔使用——副本库经 V154 回填后统计窗口；
+/// 续写资产含【本拍伏笔（必须使用）】；真实模型按提示写短续写并检查是否
+/// 提到伏笔内容（软断言，打印结果不 panic）。
+#[tokio::test]
+#[ignore]
+async fn real_machine_probe_foreshadow_hint_usage() {
+    let Some(cfg) = real_config() else { return };
+    let creative = match pick_profile(&cfg, env_var(ENV_MODEL).as_deref()) {
+        Ok(p) => p,
+        Err(e) => {
+            println!("[真机探针] 跳过：{e}");
+            return;
+        }
+    };
+    // 写作档在生产可用；真机探针优先使用 Tool/本地模型（deepseek-v4 曾返回
+    // 空正文，探针要验证的是伏笔提示链而不是模型健康）。
+    let mut profile = resolve_tool_profile(&cfg, &creative);
+    if profile.timeout_seconds < 300 {
+        profile.timeout_seconds = 300;
+    }
+    println!("[真机探针] 伏笔使用模型={}", profile.model);
+    let (tmp, _db_path, _vs_path) = copy_real_state();
+    let pool = crate::db::connection::init_db(&tmp, None).expect("打开副本库并迁移");
+    let Some((story_id, _, _, _)) = pick_latest_story(&pool) else {
+        println!("[真机探针] 跳过：副本库里没有带正文的场景");
+        return;
+    };
+    let (setup_total, with_window) = {
+        let conn = pool.get().unwrap();
+        let total: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM foreshadowing_tracker WHERE story_id = ?1 AND status = 'setup'",
+                rusqlite::params![&story_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let windowed: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM foreshadowing_tracker WHERE story_id = ?1 AND status = 'setup' AND target_end_scene IS NOT NULL",
+                rusqlite::params![&story_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        (total, windowed)
+    };
+    println!(
+        "[真机探针] V154 回填后：未回收伏笔 {setup_total} 条，其中 {with_window} 条有结构化窗口"
+    );
+    let Some(parts) = crate::agency::coordinator::load_continue_context_parts(&pool, &story_id)
+    else {
+        println!("[真机探针] 跳过：continue context 加载失败");
+        return;
+    };
+    let hints = &parts.bundle.pending_foreshadowings;
+    println!(
+        "[真机探针] bundle pending hints={} overdue={}",
+        hints.len(),
+        parts.bundle.overdue_foreshadowings.len()
+    );
+    let assets = crate::agency::continue_assets::render_continue_assets(
+        &crate::agency::continue_assets::ContinueAssetsInput {
+            bundle: &parts.bundle,
+            admitted: &[],
+            roster: &[],
+            location: None,
+            next_node: "",
+            chapter_outline: "",
+            progress_lines: &[],
+            prior_prose: "",
+            tension_lines: &[],
+            arc_lines: &[],
+            logline: None,
+            full_card_names: &[],
+            continuity_blocks: &[],
+        },
+    );
+    let block_ok = assets.contains("【本拍伏笔（必须使用）】");
+    println!(
+        "[真机探针] 续写资产伏笔块 {} 资产 {} 字",
+        if block_ok { "✅" } else { "❌" },
+        assets.chars().count()
+    );
+    if hints.is_empty() {
+        println!("[真机探针] ⚠️ 无 pending hints，跳过模型验证");
+        return;
+    }
+    let candidates: Vec<String> = hints
+        .iter()
+        .take(8)
+        .filter_map(|h| {
+            let body = h
+                .split_once("未回收伏笔: ")
+                .map(|x| x.1)
+                .unwrap_or(h.as_str())
+                .trim();
+            if body.contains("伏笔清单") || body.chars().count() < 8 {
+                return None;
+            }
+            Some(body.chars().take(6).collect::<String>())
+        })
+        .collect();
+    let Some(keyword) = candidates.first() else {
+        println!("[真机探针] ⚠️ 8 条 hint 中没有可提取的具体伏笔关键字");
+        return;
+    };
+    println!("[真机探针] 伏笔关键字候选={:?}", candidates);
+    let adapter = build_adapter(&profile);
+    let prompt = format!(
+        "{assets}
+
+请按上面的伏笔块写 120~180 字中文续写，必须实质推进其中至少一条伏笔（具体物件/对话/行动），不要只复述设定。"
+    );
+    let started = std::time::Instant::now();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(180),
+        adapter.generate(GenerateRequest {
+            prompt,
+            max_tokens: Some(600),
+            temperature: Some(0.6),
+            ..Default::default()
+        }),
+    )
+    .await;
+    match result {
+        Ok(Ok(resp)) => {
+            // 模型常改写/缩写伏笔原文，逐字 6 字匹配过严；按候选的相邻
+            // 二字片段命中（如「德良」「沈望」「小满」）计为使用。
+            let mut hits = 0usize;
+            for c in &candidates {
+                let chars: Vec<char> = c.chars().collect();
+                if resp.content.contains(c.as_str()) {
+                    hits += 1;
+                    continue;
+                }
+                if chars
+                    .windows(2)
+                    .any(|w| resp.content.contains(&w.iter().collect::<String>()))
+                {
+                    hits += 1;
+                }
+            }
+            let used = hits > 0;
+            println!(
+                "[真机探针] 伏笔使用 {} 命中 {hits}/{} 响应 {} 字 / {:.1}s keyword={keyword}",
+                if used {
+                    "✅"
+                } else {
+                    "⚠️ 未命中伏笔关键字"
+                },
+                candidates.len(),
+                resp.content.chars().count(),
+                started.elapsed().as_secs_f64()
+            );
+            println!(
+                "[真机探针] 响应预览：{}",
+                resp.content.chars().take(160).collect::<String>()
+            );
+        }
+        Ok(Err(e)) => println!("[真机探针] 伏笔使用 ❌ 调用失败：{e}"),
+        Err(_) => println!("[真机探针] 伏笔使用 ❌ 超时（>180s）"),
+    }
+}
+
 /// 探针 6：真机语料提炼——创建一条短语料 → 同源提示词 → Background 档模型
 /// → 解析 CorpusDistillation → 写回 distilled_json。
 #[tokio::test]

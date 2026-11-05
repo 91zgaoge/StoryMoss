@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.82.7 架构文档
+# StoryMoss (草苔) v0.82.8 架构文档
 
+> **v0.82.8**：**真机探针**——`real_machine_probe_director_scene_target`（CrewSnapshot scenes → 导演 prompt Scenes → 真实模型 target_scene）与 `real_machine_probe_foreshadow_hint_usage`（V154 副本 → bundle hints → 资产伏笔块 → 真实模型实际使用），均 `#[ignore]` 真机跑。
+>
 > **v0.82.7**：**仓库完整性修复**——补交此前 `git add -u` 遗漏的 10 个 ui 组件（Modal/ConfirmDialog/PageHeader/Field/Table/EmptyState/Skeleton/confirm/controls/layers）、5 个单测与 V154 迁移，使推送仓库可构建。
 >
 > **v0.82.6**：**V154 伏笔计划回填**——`db/migrations/V154__backfill_foreshadow_payoff_windows` 扫描 `target_end_scene IS NULL AND status='setup'` 的伏笔，从 content 解析「收/回收：第N章」（阿拉伯/中文数字），取最早计划章号回填 `target_end_scene`；幂等、无计划不写。
