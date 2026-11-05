@@ -57,6 +57,66 @@ fn parse_planned_payoff_chapters(content: &str) -> Vec<i32> {
     out
 }
 
+/// v0.83.2：把「伏笔清单」类 blob 的多条计划行压成紧凑摘要：
+/// `F1 代签笔迹（埋第1章 → 收第12章）`。最多 6 条，避免 240 字截断
+/// 只露出前两条、丢掉真正可执行的回收计划。
+fn plan_line_summaries(content: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || !(line.starts_with('F') || line.contains('埋') || line.contains('收'))
+        {
+            continue;
+        }
+        let bury = chapter_after_marker(line, '埋');
+        let pay = chapter_after_marker(line, '收');
+        if bury.is_none() && pay.is_none() {
+            continue;
+        }
+        let label: String = line
+            .split(['—', '–'])
+            .next()
+            .unwrap_or(line)
+            .chars()
+            .take(12)
+            .collect();
+        let label = label.trim().to_string();
+        if label.is_empty() {
+            continue;
+        }
+        let bury_txt = bury
+            .map(|n| format!("第{n}章"))
+            .unwrap_or_else(|| "-".into());
+        let pay_txt = pay
+            .map(|n| format!("第{n}章"))
+            .unwrap_or_else(|| "-".into());
+        out.push(format!("{label}（埋{bury_txt} → 收{pay_txt}）"));
+        if out.len() >= 6 {
+            break;
+        }
+    }
+    out
+}
+
+/// 在 marker 之后找「第N章」并解析章号。
+fn chapter_after_marker(line: &str, marker: char) -> Option<i32> {
+    let pos = line.find(marker)?;
+    let tail = &line[pos..];
+    let hash = tail.find('第')?;
+    let after: String = tail[hash..].chars().skip(1).collect();
+    let mut raw = String::new();
+    for c in after.chars() {
+        if c == '章' {
+            break;
+        }
+        if c.is_whitespace() {
+            continue;
+        }
+        raw.push(c);
+    }
+    parse_chapter_number(&raw)
+}
+
 /// 解析「4」「9」「十二」「一百零八」这类章号（0 视为无效）。
 fn parse_chapter_number(raw: &str) -> Option<i32> {
     if raw.is_empty() {
@@ -521,8 +581,15 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
                     .collect::<Vec<_>>()
                     .join(" ");
                 let blob_like = r.content.contains('埋') && r.content.contains('收');
+                let planned: Vec<String> = if blob_like {
+                    plan_line_summaries(&r.content)
+                } else {
+                    Vec::new()
+                };
                 let cap = if blob_like { 240 } else { 60 };
-                let content = if raw.chars().count() > cap {
+                let content = if !planned.is_empty() {
+                    planned.join("；")
+                } else if raw.chars().count() > cap {
                     format!("{}…", raw.chars().take(cap).collect::<String>())
                 } else {
                     raw
@@ -1223,6 +1290,33 @@ mod tests {
                 .iter()
                 .any(|h| h.contains("第4章") && h.contains("请尽快回收")),
             "多条计划应优先逾期的第4章: {hints:?}"
+        );
+    }
+
+    /// v0.83.2：伏笔清单 blob 的多条计划行应压成紧凑摘要（埋第X章 → 收第Y章），
+    /// 而不是 240 字截断只露前两条。
+    #[test]
+    fn service_hints_compact_plan_blob_lines() {
+        let pool = in_memory_pool();
+        seed_story_and_scenes(&pool, "story-1");
+        let service = ForeshadowingServiceImpl::new(pool);
+
+        service
+            .create(
+                "story-1",
+                "【伏笔清单】\nF1 代签笔迹——埋：第1章；回收：第12章\nF2 缺页——埋：第7章；回收：卷2",
+                Some("s1"),
+                8,
+            )
+            .unwrap();
+        let hints = service.get_writing_hints("story-1", 3).unwrap();
+        assert!(
+            hints[0].contains("F1 代签笔迹（埋第1章 → 收第12章）"),
+            "清单应压成紧凑计划摘要: {hints:?}"
+        );
+        assert!(
+            hints[0].contains("F2 缺页（埋第7章 → 收-）"),
+            "第二条计划也应保留: {hints:?}"
         );
     }
 

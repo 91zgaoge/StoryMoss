@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.83.1 架构文档
+# StoryMoss (草苔) v0.83.2 架构文档
 
+> **v0.83.2**：**伏笔清单摘要**——`plan_line_summaries` 将「伏笔清单」blob 行压成 `F1 代签笔迹（埋第1章 → 收第12章）`（≤6 条），替代 240 字截断原文；`chapter_after_marker` 解析埋/收章号。
+>
 > **v0.83.1**：**弹窗视口探针**——`e2e/backstage-modal-viewport.spec.ts` 在 800×600 下打开 Dashboard/Stories/Characters 三个 Modal，断言 boundingBox 不超过视口且内容区存在独立滚动容器。
 >
 > **v0.83.0**：**弹窗统一完成**——体裁模板、角色添加/AI 扩展、世界观规则/文化/AI 生成全部迁入共享 `Modal`；表单校验与约束文案逐字保留。进度弹窗与专用组件（StyleDnaModal/ExportDialog/Login/UpgradeModal/CharacterEditModal）保持自带壳。
