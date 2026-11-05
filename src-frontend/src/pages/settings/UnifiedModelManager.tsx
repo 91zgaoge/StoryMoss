@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { Input, Select } from '@/components/ui/controls';
 import { useSettingsContext } from '@/hooks/useSettingsContext';
 import { useModelConnectionStore } from '@/stores/modelConnectionStore';
 import { saveSettings } from '@/services/settings';
@@ -435,8 +436,8 @@ function ModelRoleCard({
                   <span className="text-xs text-gray-600 hidden sm:block flex-1">
                     {config.desc}
                   </span>
-                  <select
-                    className="bg-cinema-800 border border-cinema-700 rounded-md text-sm text-white px-2 py-1.5 min-w-[160px] focus:border-cinema-gold focus:outline-none"
+                  <Select
+                    className="min-w-[160px]"
                     value={currentId || ''}
                     onChange={e => {
                       if (e.target.value) {
@@ -450,14 +451,14 @@ function ModelRoleCard({
                         {m.name}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                   {/* v0.23.66: 温度覆盖输入 */}
                   {tempMap[role] && (
                     <div className="flex items-center gap-1">
                       <span className="text-xs text-gray-500">{tempMap[role].label}</span>
-                      <input
+                      <Input
                         type="number"
-                        className="bg-cinema-800 border border-cinema-700 rounded-md text-xs text-white px-1.5 py-1 w-16 text-center focus:border-cinema-gold focus:outline-none"
+                        className="w-16 text-center"
                         min={0.1}
                         max={2.0}
                         step={0.1}
@@ -496,9 +497,9 @@ function ModelRoleCard({
             <span className="text-xs text-gray-600 hidden sm:block flex-1">
               建议范围 500-5000，默认 2000；实际目标区间 = 字数 × 0.7 ~ × 1.3
             </span>
-            <input
+            <Input
               type="number"
-              className="bg-cinema-800 border border-cinema-700 rounded-md text-xs text-white px-1.5 py-1 w-20 text-center focus:border-cinema-gold focus:outline-none"
+              className="w-20 text-center"
               min={500}
               max={5000}
               step={100}

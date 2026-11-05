@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.83.6 架构文档
+# StoryMoss (草苔) v0.83.7 架构文档
 
+> **v0.83.7**：**设置控件组件化完成**——13 面板标准文本/数字/下拉/多行控件全部迁 `Input/Select/Textarea`；滑块/复选框/文件输入/提示词代码 textarea 保留原生。
+>
 > **v0.83.6**：**GeneralSettings 控件组件化**——9 个输入/下拉/多行控件迁 `Input/Select/Textarea`；滑块与开关保留原生。剩余大面板仍走 `.settings-panel-scope`。
 >
 > **v0.83.5**：**设置控件组件化继续**——AgentConfig（模型下拉/约束输入）、RouteSimulator（token 输入/模型下拉）、PromptsPanel（场景组合/分类下拉）迁 `Input/Select`；checkbox 与提示词代码 textarea 保留原生。

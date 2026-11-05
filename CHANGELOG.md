@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.83.7（2026-11-05）
+
+**设置控件组件化完成：13 面板标准控件全部迁 Input/Select/Textarea。**
+
+- **收尾迁移**：`UnifiedModelManager` 的模型选择下拉、温度/字数上限数字输入迁共享组件（保留 min-w/text 宽度与居中）；至此所有设置面板的文本/数字/下拉/多行控件均为共享组件。
+- **豁免清单**：滑块（range）、复选框/开关（checkbox）、文件输入（file）、提示词代码编辑 textarea 保持原生——这些控件共享组件不应接管。
+- **验证**：tsc / prettier 全绿；vitest **679 / 3**；playwright **97 / 5**；Rust 未改（2008 / 15 ignored）。
+- **未关闭**：`StyleDnaModal`/`ExportDialog`/`Login` 自带壳仍保持；安装包 UI 交互复测。
+
 ## v0.83.6（2026-11-05）
 
 **GeneralSettings 控件组件化：9 个输入/下拉/多行控件迁 Input/Select/Textarea。**
