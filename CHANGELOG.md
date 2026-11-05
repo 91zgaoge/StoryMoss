@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.83.6（2026-11-05）
+
+**GeneralSettings 控件组件化：9 个输入/下拉/多行控件迁 Input/Select/Textarea。**
+
+- 写作策略、字数上限、划分章节、健康探测等 9 个控件改用共享组件（controlClass 单一来源）；滑块（4）与复选框/开关保留原生（正确豁免）。
+- 保留：所有范围/默认值提示、禁用态、`focus:ring` 交互、字数上限 placeholder。
+- **验证**：tsc / prettier 全绿；vitest **679 / 3**；playwright **97 / 5**；Rust 未改（2008 / 15 ignored）。
+- **未关闭**：UnifiedModelManager 等剩余面板仍走 `.settings-panel-scope` 作用域样式。
+
 ## v0.83.5（2026-11-05）
 
 **设置控件组件化继续：Agent 模型映射、路由模拟、提示词面板。**

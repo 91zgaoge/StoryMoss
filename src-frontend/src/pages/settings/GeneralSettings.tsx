@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Panel } from '@/components/ui/Panel';
 import { Button } from '@/components/ui/Button';
+import { Input, Select, Textarea } from '@/components/ui/controls';
 import { useUpdater } from '@/hooks/useUpdater';
 import { useSettingsContext } from '@/hooks/useSettingsContext';
 import { useDebounceCallback } from '@/hooks/useDebounceCallback';
@@ -542,7 +543,7 @@ export function GeneralSettings({
                 {/* v0.14.3: AI 生成模式 */}
                 <div>
                   <label className="block text-sm text-gray-400 mb-2">AI 改写模式</label>
-                  <select
+                  <Select
                     value={
                       settings?.generation_mode === 'fast' || settings?.generation_mode === 'full'
                         ? settings.generation_mode
@@ -553,29 +554,27 @@ export function GeneralSettings({
                       updateSettings({ generation_mode: v });
                     }}
                     disabled={isPending}
-                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-cinema-gold/30"
                   >
                     <option value="auto">自动 — 有选中文本走完整质检</option>
                     <option value="fast">快速 — 单次生成</option>
                     <option value="full">精修 — 含质检改写</option>
-                  </select>
+                  </Select>
                 </div>
 
                 {/* v0.30.50（issue #14）: 后台健康探测模式 */}
                 <div>
                   <label className="block text-sm text-gray-400 mb-2">后台健康探测</label>
-                  <select
+                  <Select
                     value={settings?.health_probe_mode ?? 'always'}
                     onChange={e => {
                       const v = e.target.value as 'always' | 'on_demand';
                       updateSettings({ health_probe_mode: v });
                     }}
                     disabled={isPending}
-                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-cinema-gold/30"
                   >
                     <option value="always">持续探测（默认）— 每 10 秒保活，生成时更快</option>
                     <option value="on_demand">仅按需探测 — 闲置时完全静默</option>
-                  </select>
+                  </Select>
                   <p className="text-xs text-gray-500 mt-1.5">
                     后台每 10 秒轻量保活；仅按需探测在首次生成前多花几秒做前置探测。
                   </p>
@@ -584,18 +583,17 @@ export function GeneralSettings({
                 {/* v0.26.57: 自动划分章节 */}
                 <div>
                   <label className="block text-sm text-gray-400 mb-2">划分章节方式</label>
-                  <select
+                  <Select
                     value={settings?.chapter_split_mode ?? 'word_count'}
                     onChange={e => {
                       const v = e.target.value as 'word_count' | 'plot';
                       updateSettings({ chapter_split_mode: v });
                     }}
                     disabled={isPending}
-                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-cinema-gold/30"
                   >
                     <option value="word_count">按字数 — 超过上限后在段落边界切出下一章</option>
                     <option value="plot">按情节 — 在时间/地点等场景转换点切章</option>
-                  </select>
+                  </Select>
                   <p className="text-xs text-gray-500 mt-1.5">
                     场景保存空闲约 30 秒后，仅对故事最新一章自动划分；中间章节改写不会重排后续章号。
                   </p>
@@ -607,7 +605,7 @@ export function GeneralSettings({
                       字数上限
                       <span className="ml-2 text-xs text-gray-500">中文「字」；留空=自动 3000</span>
                     </label>
-                    <input
+                    <Input
                       type="number"
                       min={0}
                       step={100}
@@ -627,7 +625,6 @@ export function GeneralSettings({
                         }
                       }}
                       disabled={isPending}
-                      className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-cinema-gold/30"
                     />
                     <p className="text-xs text-gray-500 mt-1.5">留空使用默认 3000 字。</p>
                   </div>
@@ -922,7 +919,7 @@ export function GeneralSettings({
                     — 与模型服务端建立网络连接的最大等待时间
                   </span>
                 </label>
-                <input
+                <Input
                   type="number"
                   min={5}
                   max={120}
@@ -931,7 +928,6 @@ export function GeneralSettings({
                     handleTimeoutChange('llm_connect_timeout_secs', Number(e.target.value))
                   }
                   onBlur={() => handleTimeoutBlur('llm_connect_timeout_secs')}
-                  className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   自托管模型（vllm/Ollama）建议 30，云端 API 建议 10
@@ -945,7 +941,7 @@ export function GeneralSettings({
                     — 发送请求后等待 AI 开始输出第一个字的时间
                   </span>
                 </label>
-                <input
+                <Input
                   type="number"
                   min={10}
                   max={300}
@@ -954,7 +950,6 @@ export function GeneralSettings({
                     handleTimeoutChange('llm_first_chunk_timeout_secs', Number(e.target.value))
                   }
                   onBlur={() => handleTimeoutBlur('llm_first_chunk_timeout_secs')}
-                  className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   模型冷启动（加载到显存）可能需要更长时间，可调至 120
@@ -968,7 +963,7 @@ export function GeneralSettings({
                     — 单个写作步骤（如质检、改写）的最大执行时间
                   </span>
                 </label>
-                <input
+                <Input
                   type="number"
                   min={10}
                   max={300}
@@ -977,7 +972,6 @@ export function GeneralSettings({
                     handleTimeoutChange('executor_step_timeout_secs', Number(e.target.value))
                   }
                   onBlur={() => handleTimeoutBlur('executor_step_timeout_secs')}
-                  className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
                 />
                 <p className="text-xs text-gray-500 mt-1">单步超时应小于总超时，默认 90 秒</p>
               </div>
@@ -987,7 +981,7 @@ export function GeneralSettings({
                   生成总超时（秒）
                   <span className="text-gray-600 ml-1">— 从开始创作到必须返回结果的总时间上限</span>
                 </label>
-                <input
+                <Input
                   type="number"
                   min={30}
                   max={1800}
@@ -996,7 +990,6 @@ export function GeneralSettings({
                     handleTimeoutChange('smart_execute_total_timeout_secs', Number(e.target.value))
                   }
                   onBlur={() => handleTimeoutBlur('smart_execute_total_timeout_secs')}
-                  className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   慢模型建议 300，快模型可设 120。应大于所有单步超时
@@ -1010,7 +1003,7 @@ export function GeneralSettings({
                     — 界面等待后端响应的最长时间，超过此值弹出诊断卡片
                   </span>
                 </label>
-                <input
+                <Input
                   type="number"
                   min={30}
                   max={1800}
@@ -1019,7 +1012,6 @@ export function GeneralSettings({
                     handleTimeoutChange('frontend_timeout_secs', Number(e.target.value))
                   }
                   onBlur={() => handleTimeoutBlur('frontend_timeout_secs')}
-                  className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm"
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   应大于后端总超时（留 20-30 秒余量），默认 200

@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.83.5 项目完成状态
+# StoryMoss (草苔) v0.83.6 项目完成状态
 
+> 最后更新: 2026-11-05（**v0.83.6：GeneralSettings 控件组件化**——9 控件迁 Input/Select/Textarea；滑块/开关豁免；提示与禁用态保留。vitest **679 / 3**；playwright **97 / 5**；tsc/prettier 全绿。）
+>
 > 最后更新: 2026-11-05（**v0.83.5：设置控件组件化继续**——AgentConfig/RouteSimulator/PromptsPanel 下拉与输入迁 Select/Input；checkbox/提示词代码 textarea 豁免。vitest **679 / 3**；playwright **97 / 5**；tsc/prettier 全绿。）
 >
 > 最后更新: 2026-11-05（**v0.83.4：模型编辑控件组件化**——13 个控件迁 Input/Select/Textarea；复选框豁免；register/API Key/参数范围/系统提示词不变。其余面板仍作用域样式统一。vitest **679 / 3**；playwright **97 / 5**；tsc/prettier 全绿。）
