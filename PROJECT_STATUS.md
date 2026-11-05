@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.82.3 项目完成状态
+# StoryMoss (草苔) v0.82.4 项目完成状态
 
+> 最后更新: 2026-11-04（**v0.82.4：伏笔文本回收计划进窗口提示**——target_end 为空时解析「收/回收：第N章」，按逾期/临期/远期分档；仅阿拉伯数字。Rust **2005 / 13**（+1）；cargo check/nightly fmt 全绿；前端基线不变。）
+>
 > 最后更新: 2026-11-04（**v0.82.3：导演场景调度可用化**——CrewSnapshot 增加最近 24 场场景列表（序号/章/标题/字数），导演提示词输出 Scenes 区块；审批卡显示「场景N」目标。Rust **2004 / 13**（+1）；vitest **679 / 3**；playwright **94 / 5**；tsc/prettier/fmt/guard 全绿。）
 >
 > 最后更新: 2026-11-04（**v0.82.2：导演 target_scene 场景级修订**——target_scene（场景序号，仅 lead_writer，与 target_chapter 互斥）；调度器校验场景并按 chapter_id 映射章号；批量管线显式 scene override，gate 通过只更新目标 scene。Rust **2003 / 13**（+1）；cargo check/nightly fmt 全绿；前端基线不变。）

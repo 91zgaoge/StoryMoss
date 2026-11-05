@@ -25,6 +25,39 @@ fn into_internal<E: std::fmt::Display>(err: E) -> ForeshadowingError {
     ForeshadowingError::Internal(err.to_string())
 }
 
+/// v0.82.4：从伏笔文本里的回收计划（「收：第N章」「回收：第N章」）提取目标
+/// 回收章号。结构化 target_end_scene 为空时（旧数据/创世清单文本）仍能让
+/// prompt 拿到窗口提示。只解析阿拉伯数字，取第一次命中。
+fn parse_planned_payoff_chapter(content: &str) -> Option<i32> {
+    for line in content.lines() {
+        let Some(pos) = line.find('收') else {
+            continue;
+        };
+        let tail = &line[pos..];
+        let Some(hash) = tail.find('第') else {
+            continue;
+        };
+        // 按字符跳过「第」（多字节字符不能按字节切片）
+        let after: String = tail[hash..].chars().skip(1).collect();
+        let mut digits = String::new();
+        for c in after.chars() {
+            if c.is_ascii_digit() {
+                digits.push(c);
+            } else if c == '章' {
+                break;
+            } else if !digits.is_empty() {
+                break;
+            }
+        }
+        if let Ok(n) = digits.parse::<i32>() {
+            if n >= 1 {
+                return Some(n);
+            }
+        }
+    }
+    None
+}
+
 /// 伏笔服务实现
 pub struct ForeshadowingServiceImpl {
     pool: DbPool,
@@ -447,7 +480,10 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
                 // v0.62.0 P2-C
                 // 契约保持：临近窗口禁止提前回收，已过窗口尽快回收；
                 // 新增「未来窗口只可铺垫」档，避免模型把远期伏笔提前揭露。
-                let window_note = match (r.target_start_scene, r.target_end_scene) {
+                let planned_end = r
+                    .target_end_scene
+                    .or_else(|| parse_planned_payoff_chapter(&r.content));
+                let window_note = match (r.target_start_scene, planned_end) {
                     (_, Some(end)) if current > 0 && end <= current => {
                         format!("（已到/超过计划回收点第{end}章，请尽快回收）")
                     }
@@ -1049,6 +1085,43 @@ mod tests {
             long_hint.chars().count()
         );
         assert!(long_hint.contains('…'));
+    }
+
+    /// v0.82.4：结构化窗口为空但正文含「收：第N章」时，prompt 仍应拿到
+    /// 计划回收提示（旧数据/创世伏笔清单的常见形态）。
+    #[test]
+    fn service_hints_parse_planned_payoff_from_content() {
+        let pool = in_memory_pool();
+        seed_story_and_scenes(&pool, "story-1"); // 最新场景 = 5
+        let service = ForeshadowingServiceImpl::new(pool);
+
+        service
+            .create(
+                "story-1",
+                "伏笔清单：F1 代签笔迹——埋：第1章；收：第4章",
+                Some("s1"),
+                8,
+            )
+            .unwrap();
+        let overdue = service.get_writing_hints("story-1", 3).unwrap();
+        assert!(
+            overdue[0].contains("请尽快回收"),
+            "文本计划已过窗口应要求尽快回收: {overdue:?}"
+        );
+
+        service
+            .create(
+                "story-1",
+                "伏笔清单：F2 门牌被抹——埋：第1章；收：第20章",
+                Some("s1"),
+                8,
+            )
+            .unwrap();
+        let hints = service.get_writing_hints("story-1", 3).unwrap();
+        assert!(
+            hints.iter().any(|h| h.contains("本拍只可铺垫")),
+            "远期文本计划应标只可铺垫: {hints:?}"
+        );
     }
 
     #[test]
