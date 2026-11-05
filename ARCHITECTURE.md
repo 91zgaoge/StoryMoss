@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.83.0 架构文档
+# StoryMoss (草苔) v0.83.1 架构文档
 
+> **v0.83.1**：**弹窗视口探针**——`e2e/backstage-modal-viewport.spec.ts` 在 800×600 下打开 Dashboard/Stories/Characters 三个 Modal，断言 boundingBox 不超过视口且内容区存在独立滚动容器。
+>
 > **v0.83.0**：**弹窗统一完成**——体裁模板、角色添加/AI 扩展、世界观规则/文化/AI 生成全部迁入共享 `Modal`；表单校验与约束文案逐字保留。进度弹窗与专用组件（StyleDnaModal/ExportDialog/Login/UpgradeModal/CharacterEditModal）保持自带壳。
 >
 > **v0.82.9**：**弹窗统一收尾**——Dashboard 新建故事、Stories 新建故事与风格样例迁移到共享 `Modal`（统一 Esc/遮罩关闭、85dvh 内滚、footer 操作区）；字段/校验/约束提示逐字保留。

@@ -2,6 +2,13 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.83.1（2026-11-05）
+
+**弹窗视口回归探针：800×600 下统一 Modal 不出窗且可滚。**
+
+- **新增** `e2e/backstage-modal-viewport.spec.ts`：真实浏览器打开 Dashboard 新建故事、Stories 新建故事、Characters 添加角色三个弹窗，断言对话框 boundingBox 不超过 800×600 视口、内容区存在独立 `.overflow-y-auto` 滚动容器（Modal 85dvh 契约）。
+- **验证**：playwright **97 passed / 5 skipped**（+3）；vitest **679 / 3**；tsc / prettier 全绿；Rust 未改（2007 / 15 ignored）。
+
 ## v0.83.0（2026-11-05）
 
 **弹窗统一收尾：剩余手写弹窗全部迁入 Modal。**

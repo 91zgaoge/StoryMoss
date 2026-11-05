@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.83.0 项目完成状态
+# StoryMoss (草苔) v0.83.1 项目完成状态
 
+> 最后更新: 2026-11-05（**v0.83.1：弹窗视口回归探针**——3 个 Modal 在 800×600 下 boundingBox 不超出视口且有内滚；playwright **97 / 5**（+3）；vitest 679/3；tsc/prettier 全绿。）
+>
 > 最后更新: 2026-11-05（**v0.83.0：剩余手写弹窗全迁 Modal**——体裁模板/角色添加/AI 扩展/世界观规则/文化/AI；label、必填、JSON 校验、loading/禁用文案逐字保留。vitest **679 / 3**；playwright **94 / 5**；tsc/prettier 全绿。）
 >
 > 最后更新: 2026-11-05（**v0.82.9：Dashboard/Stories 弹窗迁统一 Modal**——新建故事×2 + 风格样例；字段/必填/300 字下限/loading/300-3000 字约束提示全部保留；进度弹窗有意保留。vitest **679 / 3**；playwright **94 / 5**；tsc/prettier 全绿。）
