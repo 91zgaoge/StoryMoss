@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.82.7（2026-11-05）
+
+**补交遗漏的新增文件（仓库完整性修复）。**
+
+- **问题**：v0.81.0–v0.82.6 的多批提交只用了 `git add -u`（仅跟踪已存在文件），新增的共享组件、单测、V154 迁移文件未入库；推送后的仓库在 `components/index.ts` 里引用不存在的 `./ui/Modal` 等文件，前端构建与 `cargo` 迁移编译都会失败。
+- **修复**：补交 16 个新增文件——`ui/Modal|ConfirmDialog|PageHeader|Field|Table|EmptyState|Skeleton|confirm|controls|layers`、对应 5 个单测、`V154__backfill_foreshadow_payoff_windows.rs`。代码/测试内容与此前验证一致。
+- **验证**：本地 `tsc` / prettier / vitest **679 / 3** / playwright **94 / 5** / Rust **2007 / 13** / nightly fmt / architecture guard 全绿；本次提交后 CI 首次具备完整文件集。
+- **未关闭**：需确认本次 tag 的 GitHub Actions 全平台构建转绿（此前缺失文件的构建应已失败）。
+
 ## v0.82.6（2026-11-04）
 
 **V154 迁移：把旧伏笔文本里的回收计划回填成结构化窗口。**
