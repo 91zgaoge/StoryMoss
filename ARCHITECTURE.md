@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.82.4 架构文档
+# StoryMoss (草苔) v0.82.5 架构文档
 
+> **v0.82.5**：**伏笔计划解析补齐**——`parse_chapter_number` 支持中文数字；`parse_planned_payoff_chapters` 收集全部「收：第N章」，`get_writing_hints` 优先逾期（≤当前场）最小的一条，否则取最近未来窗口。
+>
 > **v0.82.4**：**伏笔文本回收计划解析**——`ForeshadowingServiceImpl::get_writing_hints` 在 `target_end_scene` 为空时调用 `parse_planned_payoff_chapter(content)`，解析「收/回收：第N章」作为计划窗口并按逾期/临期/远期分档。
 >
 > **v0.82.3**：**导演场景调度可用化**——`CrewSnapshot.scenes: Vec<CrewScene>`（最近 24 场：sequence_number/chapter_number/title/word_count）；`render_director_user_prompt` 输出 Scenes 区块并标注可作 target_scene；`AgencyStudio.actionSummary` 显示 `场景N`（优先于 `第N章`）。

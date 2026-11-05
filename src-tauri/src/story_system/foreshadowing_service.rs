@@ -25,10 +25,10 @@ fn into_internal<E: std::fmt::Display>(err: E) -> ForeshadowingError {
     ForeshadowingError::Internal(err.to_string())
 }
 
-/// v0.82.4：从伏笔文本里的回收计划（「收：第N章」「回收：第N章」）提取目标
-/// 回收章号。结构化 target_end_scene 为空时（旧数据/创世清单文本）仍能让
-/// prompt 拿到窗口提示。只解析阿拉伯数字，取第一次命中。
-fn parse_planned_payoff_chapter(content: &str) -> Option<i32> {
+/// v0.82.5：解析伏笔文本里的全部回收计划（「收：第N章」「回收：第九章」），
+/// 支持阿拉伯与中文数字。结构化 target_end_scene 为空时用于窗口提示。
+fn parse_planned_payoff_chapters(content: &str) -> Vec<i32> {
+    let mut out = Vec::new();
     for line in content.lines() {
         let Some(pos) = line.find('收') else {
             continue;
@@ -37,27 +37,77 @@ fn parse_planned_payoff_chapter(content: &str) -> Option<i32> {
         let Some(hash) = tail.find('第') else {
             continue;
         };
-        // 按字符跳过「第」（多字节字符不能按字节切片）
         let after: String = tail[hash..].chars().skip(1).collect();
-        let mut digits = String::new();
+        let mut raw = String::new();
         for c in after.chars() {
-            if c.is_ascii_digit() {
-                digits.push(c);
-            } else if c == '章' {
-                break;
-            } else if !digits.is_empty() {
+            if c == '章' {
                 break;
             }
+            if c.is_whitespace() {
+                continue;
+            }
+            raw.push(c);
         }
-        if let Ok(n) = digits.parse::<i32>() {
-            if n >= 1 {
-                return Some(n);
+        if let Some(n) = parse_chapter_number(&raw) {
+            if n >= 1 && !out.contains(&n) {
+                out.push(n);
             }
         }
     }
-    None
+    out
 }
 
+/// 解析「4」「9」「十二」「一百零八」这类章号（0 视为无效）。
+fn parse_chapter_number(raw: &str) -> Option<i32> {
+    if raw.is_empty() {
+        return None;
+    }
+    if raw.chars().all(|c| c.is_ascii_digit()) {
+        return raw.parse::<i32>().ok();
+    }
+    const DIGITS: &[(char, i32)] = &[
+        ('零', 0),
+        ('〇', 0),
+        ('一', 1),
+        ('二', 2),
+        ('两', 2),
+        ('三', 3),
+        ('四', 4),
+        ('五', 5),
+        ('六', 6),
+        ('七', 7),
+        ('八', 8),
+        ('九', 9),
+    ];
+    let mut total = 0i32;
+    let mut current = 0i32;
+    let mut seen = false;
+    for c in raw.chars() {
+        if let Some((_, v)) = DIGITS.iter().find(|(d, _)| *d == c) {
+            current = *v;
+            seen = true;
+        } else {
+            let unit = match c {
+                '十' => 10,
+                '百' => 100,
+                '千' => 1000,
+                _ => return None,
+            };
+            if current == 0 {
+                current = 1;
+            }
+            total += current * unit;
+            current = 0;
+            seen = true;
+        }
+    }
+    let value = total + current;
+    if seen && value > 0 {
+        Some(value)
+    } else {
+        None
+    }
+}
 /// 伏笔服务实现
 pub struct ForeshadowingServiceImpl {
     pool: DbPool,
@@ -480,9 +530,22 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
                 // v0.62.0 P2-C
                 // 契约保持：临近窗口禁止提前回收，已过窗口尽快回收；
                 // 新增「未来窗口只可铺垫」档，避免模型把远期伏笔提前揭露。
-                let planned_end = r
-                    .target_end_scene
-                    .or_else(|| parse_planned_payoff_chapter(&r.content));
+                let planned_end = r.target_end_scene.or_else(|| {
+                    let chapters = parse_planned_payoff_chapters(&r.content);
+                    // 逾期优先（最早过期的一条），否则取最近一个未来窗口
+                    chapters
+                        .iter()
+                        .copied()
+                        .filter(|c| current > 0 && *c <= current)
+                        .min()
+                        .or_else(|| {
+                            chapters
+                                .iter()
+                                .copied()
+                                .filter(|c| current == 0 || *c > current)
+                                .min()
+                        })
+                });
                 let window_note = match (r.target_start_scene, planned_end) {
                     (_, Some(end)) if current > 0 && end <= current => {
                         format!("（已到/超过计划回收点第{end}章，请尽快回收）")
@@ -1121,6 +1184,45 @@ mod tests {
         assert!(
             hints.iter().any(|h| h.contains("本拍只可铺垫")),
             "远期文本计划应标只可铺垫: {hints:?}"
+        );
+    }
+
+    /// v0.82.5：中文数字与多条计划——中文「第九章」解析为 9；清单里有多条
+    /// 「收：第N章」时优先逾期的一条。
+    #[test]
+    fn service_hints_parse_chinese_and_multi_plan_windows() {
+        let pool = in_memory_pool();
+        seed_story_and_scenes(&pool, "story-1"); // 最新场景 = 5
+        let service = ForeshadowingServiceImpl::new(pool);
+
+        service
+            .create(
+                "story-1",
+                "伏笔清单：F3 玉佩——埋：第1章；收：第九章",
+                Some("s1"),
+                8,
+            )
+            .unwrap();
+        let near = service.get_writing_hints("story-1", 3).unwrap();
+        assert!(
+            near[0].contains("请勿提前回收") && near[0].contains("第9章"),
+            "中文数字回收点应解析为第9章: {near:?}"
+        );
+
+        service
+            .create(
+                "story-1",
+                "伏笔清单：F1 代签——收：第4章；F2 门牌——收：第12章",
+                Some("s1"),
+                8,
+            )
+            .unwrap();
+        let hints = service.get_writing_hints("story-1", 3).unwrap();
+        assert!(
+            hints
+                .iter()
+                .any(|h| h.contains("第4章") && h.contains("请尽快回收")),
+            "多条计划应优先逾期的第4章: {hints:?}"
         );
     }
 
