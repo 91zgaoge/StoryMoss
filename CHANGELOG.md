@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.83.3（2026-11-05）
+
+**专用弹窗壳迁入 Modal：升级、角色编辑、模型编辑。**
+
+- **迁移**：`UpgradeModal`（升级引导）、`CharacterEditModal`（角色编辑）、`settings/ModelModal`（模型添加/编辑）外壳改用共享 `Modal`（统一标题/关闭/Esc/85dvh 内滚/尺寸）。
+- **保留**：升级的邀请码必填说明、登录按钮、价格、错误提示；角色编辑的名称/字/号/小名/绰号/称呼规则/取名故事等字段与保存逻辑；模型类型选择、API Key 显隐/覆盖、获取模型、Temperature/Max Tokens/Top P/Frequency/Presence、系统提示词覆盖与创建/保存按钮全部逐字保留。
+- **有意保留**：`StyleDnaModal`（自带 flex 列/固定底栏且有 testid 契约）、`ExportDialog`、`Login` 保持原壳。
+- **验证**：tsc / prettier 全绿；vitest **679 / 3**；playwright **97 / 5**；Rust 未改（2008 / 15 ignored）。
+
 ## v0.83.2（2026-11-05）
 
 **伏笔清单 blob 压缩成可执行计划摘要（真机复验通过）。**

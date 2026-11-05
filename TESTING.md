@@ -1,8 +1,13 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.83.2)
+# 🧪 StoryMoss 自动化测试环境 (v0.83.3)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.83.3 变更说明
+
+- **弹窗壳迁移（前端）**：升级/角色编辑/模型编辑迁 Modal；vitest 679/3、playwright 97/5、tsc/prettier 全绿；Rust 基线不变。
+- **未关闭**：Settings Field 逐字段迁移；StyleDnaModal/ExportDialog/Login 保持原壳。
 
 ### v0.83.2 变更说明
 
