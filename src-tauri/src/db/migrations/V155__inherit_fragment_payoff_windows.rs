@@ -147,10 +147,17 @@ fn plan_threads(content: &str, names: &[String]) -> Vec<PlanThread> {
         let Some(payoff_chapter) = payoff_chapter(line) else {
             continue;
         };
-        // 计划行「埋」到「收」之间是这条线程的埋设描述；标签 + 埋设描述一起
-        // 做关键词，能覆盖碎片改写措辞（抄诗/笔迹/沈字/练习本等）。
-        let pre = line.find('收').map(|pos| &line[..pos]).unwrap_or(line);
-        let keywords = thread_keywords(&label, pre, names);
+        // 计划行「埋」到「收」之间是埋设描述，收之后的叙事可能补充线程
+        // 专名（如「沈国栋」）；标签 + 埋设描述取 2 字以上关键词，收之后
+        // 只取 3 字以上且不含人称/亲属用字的关键词，避免「父亲/她手」这类
+        // 通用词把无关碎片挂到线程上。
+        let pos = line.find('收');
+        let pre = pos.map(|p| &line[..p]).unwrap_or(line);
+        let post = pos
+            .map(|p| line[p..].chars().skip(1).collect::<String>())
+            .unwrap_or_default();
+        let mut keywords = thread_keywords(&label, pre, names);
+        keywords.extend(payoff_keywords(&post, names));
         if keywords.is_empty() {
             continue;
         }
@@ -181,33 +188,57 @@ fn plan_label(line: &str) -> Option<String> {
 /// 后缀与 3 字窗口；通用词（档案/文件/修复/名字等）不参与匹配，避免把
 /// 无关碎片挂到线程上。
 fn thread_keywords(label: &str, pre: &str, names: &[String]) -> Vec<String> {
+    collect_keywords(&[label, pre], names, 2, false)
+}
+
+/// 收之后的叙事关键词：只取 3 字以上，且过滤人称/亲属用字，避免
+/// 「她手里的刀 / 理解父亲的入口」这类短语造成跨线程误匹配。
+fn payoff_keywords(post: &str, names: &[String]) -> Vec<String> {
+    collect_keywords(&[post], names, 3, true)
+}
+
+fn collect_keywords(
+    sources: &[&str],
+    names: &[String],
+    min_len: usize,
+    filter_pronouns: bool,
+) -> Vec<String> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    for source in [label, pre] {
+    for source in sources {
         let cleaned = strip_names(source, names);
         for run in chinese_runs(&cleaned) {
             for seg in run.split(['的', '上', '中', '之', '与', '和', '及', '或', '第', '章'])
             {
                 let seg = seg.trim();
                 let count = seg.chars().count();
-                if count < 2 {
+                if count < min_len {
                     continue;
                 }
                 let chars: Vec<char> = seg.chars().collect();
-                for len in 2..=count.min(4) {
+                for len in min_len..=count.min(4) {
                     let prefix: String = chars[..len].iter().collect();
-                    if !is_generic_keyword(&prefix) && seen.insert(prefix.clone()) {
+                    if !is_generic_keyword(&prefix)
+                        && (!filter_pronouns || !contains_bad_keyword_char(&prefix))
+                        && seen.insert(prefix.clone())
+                    {
                         out.push(prefix);
                     }
                     let suffix: String = chars[count - len..].iter().collect();
-                    if !is_generic_keyword(&suffix) && seen.insert(suffix.clone()) {
+                    if !is_generic_keyword(&suffix)
+                        && (!filter_pronouns || !contains_bad_keyword_char(&suffix))
+                        && seen.insert(suffix.clone())
+                    {
                         out.push(suffix);
                     }
                 }
                 if count >= 3 {
                     for start in 0..=(count - 3) {
                         let keyword: String = chars[start..start + 3].iter().collect();
-                        if !is_generic_keyword(&keyword) && seen.insert(keyword.clone()) {
+                        if !is_generic_keyword(&keyword)
+                            && (!filter_pronouns || !contains_bad_keyword_char(&keyword))
+                            && seen.insert(keyword.clone())
+                        {
                             out.push(keyword);
                         }
                     }
@@ -216,6 +247,38 @@ fn thread_keywords(label: &str, pre: &str, names: &[String]) -> Vec<String> {
         }
     }
     out
+}
+
+/// 人称/亲属/助词用字：出现在关键词里说明它更像叙事短语而不是线程专名。
+fn contains_bad_keyword_char(keyword: &str) -> bool {
+    keyword.chars().any(|c| {
+        matches!(
+            c,
+            '她' | '他'
+                | '我'
+                | '你'
+                | '父'
+                | '母'
+                | '孩'
+                | '女'
+                | '儿'
+                | '亲'
+                | '名'
+                | '手'
+                | '字'
+                | '说'
+                | '给'
+                | '让'
+                | '把'
+                | '被'
+                | '将'
+                | '就'
+                | '也'
+                | '再'
+                | '又'
+                | '很'
+        )
+    })
 }
 
 /// 通用词：出现在太多碎片里，不能用来判断线程归属。
