@@ -3,19 +3,62 @@
 //! 提供应用自动检测更新和安装的功能
 //! 基于 tauri-plugin-updater
 //!
-//! 下载源：`plugins.updater.endpoints` → 优先 storymoss.top/releases，回退
-//! GitHub Releases 主端点：`https://storymoss.top/releases/latest.json`
-//! 回退端点：`https://github.com/91zgaoge/StoryMoss/releases/latest/download/latest.json`
-#![allow(unused_imports)]
+//! 下载源：GitHub Releases 优先，storymoss.top 备用。两个源共用同一签名公钥；
+//! 只有网络故障允许换源，验签/解包/安装失败不得通过换源掩盖。
 
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
 };
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager};
-use tauri_plugin_updater::UpdaterExt;
+use tauri::{AppHandle, Emitter, Url};
+use tauri_plugin_updater::{Error as UpdaterError, Update, Updater, UpdaterExt};
+
+const UPDATE_MANIFEST_TIMEOUT: Duration = Duration::from_secs(20);
+const UPDATE_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const UPDATE_READ_TIMEOUT: Duration = Duration::from_secs(30);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpdateSource {
+    GitHub,
+    Website,
+}
+
+const UPDATE_SOURCES: [UpdateSource; 2] = [UpdateSource::GitHub, UpdateSource::Website];
+
+impl UpdateSource {
+    fn endpoint(self) -> &'static str {
+        match self {
+            Self::GitHub => {
+                "https://github.com/91zgaoge/StoryMoss/releases/latest/download/latest.json"
+            }
+            Self::Website => "https://storymoss.top/releases/latest.json",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::GitHub => "GitHub Releases",
+            Self::Website => "storymoss.top",
+        }
+    }
+
+    fn other(self) -> Self {
+        match self {
+            Self::GitHub => Self::Website,
+            Self::Website => Self::GitHub,
+        }
+    }
+}
+
+struct SourcedUpdate {
+    update: Update,
+    source: UpdateSource,
+}
 
 /// 更新信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +86,14 @@ pub struct UpdateDownloadProgress {
     pub percentage: f32,
 }
 
+fn same_update_version(expected: &str, candidate: &str) -> bool {
+    expected == candidate
+}
+
+fn should_retry_download(error: &UpdaterError) -> bool {
+    matches!(error, UpdaterError::Reqwest(_) | UpdaterError::Network(_))
+}
+
 /// 将单次 chunk 累加为下载进度（契约：percentage 基于累计字节，非单 chunk）。
 pub(crate) fn accumulate_download_progress(
     downloaded: &AtomicU64,
@@ -65,36 +116,173 @@ pub(crate) fn accumulate_download_progress(
 }
 
 fn format_updater_error(err: impl std::fmt::Display) -> String {
-    let msg = err.to_string();
-    let lower = msg.to_lowercase();
-    if lower.contains("404")
-        || lower.contains("not found")
-        || lower.contains("failed to fetch")
-        || lower.contains("error decoding response body")
-    {
-        format!(
-            "无法从 storymoss.top 读取更新清单（latest.json）。\
-             请确认官网下载目录已包含最新版本的更新文件：\
-             https://storymoss.top/releases/ 。\
-             也可手动前往 GitHub Releases 下载：\
-             https://github.com/91zgaoge/StoryMoss/releases/latest 。详情: {msg}"
+    format!(
+        "无法通过 GitHub 或 storymoss.top 完成更新。请检查网络后重试；\
+         也可手动前往 GitHub Releases（https://github.com/91zgaoge/StoryMoss/releases/latest）\
+         或官网下载目录（https://storymoss.top/releases/）获取最新安装包。\
+         自动更新清单为 latest.json。详情: {err}"
+    )
+}
+
+fn updater_for_source(app_handle: &AppHandle, source: UpdateSource) -> Result<Updater, String> {
+    let endpoint = Url::parse(source.endpoint())
+        .map_err(|e| format!("Invalid updater endpoint {}: {}", source.endpoint(), e))?;
+
+    app_handle
+        .updater_builder()
+        // 清单有 20s 总时限。插件不会把该时限传播给 Update::download，
+        // 因此下载通过 configure_client 使用连接/读取超时，不限制大文件总时长。
+        .timeout(UPDATE_MANIFEST_TIMEOUT)
+        .configure_client(|client| {
+            client
+                .connect_timeout(UPDATE_CONNECT_TIMEOUT)
+                .read_timeout(UPDATE_READ_TIMEOUT)
+        })
+        .endpoints(vec![endpoint])
+        .map_err(|e| format!("Failed to configure {} updater: {}", source.label(), e))?
+        .build()
+        .map_err(|e| format!("Failed to build {} updater: {}", source.label(), e))
+}
+
+async fn check_source(
+    app_handle: &AppHandle,
+    source: UpdateSource,
+) -> Result<Option<SourcedUpdate>, String> {
+    let updater = updater_for_source(app_handle, source)?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| format!("{}: {}", source.label(), e))?;
+
+    Ok(update.map(|update| SourcedUpdate { update, source }))
+}
+
+async fn find_update(app_handle: &AppHandle) -> Result<Option<SourcedUpdate>, String> {
+    let mut failures = Vec::new();
+
+    for source in UPDATE_SOURCES {
+        match check_source(app_handle, source).await {
+            Ok(Some(update)) => {
+                log::info!(
+                    "[Updater] Using {}: update {}",
+                    source.label(),
+                    update.update.version
+                );
+                return Ok(Some(update));
+            }
+            Ok(None) => {
+                log::info!("[Updater] No updates available from {}", source.label());
+                return Ok(None);
+            }
+            Err(error) => {
+                log::warn!("[Updater] {} failed: {}", source.label(), error);
+                failures.push(error);
+            }
+        }
+    }
+
+    Err(format_updater_error(failures.join("；")))
+}
+
+async fn download_update(app_handle: &AppHandle, update: &Update) -> Result<Vec<u8>, UpdaterError> {
+    // 每次下载（含换源重试）使用新的计数器，进度不会跨源累加。
+    let downloaded = Arc::new(AtomicU64::new(0));
+    let progress_app = app_handle.clone();
+
+    let _ = progress_app.emit(
+        "update-download-progress",
+        UpdateDownloadProgress {
+            downloaded: 0,
+            total: None,
+            percentage: 0.0,
+        },
+    );
+    let bytes = update
+        .download(
+            move |chunk_length, content_length| {
+                let progress =
+                    accumulate_download_progress(&downloaded, chunk_length, content_length);
+                let _ = progress_app.emit("update-download-progress", progress);
+            },
+            || {},
         )
-    } else {
-        format!("Failed to check update: {msg}")
+        .await?;
+
+    // 插件会在 download 返回前完成 minisign 验签；只有此时才宣布下载完成。
+    let _ = app_handle.emit("update-download-complete", ());
+    Ok(bytes)
+}
+
+async fn download_with_fallback(
+    app_handle: &AppHandle,
+    found: &SourcedUpdate,
+) -> Result<Vec<u8>, String> {
+    match download_update(app_handle, &found.update).await {
+        Ok(bytes) => Ok(bytes),
+        Err(error) if !should_retry_download(&error) => {
+            // 验签/解包等安全或本地错误绝不换源重试。
+            Err(format!("更新下载或验签失败，未尝试备用源: {error}"))
+        }
+        Err(primary_error) => {
+            let fallback_source = found.source.other();
+            log::warn!(
+                "[Updater] {} download failed; trying {}: {}",
+                found.source.label(),
+                fallback_source.label(),
+                primary_error
+            );
+
+            match check_source(app_handle, fallback_source).await {
+                Ok(Some(candidate))
+                    if same_update_version(&found.update.version, &candidate.update.version) =>
+                {
+                    log::info!(
+                        "[Updater] Downloading {} from {}",
+                        candidate.update.version,
+                        fallback_source.label()
+                    );
+                    download_update(app_handle, &candidate.update)
+                        .await
+                        .map_err(|fallback_error| {
+                            format_updater_error(format!(
+                                "{} 下载失败: {}；{} 下载失败: {}",
+                                found.source.label(),
+                                primary_error,
+                                fallback_source.label(),
+                                fallback_error
+                            ))
+                        })
+                }
+                Ok(Some(candidate)) => Err(format!(
+                    "备用源 {} 的版本 {} 与当前更新 {} 不一致，已停止安装",
+                    fallback_source.label(),
+                    candidate.update.version,
+                    found.update.version
+                )),
+                Ok(None) => Err(format!(
+                    "备用源 {} 没有版本 {} 的可安装更新",
+                    fallback_source.label(),
+                    found.update.version
+                )),
+                Err(fallback_error) => Err(format_updater_error(format!(
+                    "{} 下载失败: {}；备用源检查失败: {}",
+                    found.source.label(),
+                    primary_error,
+                    fallback_error
+                ))),
+            }
+        }
     }
 }
 
 /// 检查是否有可用更新
 #[tauri::command]
 pub async fn check_update(app_handle: AppHandle) -> Result<CheckUpdateResult, String> {
-    let updater = app_handle
-        .updater()
-        .map_err(|e| format!("Failed to get updater: {}", e))?;
-
     let current_version = app_handle.package_info().version.to_string();
 
-    match updater.check().await {
-        Ok(Some(update)) => {
+    match find_update(&app_handle).await {
+        Ok(Some(found)) => {
+            let update = found.update;
             log::info!(
                 "[Updater] Update available: {} -> {}",
                 current_version,
@@ -127,7 +315,7 @@ pub async fn check_update(app_handle: AppHandle) -> Result<CheckUpdateResult, St
         }
         Err(e) => {
             log::error!("[Updater] Failed to check update: {}", e);
-            Err(format_updater_error(e))
+            Err(e)
         }
     }
 }
@@ -135,46 +323,25 @@ pub async fn check_update(app_handle: AppHandle) -> Result<CheckUpdateResult, St
 /// 下载并安装更新（带进度事件）
 #[tauri::command]
 pub async fn install_update(app_handle: AppHandle) -> Result<(), String> {
-    let updater = app_handle
-        .updater()
-        .map_err(|e| format!("Failed to get updater: {}", e))?;
+    let found = find_update(&app_handle)
+        .await?
+        .ok_or_else(|| "No update available".to_string())?;
 
-    match updater.check().await {
-        Ok(Some(update)) => {
-            log::info!("[Updater] Downloading update: {}", update.version);
+    log::info!(
+        "[Updater] Downloading update: {} from {}",
+        found.update.version,
+        found.source.label()
+    );
+    let bytes = download_with_fallback(&app_handle, &found).await?;
 
-            let app = app_handle.clone();
-            let downloaded = Arc::new(AtomicU64::new(0));
+    // download 已完成签名验证；只有拿到合法字节后才进入安装。
+    found
+        .update
+        .install(&bytes)
+        .map_err(|e| format!("Failed to install update: {}", e))?;
 
-            // 下载并安装更新，带进度回调（chunk 累加）
-            update
-                .download_and_install(
-                    {
-                        let app = app.clone();
-                        let downloaded = Arc::clone(&downloaded);
-                        move |chunk_length, content_length| {
-                            let progress = accumulate_download_progress(
-                                &downloaded,
-                                chunk_length,
-                                content_length,
-                            );
-                            let _ = app.emit("update-download-progress", progress);
-                        }
-                    },
-                    || {
-                        log::info!("[Updater] Download completed");
-                        let _ = app.emit("update-download-complete", ());
-                    },
-                )
-                .await
-                .map_err(|e| format!("Failed to install update: {}", e))?;
-
-            log::info!("[Updater] Update installed successfully");
-            Ok(())
-        }
-        Ok(None) => Err("No update available".to_string()),
-        Err(e) => Err(format_updater_error(e)),
-    }
+    log::info!("[Updater] Update installed successfully");
+    Ok(())
 }
 
 /// 获取当前版本
@@ -200,7 +367,45 @@ mod tests {
     }
 
     #[test]
-    fn format_updater_error_mentions_storymoss_top_on_404() {
+    fn github_is_primary_and_website_is_fallback() {
+        assert_eq!(
+            UPDATE_SOURCES,
+            [UpdateSource::GitHub, UpdateSource::Website]
+        );
+        assert_eq!(
+            UpdateSource::GitHub.endpoint(),
+            "https://github.com/91zgaoge/StoryMoss/releases/latest/download/latest.json"
+        );
+        assert_eq!(
+            UpdateSource::Website.endpoint(),
+            "https://storymoss.top/releases/latest.json"
+        );
+        assert!(UPDATE_SOURCES
+            .iter()
+            .all(|source| source.endpoint().starts_with("https://")));
+    }
+
+    #[test]
+    fn only_network_download_failures_can_retry() {
+        assert!(should_retry_download(&UpdaterError::Network("404".into())));
+        assert!(!should_retry_download(&UpdaterError::SignatureUtf8(
+            "bad".into()
+        )));
+        assert!(!should_retry_download(&UpdaterError::PackageInstallFailed));
+        assert!(!should_retry_download(&UpdaterError::Io(
+            std::io::Error::other("disk")
+        )));
+    }
+
+    #[test]
+    fn download_fallback_requires_same_version() {
+        assert!(same_update_version("0.85.1", "0.85.1"));
+        assert!(!same_update_version("0.85.1", "0.85.2"));
+        assert!(!same_update_version("0.85.1", "0.84.2"));
+    }
+
+    #[test]
+    fn format_updater_error_mentions_both_sources() {
         let msg = format_updater_error(
             "error sending request for url (https://storymoss.top/releases/latest.json): 404 Not Found",
         );

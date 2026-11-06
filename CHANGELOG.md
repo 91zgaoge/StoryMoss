@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.85.1（2026-11-07）
+
+**双源自动更新加固：GitHub 优先、官网备用，清单与更新包均支持网络故障转移。**
+
+- **源优先级**：应用内更新先读取 GitHub `releases/latest/download/latest.json`，失败后尝试 `storymoss.top/releases/latest.json`；官网被墙时不再先等待失效主源。既有 GitHub Release 已包含完整清单、平台更新包与签名，无需改变发布流程。
+- **超时语义**：清单请求 20 秒总时限；下载使用 10 秒连接、30 秒读取超时，不限制大文件总下载时长。清单连接/HTTP/解析失败会尝试另一源。
+- **下载故障转移**：仅网络/HTTP 下载错误允许换源；备用源必须提供同一版本，重试重新计算进度。Minisign 验签、IO/解包与安装错误直接失败，绝不通过换源掩盖。
+- **事件安全**：`update-download-complete` 改为验签成功后才发出；保留原进度事件、IPC 返回结构、Windows passive 安装与签名公钥。
+- **验证**：Rust **2013 passed / 15 ignored**（更新器 +3）；Clippy/check/fmt/guard 全绿；Vitest **686 / 3**、Playwright **126 / 5** 基线通过；线上 GitHub 清单实测为 v0.85.0、7 个平台且签名条目完整。未执行本地安装包构建。
+- **未关闭**：旧版本到 v0.85.1 的原生升级、平台安装/重启流程仍需使用 CI 产物复测；不会在用户机器上自动覆盖安装。
+
 ## v0.85.0（2026-11-07）
 
 **幕后“暗夜编辑台”精修：重建布局与滚动契约，修复逐字竖排、Panel 裁切、场景错位与悬浮遮挡。**

@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.85.0 架构文档
+# StoryMoss (草苔) v0.85.1 架构文档
 
+> **v0.85.1**：**双源 updater**——`updater/mod.rs` 以单源 builder 按 GitHub → 官网检查清单；清单 20s 总超时，下载经 `configure_client` 使用 10s 连接/30s 读取超时且无总时长上限；`download` 验签后才发完成事件并调用 `install`。仅 Reqwest/Network 错误可换源，备用源版本必须一致；Minisign/IO/安装错误不重试。pubkey、IPC 与发布产物不变。
+>
 > **v0.85.0**：**幕后布局契约重建**——App 以 `h-dvh/min-w-0/min-h-0` 和视图模板划分页面/面板滚动；Panel 展开不再固定限高；CreationPathGuide 与设置/Agent 表单使用容器查询；Scenes 按预览/编辑匹配 Grid 轨道，SceneEditor 管线窄态转入正常文档流；幕前入口归入双导航普通布局。设计见 `docs/plans/2026-11-06-backstage-studio-refinement-design.md`。
 >
 > **v0.84.2**：**V155 匹配扩展**——计划线程关键词加入收后叙事专名（仅 3 字以上）并过滤人称/亲属用字；碎片窗口继承覆盖沈国栋/沈字/抄诗/练习本/笔迹等线程，本机模拟命中约 19/126。
