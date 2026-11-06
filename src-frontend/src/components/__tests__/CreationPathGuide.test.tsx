@@ -11,6 +11,13 @@ describe('CreationPathGuide', () => {
     expect(screen.getByText('幕后快速创作')).toBeInTheDocument();
   });
 
+  it('根据卡片容器而非视口切换布局', () => {
+    const { container } = render(<CreationPathGuide />);
+    expect(container.firstElementChild).toHaveClass('@container');
+    expect(container.firstElementChild?.firstElementChild).toHaveClass('@2xl:grid-cols-3');
+    expect(container.firstElementChild?.firstElementChild).not.toHaveClass('md:grid-cols-3');
+  });
+
   it('点击幕前 Genesis Pipeline 卡片触发 onFrontstage', async () => {
     const onFrontstage = vi.fn();
     render(<CreationPathGuide onFrontstage={onFrontstage} onWizard={vi.fn()} onQuick={vi.fn()} />);

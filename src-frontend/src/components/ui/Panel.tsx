@@ -24,7 +24,7 @@ export const Panel: React.FC<PanelProps> = ({
 
   const headerContent = (
     <>
-      <h3 className="text-xs font-bold uppercase tracking-wider text-cinema-gold/80">{title}</h3>
+      <h3 className="font-body text-[13px] font-semibold tracking-wide text-ai-ink-2">{title}</h3>
       {collapsible && (
         <ChevronDown
           aria-hidden="true"
@@ -65,8 +65,9 @@ export const Panel: React.FC<PanelProps> = ({
         <div
           id={contentId}
           className={[
-            'transition-all duration-500 ease-spring motion-reduce:duration-[0.01s] motion-reduce:ease-linear overflow-hidden',
-            open ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0',
+            'transition-opacity duration-500 ease-spring motion-reduce:duration-[0.01s] motion-reduce:ease-linear',
+            collapsible ? 'overflow-hidden' : '',
+            collapsible ? (open ? 'max-h-none opacity-100' : 'max-h-0 opacity-0') : 'opacity-100',
           ].join(' ')}
         >
           <div className="p-4">{children}</div>

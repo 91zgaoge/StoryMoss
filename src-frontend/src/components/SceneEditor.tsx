@@ -272,11 +272,14 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
   };
 
   return (
-    <div className="h-full flex gap-4" data-testid="scene-editor">
-      <div className="flex-1 min-w-0 flex flex-col">
+    <div
+      className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto 2xl:flex-row 2xl:overflow-hidden"
+      data-testid="scene-editor"
+    >
+      <div className="flex min-h-[70dvh] min-w-0 flex-1 flex-col 2xl:min-h-0">
         {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
             <h2 className="text-lg font-semibold text-white">
               编辑场景 #{scene.sequence_number}
               <span className="ml-2 text-xs font-normal text-gray-500">（场景序号，非章节号）</span>
@@ -294,7 +297,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
               {STAGE_LABELS[currentStage] || '规划'}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {activeTab === 'final' && (
               <>
                 <Button
@@ -344,13 +347,13 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
         </div>
 
         {/* Stage Tabs */}
-        <div className="flex gap-1 mb-4 p-1 bg-cinema-800 rounded-lg">
+        <div className="mb-4 flex gap-1 overflow-x-auto rounded-lg bg-cinema-800 p-1">
           {STAGE_TABS.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`
-              flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-[background-color,color] duration-500 ease-spring motion-reduce:duration-[0.01s] motion-reduce:ease-linear
+              flex shrink-0 items-center gap-2 whitespace-nowrap px-3 py-2 rounded-md text-sm font-medium transition-[background-color,color] duration-500 ease-spring motion-reduce:duration-[0.01s] motion-reduce:ease-linear
               ${
                 activeTab === tab.id
                   ? 'bg-cinema-gold text-cinema-900'
@@ -365,7 +368,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-auto space-y-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-auto">
           {/* Planning Tab */}
           {activeTab === 'planning' && (
             <>
@@ -806,8 +809,10 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
 
       {showPipelineRail && (
         <div
-          className={`flex-shrink-0 flex flex-col border border-cinema-700 rounded-lg overflow-hidden bg-cinema-900/40 transition-all ${
-            pipelineOpen ? 'w-72' : 'w-10'
+          className={`flex min-w-0 flex-shrink-0 flex-col overflow-hidden rounded-lg border border-cinema-700 bg-cinema-900/40 transition-all ${
+            pipelineOpen
+              ? 'min-h-[420px] w-full 2xl:min-h-0 2xl:w-72'
+              : 'h-12 w-full 2xl:h-auto 2xl:w-10'
           }`}
           data-testid="scene-editor-pipeline-rail"
         >

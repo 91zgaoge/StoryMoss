@@ -35,18 +35,19 @@ describe('Panel', () => {
     expect(content).toHaveClass('opacity-0');
   });
 
-  it('does not collapse when not collapsible', () => {
+  it('keeps static content fully visible without a height cap', () => {
     render(
       <Panel title="Static" collapsible={false}>
         secret
       </Panel>
     );
     const content = screen.getByText('secret').parentElement;
-    expect(content).toHaveClass('max-h-[1000px]');
     expect(content).toHaveClass('opacity-100');
+    expect(content).not.toHaveClass('max-h-[1000px]');
+    expect(content).not.toHaveClass('overflow-hidden');
 
     fireEvent.click(screen.getByText('Static'));
-    expect(content).toHaveClass('max-h-[1000px]');
+    expect(content).not.toHaveClass('max-h-0');
     expect(content).toHaveClass('opacity-100');
   });
 
@@ -64,7 +65,8 @@ describe('Panel', () => {
     expect(content).toHaveClass('opacity-0');
 
     fireEvent.click(header);
-    expect(content).toHaveClass('max-h-[1000px]');
+    expect(content).toHaveClass('max-h-none');
+    expect(content).not.toHaveClass('max-h-[1000px]');
     expect(content).toHaveClass('opacity-100');
   });
 

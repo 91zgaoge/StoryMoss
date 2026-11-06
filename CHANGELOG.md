@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.85.0（2026-11-07）
+
+**幕后“暗夜编辑台”精修：重建布局与滚动契约，修复逐字竖排、Panel 裁切、场景错位与悬浮遮挡。**
+
+- **全局布局**：App 使用 `h-dvh + min-w-0/min-h-0` 高度链，按页面类型明确滚动所有者；共享 Panel 的静态/展开内容不再受 1000px 限高；连接状态不再重复挂载。
+- **导航与遮挡**：Sidebar 分组名提升至 13px，窄态提供真实可见的分组展开入口；UserMenu 窄态不再竖排；幕前入口迁入 Sidebar/StudioNavRail 普通布局，右下角悬浮遮挡移除。
+- **Dashboard**：作品区与创作路径只在宽屏并排；CreationPathGuide 改容器查询，窄容器单列、宽容器三列，Stories 复用同一契约；卡片支持 Enter/Space 触发。
+- **Settings**：宽屏改设置导航 + 内容区；模型角色卡按容器把说明、模型、温度与徽章分组换行；Agent 模型/策略表单使用容器栅格，完整内容可滚动到底。角色映射、数值范围与保存逻辑不变。
+- **场景与工作台**：Scenes 预览在大屏使用三栏、中屏执行区跨两列、小屏单列；SceneEditor 管线在窄屏移至正文下方；StoryTimeline 操作迁至卡片底部，标题不再被透明按钮压没；伏笔/叙事分析/拆书/代理工作室补齐断点与滚动；管线颜色改为主题令牌。
+- **验证**：设计契约见 `docs/plans/2026-11-06-backstage-studio-refinement-design.md`；tsc、Prettier、架构守卫通过；Vitest **686 passed / 3 skipped**；Playwright **126 passed / 5 skipped**（三档 23 视图均要求成功渲染、主区非空且无错误边界，另有 6 项真实内容布局/操作回归）；补齐技能、维护、级联、用量、链路、评估与学习页的合法空态 mock。Rust 源码未改，未重复执行 Rust 全量测试；未执行本地安装包构建。
+- **未关闭**：浏览器 mock 不能替代原生安装包复测；待 CI 产物生成后，在 macOS/Windows 安装包复核窗口缩放、滚动与幕前打开。
+
 ## v0.84.2（2026-11-06）
 
 **V155 计划线程匹配扩展：碎片窗口继承从 9 条提升到约 19 条（本机数据模拟）。**

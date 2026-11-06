@@ -1,30 +1,28 @@
-/**
- * FrontstageLauncher - 幕前窗口启动器
- *
- * 提供快速打开/关闭幕前窗口的按钮
- */
-
 import { useState, useEffect } from 'react';
 import { BookOpen, ExternalLink } from 'lucide-react';
 import { loggedInvoke } from '@/services/tauri';
 import { useAppStore } from '@/stores/appStore';
 import { createLogger } from '@/utils/logger';
+import { cn } from '@/utils/cn';
 import toast from 'react-hot-toast';
 
 const launcherLogger = createLogger('ui:FrontstageLauncher');
 
 interface FrontstageLauncherProps {
-  isOpen: boolean;
-  onToggle: () => void;
+  isOpen?: boolean;
+  onToggle?: () => void;
+  variant?: 'button' | 'icon';
 }
 
-export function FrontstageLauncher({ isOpen, onToggle }: FrontstageLauncherProps) {
+export function FrontstageLauncher({
+  isOpen = false,
+  onToggle,
+  variant = 'button',
+}: FrontstageLauncherProps) {
   const [isVisible, setIsVisible] = useState(false);
-  // v0.73.9: 打开幕前时带上幕后当前选中的故事，避免多部作品时停在旧故事
   const currentStory = useAppStore(s => s.currentStory);
 
   useEffect(() => {
-    // Check if Tauri API is available
     const checkTauri = async () => {
       try {
         await loggedInvoke<unknown>('get_window_state');
@@ -47,7 +45,7 @@ export function FrontstageLauncher({ isOpen, onToggle }: FrontstageLauncherProps
         await loggedInvoke<unknown>('show_frontstage');
       }
       toast.success('幕前写作界面已打开');
-      onToggle();
+      onToggle?.();
     } catch (error) {
       launcherLogger.error('Failed to open frontstage', { error });
       toast.error('无法打开幕前界面');
@@ -56,25 +54,30 @@ export function FrontstageLauncher({ isOpen, onToggle }: FrontstageLauncherProps
 
   if (!isVisible) return null;
 
+  const label = isOpen ? '幕前已开启' : '开幕前';
+
   return (
-    // v0.73.5: 改到右下角。原先 top-4 right-4 会压住各页右上角的操作按钮
-    // （日志页「复制」、设置页「导出/导入」等），并与右上角 toast 重叠。
-    <div className="fixed bottom-6 right-6 z-40 flex items-center gap-2">
+    <div className={cn(variant === 'icon' ? 'w-full' : 'flex items-center gap-2')}>
       <button
+        type="button"
+        aria-label={label}
+        title={label}
         onClick={handleOpenFrontstage}
-        className={`
-          flex items-center gap-2 px-4 py-2 rounded-xl font-medium text-sm
-          transition-all duration-300 shadow-lg
-          ${
-            isOpen
-              ? 'bg-cinema-gold/20 text-cinema-gold border border-cinema-gold/30'
-              : 'bg-cinema-800 text-white hover:bg-cinema-700 border border-cinema-700'
-          }
-        `}
+        className={cn(
+          'flex items-center justify-center gap-2 font-medium transition-colors',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinema-gold/50',
+          variant === 'icon'
+            ? 'aspect-square w-full rounded-panel text-ai-ink-2 hover:bg-cinema-800/60 hover:text-cinema-gold'
+            : 'rounded-lg border border-cinema-700 bg-cinema-800 px-4 py-2 text-sm text-ai-ink hover:bg-cinema-700'
+        )}
       >
-        <BookOpen className="w-4 h-4" />
-        <span>{isOpen ? '幕前已开启' : '开幕前'}</span>
-        <ExternalLink className="w-3 h-3 opacity-60" />
+        <BookOpen className="h-5 w-5 shrink-0" />
+        {variant === 'button' && (
+          <>
+            <span>{label}</span>
+            <ExternalLink className="h-3.5 w-3.5 opacity-60" />
+          </>
+        )}
       </button>
     </div>
   );

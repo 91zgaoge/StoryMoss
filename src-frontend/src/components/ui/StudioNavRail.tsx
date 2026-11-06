@@ -8,6 +8,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
+import { FrontstageLauncher } from '@/components/FrontstageLauncher';
 import { cn } from '@/utils/cn';
 
 export const NAV_ITEMS = [
@@ -27,12 +28,12 @@ export function StudioNavRail({ activeView = 'dashboard' }: StudioNavRailProps) 
   const setCurrentView = useAppStore(s => s.setCurrentView);
 
   return (
-    <nav className="w-16 flex-shrink-0 bg-cinema-900 border-r border-borderSubtle flex flex-col items-center py-4 gap-4">
-      <div className="w-10 h-10 rounded-xl bg-cinema-gold/15 flex items-center justify-center">
-        <Sparkles className="w-5 h-5 text-cinema-gold" />
+    <nav className="flex h-full min-h-0 w-16 flex-shrink-0 flex-col items-center gap-4 border-r border-borderSubtle bg-cinema-900 py-4">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-cinema-gold/20 bg-cinema-gold/10">
+        <Sparkles className="h-5 w-5 text-cinema-gold" />
       </div>
 
-      <div className="flex-1 flex flex-col items-center gap-2 w-full px-2">
+      <div className="flex w-full min-h-0 flex-1 flex-col items-center gap-1.5 overflow-y-auto px-2">
         {NAV_ITEMS.map(item => {
           const Icon = item.icon;
           const isActive = item.view === activeView;
@@ -64,6 +65,10 @@ export function StudioNavRail({ activeView = 'dashboard' }: StudioNavRailProps) 
             </button>
           );
         })}
+      </div>
+
+      <div className="w-full shrink-0 border-t border-borderSubtle px-2 pt-3">
+        <FrontstageLauncher variant="icon" />
       </div>
     </nav>
   );

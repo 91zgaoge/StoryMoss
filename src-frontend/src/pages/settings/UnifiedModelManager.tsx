@@ -411,10 +411,10 @@ function ModelRoleCard({
   };
 
   return (
-    <Card>
-      <CardContent className="p-4">
-        <h3 className="text-base font-semibold text-white">模型角色分配</h3>
-        <p className="text-xs text-gray-500 mt-1 mb-3">
+    <Card className="@container" data-testid="model-role-card">
+      <CardContent className="p-4 sm:p-5">
+        <h3 className="font-body text-base font-semibold text-ai-ink">模型角色分配</h3>
+        <p className="mb-4 mt-1 text-xs leading-5 text-ai-ink-3">
           三角色对应这三档：主创→创作，管理→工具，编辑审计与资产回流→后台。未设置时网关自动分配。
         </p>
         <div className="space-y-3">
@@ -423,61 +423,75 @@ function ModelRoleCard({
               const currentId = activeModels[role];
               const currentModel = eligibleModels.find(m => m.id === currentId);
               return (
-                <div key={role} className="flex items-center gap-3 p-2 rounded-lg bg-cinema-900/50">
-                  <span
-                    className={cn(
-                      'flex items-center gap-1.5 text-sm font-medium min-w-[120px]',
-                      config.color
-                    )}
-                  >
-                    {config.icon}
-                    {config.label}
-                  </span>
-                  <span className="text-xs text-gray-600 hidden sm:block flex-1">
-                    {config.desc}
-                  </span>
-                  <Select
-                    className="min-w-[160px]"
-                    value={currentId || ''}
-                    onChange={e => {
-                      if (e.target.value) {
-                        onSetRole(e.target.value, role);
-                      }
-                    }}
-                  >
-                    <option value="">自动分配（网关判断）</option>
-                    {eligibleModels.map(m => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </Select>
-                  {/* v0.23.66: 温度覆盖输入 */}
-                  {tempMap[role] && (
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs text-gray-500">{tempMap[role].label}</span>
-                      <Input
-                        type="number"
-                        className="w-16 text-center"
-                        min={0.1}
-                        max={2.0}
-                        step={0.1}
-                        placeholder="默认"
-                        value={tempMap[role].value ?? ''}
-                        onChange={e => {
-                          const v = e.target.value;
-                          onSetTemperature(tempMap[role].key, v === '' ? undefined : parseFloat(v));
-                        }}
-                      />
-                    </div>
-                  )}
-                  {currentModel && (
-                    <span className="text-xs text-cinema-gold bg-cinema-gold/10 px-2 py-0.5 rounded">
-                      {currentModel.name.length > 15
-                        ? currentModel.name.slice(0, 15) + '...'
-                        : currentModel.name}
+                <div
+                  key={role}
+                  data-testid={`model-role-${role}`}
+                  className="grid grid-cols-1 gap-4 rounded-xl border border-borderSubtle bg-cinema-900/45 p-4 @5xl:grid-cols-[minmax(180px,0.75fr)_minmax(0,1.25fr)] @5xl:items-center"
+                >
+                  <div className="min-w-0">
+                    <span
+                      className={cn(
+                        'flex items-center gap-2 text-sm font-medium whitespace-nowrap',
+                        config.color
+                      )}
+                    >
+                      {config.icon}
+                      {config.label}
                     </span>
-                  )}
+                    <p className="mt-1.5 text-xs leading-5 text-ai-ink-3">{config.desc}</p>
+                  </div>
+                  <div className="grid min-w-0 grid-cols-1 items-center gap-3 @md:grid-cols-[minmax(0,1fr)_auto]">
+                    <Select
+                      aria-label={`${config.label}模型`}
+                      className="w-full min-w-0"
+                      value={currentId || ''}
+                      onChange={e => {
+                        if (e.target.value) {
+                          onSetRole(e.target.value, role);
+                        }
+                      }}
+                    >
+                      <option value="">自动分配（网关判断）</option>
+                      {eligibleModels.map(m => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </Select>
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      {tempMap[role] && (
+                        <>
+                          <span className="whitespace-nowrap text-xs text-ai-ink-3">
+                            {tempMap[role].label}
+                          </span>
+                          <Input
+                            aria-label={tempMap[role].label}
+                            type="number"
+                            className="w-20 shrink-0 text-center"
+                            min={0.1}
+                            max={2.0}
+                            step={0.1}
+                            placeholder="默认"
+                            value={tempMap[role].value ?? ''}
+                            onChange={e => {
+                              const v = e.target.value;
+                              onSetTemperature(
+                                tempMap[role].key,
+                                v === '' ? undefined : parseFloat(v)
+                              );
+                            }}
+                          />
+                        </>
+                      )}
+                      {currentModel && (
+                        <span className="max-w-40 truncate whitespace-nowrap rounded border border-cinema-gold/20 bg-cinema-gold/10 px-2 py-1 text-xs text-cinema-gold">
+                          {currentModel.name.length > 15
+                            ? currentModel.name.slice(0, 15) + '...'
+                            : currentModel.name}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               );
             }
@@ -486,34 +500,39 @@ function ModelRoleCard({
 
         {/* v0.31.0: 续写参数（计划模式 / 目标字数） */}
         <div className="mt-3 pt-3 border-t border-cinema-800 space-y-3">
-          <div className="flex items-center gap-3 p-2 rounded-lg bg-cinema-900/50">
-            <span className="text-sm font-medium text-gray-300 min-w-[120px]">续写计划模式</span>
-            <span className="text-xs text-gray-500 flex-1">
+          <div className="grid grid-cols-1 gap-2 rounded-xl border border-borderSubtle bg-cinema-900/45 p-4">
+            <span className="text-sm font-medium text-ai-ink-2">续写计划模式</span>
+            <span className="text-xs leading-5 text-ai-ink-3">
               已废弃：续写统一走三角色主创，不再使用节拍规划双步链。
             </span>
           </div>
-          <div className="flex items-center gap-3 p-2 rounded-lg bg-cinema-900/50">
-            <span className="text-sm font-medium text-gray-300 min-w-[120px]">续写目标字数</span>
-            <span className="text-xs text-gray-600 hidden sm:block flex-1">
-              建议范围 500-5000，默认 2000；实际目标区间 = 字数 × 0.7 ~ × 1.3
-            </span>
-            <Input
-              type="number"
-              className="w-20 text-center"
-              min={500}
-              max={5000}
-              step={100}
-              placeholder="2000"
-              value={continuationTargetWords ?? ''}
-              onChange={e => {
-                const v = e.target.value;
-                onSaveContinuationSetting(
-                  'continuation_target_words',
-                  v === '' ? undefined : parseInt(v, 10)
-                );
-              }}
-            />
-            <span className="text-xs text-gray-500">字</span>
+          <div className="grid grid-cols-1 items-center gap-3 rounded-xl border border-borderSubtle bg-cinema-900/45 p-4 @md:grid-cols-[minmax(0,1fr)_auto]">
+            <div className="min-w-0">
+              <span className="text-sm font-medium text-ai-ink-2">续写目标字数</span>
+              <p className="mt-1 text-xs leading-5 text-ai-ink-3">
+                建议范围 500-5000，默认 2000；实际目标区间 = 字数 × 0.7 ~ × 1.3
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                aria-label="续写目标字数"
+                type="number"
+                className="w-24 text-center"
+                min={500}
+                max={5000}
+                step={100}
+                placeholder="2000"
+                value={continuationTargetWords ?? ''}
+                onChange={e => {
+                  const v = e.target.value;
+                  onSaveContinuationSetting(
+                    'continuation_target_words',
+                    v === '' ? undefined : parseInt(v, 10)
+                  );
+                }}
+              />
+              <span className="text-xs text-ai-ink-3">字</span>
+            </div>
           </div>
         </div>
       </CardContent>

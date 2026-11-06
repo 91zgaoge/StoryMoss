@@ -875,7 +875,7 @@ export function Foreshadowing() {
 
       {/* Kanban board */}
       {!isLoading && items.length > 0 && (
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {(
             [
               { key: 'setup' as const, label: '未回收', color: 'text-yellow-400' },

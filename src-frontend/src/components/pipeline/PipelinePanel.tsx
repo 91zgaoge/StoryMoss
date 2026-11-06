@@ -139,27 +139,27 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
 
   return (
     <div
-      className="flex flex-col h-full bg-[#1a1a2e] border-l border-white/5"
+      className="flex h-full min-h-0 flex-col border-l border-cinema-800 bg-cinema-950"
       data-testid="pipeline-panel"
     >
       {/* Header */}
-      <div className="px-4 py-3 border-b border-white/5">
-        <h3 className="text-sm font-semibold text-white/90 flex items-center gap-2">
-          <GitMerge className="w-4 h-4 text-purple-400" />
+      <div className="px-4 py-3 border-b border-borderSubtle">
+        <h3 className="flex items-center gap-2 font-body text-sm font-semibold text-ai-ink">
+          <GitMerge className="h-4 w-4 text-cinema-gold" />
           创作管线
         </h3>
-        <p className="text-xs text-white/40 mt-0.5">
+        <p className="mt-0.5 text-xs text-ai-ink-3">
           场景 #{chapterNumber} {chapterTitle || ''}
-          <span className="ml-1 text-white/25">（管线序号）</span>
+          <span className="ml-1 text-ai-ink-3">（管线序号）</span>
         </p>
-        <p className="text-[11px] text-amber-400/80 mt-1.5" data-testid="pipeline-finalize-note">
+        <p className="mt-1.5 text-xs text-cinema-gold" data-testid="pipeline-finalize-note">
           Finalize 按章节号落盘
         </p>
       </div>
 
       {/* Status Bar */}
       {isBusy && (
-        <div className="px-4 py-2 bg-purple-500/10 border-b border-white/5">
+        <div className="px-4 py-2 bg-purple-500/10 border-b border-borderSubtle">
           <div className="flex items-center gap-2">
             <Loader2 className="w-3.5 h-3.5 text-purple-400 animate-spin" />
             <span className="text-xs text-purple-300">{state.message}</span>
@@ -174,7 +174,7 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
       )}
 
       {state.error && (
-        <div className="px-4 py-2 bg-red-500/10 border-b border-white/5">
+        <div className="px-4 py-2 bg-red-500/10 border-b border-borderSubtle">
           <div className="flex items-center gap-2">
             <AlertCircle className="w-3.5 h-3.5 text-red-400" />
             <span className="text-xs text-red-300">{state.error}</span>
@@ -183,7 +183,7 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
       )}
 
       {/* Tabs */}
-      <div className="flex border-b border-white/5">
+      <div className="flex border-b border-borderSubtle">
         {(['actions', 'drafts', 'reviews'] as const).map(tab => (
           <button
             key={tab}
@@ -191,8 +191,8 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
             className={cn(
               'flex-1 px-3 py-2 text-xs font-medium transition-colors',
               activeTab === tab
-                ? 'text-purple-300 bg-purple-500/10 border-b-2 border-purple-400'
-                : 'text-white/40 hover:text-white/60 hover:bg-white/5'
+                ? 'border-b-2 border-cinema-gold bg-cinema-gold/10 text-cinema-gold'
+                : 'text-ai-ink-3 hover:bg-cinema-800/50 hover:text-ai-ink'
             )}
           >
             {tab === 'actions' && '操作'}
@@ -208,7 +208,7 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
           <div className="p-4 space-y-4">
             {/* Current Draft Info */}
             {state.currentDraft && (
-              <div className="p-3 rounded-lg bg-white/5 border border-white/5">
+              <div className="p-3 rounded-lg bg-white/5 border border-borderSubtle">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-white/60">当前草稿</span>
                   <span
@@ -343,7 +343,7 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
                   'w-full text-left p-3 rounded-lg border transition-all',
                   selectedDraft?.id === draft.id
                     ? 'bg-purple-500/10 border-purple-400/30'
-                    : 'bg-white/5 border-white/5 hover:bg-white/10'
+                    : 'bg-white/5 border-borderSubtle hover:bg-white/10'
                 )}
               >
                 <div className="flex items-center justify-between">
@@ -429,7 +429,10 @@ export const PipelinePanel: React.FC<PipelinePanelProps> = ({
             )}
 
             {state.reviews.map(review => (
-              <div key={review.id} className="p-2.5 rounded-lg bg-white/5 border border-white/5">
+              <div
+                key={review.id}
+                className="p-2.5 rounded-lg bg-white/5 border border-borderSubtle"
+              >
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] text-white/50">审稿 #{review.review_index}</span>
                   {review.overall_score !== undefined && (

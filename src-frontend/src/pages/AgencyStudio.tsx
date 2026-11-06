@@ -711,11 +711,12 @@ export default function AgencyStudio() {
       )}
 
       <div
+        data-testid="agency-workspace-grid"
         className={cn(
-          'grid min-h-0 flex-1 gap-3',
+          'grid min-h-0 flex-1 gap-3 overflow-y-auto xl:overflow-hidden',
           focus
-            ? 'grid-cols-1 lg:grid-cols-[170px_minmax(0,1fr)]'
-            : 'grid-cols-1 lg:grid-cols-[210px_minmax(0,1fr)_330px]'
+            ? 'grid-cols-1 xl:grid-cols-[170px_minmax(0,1fr)]'
+            : 'grid-cols-1 xl:grid-cols-[210px_minmax(0,1fr)_330px]'
         )}
       >
         <aside className="flex min-w-0 flex-col gap-2 rounded border border-ai-line bg-ai-surface p-2">
@@ -940,7 +941,10 @@ export default function AgencyStudio() {
         </section>
 
         {!focus && (
-          <aside className="flex min-w-0 flex-col rounded border border-ai-line bg-ai-surface">
+          <aside
+            data-testid="agency-live-panel"
+            className="flex min-w-0 flex-col rounded border border-ai-line bg-ai-surface"
+          >
             <div className="flex gap-1 border-b border-ai-line px-2 py-1.5">
               {(['now', 'board', 'timeline', 'emotion'] as const).map(tab => (
                 <button

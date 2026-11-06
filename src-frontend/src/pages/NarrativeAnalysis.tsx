@@ -261,7 +261,7 @@ export function NarrativeAnalysis() {
         {threads.length === 0 ? (
           <p className="text-gray-500 text-sm">暂无活跃线索。</p>
         ) : (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {threads.map((thread, idx) => (
               <div key={idx} className="bg-cinema-800/50 rounded-lg p-3">
                 <div className="flex items-center gap-2 mb-1">
@@ -338,7 +338,7 @@ export function NarrativeAnalysis() {
             )}
 
             {/* 债务 + annotation 汇总 */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="bg-cinema-800/50 rounded-lg p-4">
                 <div className="text-sm text-gray-400 mb-2">追读债务</div>
                 <div className="text-2xl font-bold text-white">

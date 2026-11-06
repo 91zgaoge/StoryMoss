@@ -573,8 +573,8 @@ export const KnowledgeGraph: React.FC = () => {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-cinema-800 flex items-center justify-between bg-cinema-900/50">
-        <div>
+      <div className="flex shrink-0 flex-col gap-4 border-b border-cinema-800 bg-cinema-900/50 px-4 py-4 sm:px-6 xl:flex-row xl:items-center xl:justify-between">
+        <div className="min-w-0">
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
             <Network className="w-5 h-5 text-cinema-gold" />
             知识图谱
@@ -592,13 +592,16 @@ export const KnowledgeGraph: React.FC = () => {
             条）进入默认续写；完整图谱与记忆健康仍属写后/诊断面。
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
           {/* Tabs */}
-          <div className="flex items-center bg-cinema-800 rounded-lg p-1">
+          <div
+            className="flex max-w-full items-center overflow-x-auto rounded-lg bg-cinema-800 p-1"
+            data-testid="kg-tabs"
+          >
             <button
               onClick={() => setActiveTab('graph')}
               className={cn(
-                'px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+                'shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
                 activeTab === 'graph'
                   ? 'bg-cinema-700 text-white'
                   : 'text-gray-400 hover:text-white'
@@ -609,7 +612,7 @@ export const KnowledgeGraph: React.FC = () => {
             <button
               onClick={() => setActiveTab('memory')}
               className={cn(
-                'px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+                'shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
                 activeTab === 'memory'
                   ? 'bg-cinema-700 text-white'
                   : 'text-gray-400 hover:text-white'
@@ -620,7 +623,7 @@ export const KnowledgeGraph: React.FC = () => {
             <button
               onClick={() => setActiveTab('archived')}
               className={cn(
-                'px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+                'shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
                 activeTab === 'archived'
                   ? 'bg-cinema-700 text-white'
                   : 'text-gray-400 hover:text-white'
@@ -631,7 +634,7 @@ export const KnowledgeGraph: React.FC = () => {
             <button
               onClick={() => setActiveTab('distillation')}
               className={cn(
-                'px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+                'shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
                 activeTab === 'distillation'
                   ? 'bg-cinema-700 text-white'
                   : 'text-gray-400 hover:text-white'
@@ -647,7 +650,7 @@ export const KnowledgeGraph: React.FC = () => {
               if (activeTab === 'distillation') refetchSummaries();
             }}
             disabled={isLoading || isSummariesLoading}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-cinema-800 hover:bg-cinema-700 text-gray-300 transition-colors disabled:opacity-50"
+            className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg bg-cinema-800 px-4 py-2 text-ai-ink-2 transition-colors hover:bg-cinema-700 disabled:opacity-50"
           >
             <RefreshCw
               className={cn('w-4 h-4', (isLoading || isSummariesLoading) && 'animate-spin')}
@@ -658,7 +661,7 @@ export const KnowledgeGraph: React.FC = () => {
       </div>
 
       {/* Content */}
-      <div className="flex-1 relative">
+      <div className="relative min-h-0 min-w-0 flex-1">
         {isLoading && !graphData && activeTab !== 'archived' ? (
           <div className="h-full flex items-center justify-center text-gray-500">
             <div className="text-center">

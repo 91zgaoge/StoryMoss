@@ -51,42 +51,57 @@ export function CreationPathGuide({ onFrontstage, onWizard, onQuick }: CreationP
   const callbacks = { onFrontstage, onWizard, onQuick };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      {paths.map(path => {
-        const Icon = path.icon;
-        const callbackName = callbackMap[path.id];
-        const callback = callbackName ? callbacks[callbackName] : undefined;
-        return (
-          <Card
-            key={path.id}
-            hover
-            className={`bg-cinema-800/50 border-cinema-700 ${callback ? 'cursor-pointer' : ''}`}
-            onClick={callback}
-            role={callback ? 'button' : undefined}
-            aria-label={callback ? path.title : undefined}
-          >
-            <CardContent className="p-4">
-              <div className="flex items-start gap-3">
-                <div className="p-2 rounded-lg bg-cinema-900 text-cinema-gold">
-                  <Icon className="w-5 h-5" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-display font-semibold text-white text-sm">{path.title}</h3>
-                    {path.badge && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-cinema-gold/20 text-cinema-gold border border-cinema-gold/20">
-                        {path.badge}
-                      </span>
-                    )}
+    <div className="@container">
+      <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-3">
+        {paths.map(path => {
+          const Icon = path.icon;
+          const callbackName = callbackMap[path.id];
+          const callback = callbackName ? callbacks[callbackName] : undefined;
+          return (
+            <Card
+              key={path.id}
+              hover
+              className={`group h-full border-borderSubtle bg-cinema-900/45 ${callback ? 'cursor-pointer' : ''}`}
+              onClick={callback}
+              role={callback ? 'button' : undefined}
+              tabIndex={callback ? 0 : undefined}
+              onKeyDown={
+                callback
+                  ? event => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        callback();
+                      }
+                    }
+                  : undefined
+              }
+              aria-label={callback ? path.title : undefined}
+            >
+              <CardContent className="p-4">
+                <div className="flex items-start gap-3">
+                  <div className="shrink-0 rounded-lg border border-cinema-gold/15 bg-cinema-gold/10 p-2.5 text-cinema-gold">
+                    <Icon className="h-5 w-5" />
                   </div>
-                  <p className="text-[10px] text-gray-500 font-mono mt-0.5">{path.subtitle}</p>
-                  <p className="text-xs text-gray-400 mt-2 leading-relaxed">{path.description}</p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-body text-sm font-semibold leading-6 text-ai-ink">
+                        {path.title}
+                      </h3>
+                      {path.badge && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-cinema-gold/20 text-cinema-gold border border-cinema-gold/20">
+                          {path.badge}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 font-mono text-xs text-ai-ink-3">{path.subtitle}</p>
+                    <p className="mt-2 text-xs leading-5 text-ai-ink-2">{path.description}</p>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        );
-      })}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }

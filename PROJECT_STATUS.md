@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.84.2 项目完成状态
+# StoryMoss (草苔) v0.85.0 项目完成状态
 
+> 最后更新: 2026-11-07（**v0.85.0：幕后布局重建与视觉精修**——修复逐字竖排、Panel 限高裁切、场景 Grid 错位与悬浮遮挡；设置/工作台容器自适应，三档全导航与真实内容探针通过。Vitest **686/3**；Playwright **126/5**；tsc/prettier/guard 全绿。Rust 源码未改。）
+>
 > 最后更新: 2026-11-06（**v0.84.2：V155 计划线程匹配扩展**——收后叙事专名 + 人称过滤；碎片窗口模拟命中 9→19。Rust **2010 / 15**；vitest 684/3；playwright 97/5；fmt/clippy/guard 全绿。）
 >
 > 最后更新: 2026-11-06（**v0.84.1：弹窗壳收尾 + 伏笔计划窗口补齐**——StyleDnaModal/ExportDialog 迁共享 Modal；卷号计划/12 条上限；V155 碎片按清单线程继承窗口。Rust **2010 / 15**；vitest 684/3；playwright 97/5；tsc/prettier/fmt/clippy/guard 全绿。）

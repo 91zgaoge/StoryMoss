@@ -51,6 +51,8 @@ export interface MockTauriArgs {
   smartExecuteSteps?: MockSmartExecuteStep[];
   /** 是否把 IPC 调用记录到 window.__calls（默认 true） */
   recordCalls?: boolean;
+  /** 填充多模型与角色分配，覆盖真实设置布局 */
+  richBackstage?: boolean;
 }
 
 export function getMockTauriInitScript() {
@@ -62,6 +64,7 @@ export function getMockTauriInitScript() {
     preflight,
     smartExecuteSteps = [],
     recordCalls = true,
+    richBackstage = false,
   }: MockTauriArgs = {}) => {
     const STORAGE_KEY = '__e2e_mock_content__';
     let mockContent = frontstageSeed
@@ -117,8 +120,32 @@ export function getMockTauriInitScript() {
       title: mockChapter.title,
       content: mockContent,
       word_count: 0,
+      characters_present: [],
+      character_conflicts: [],
+      foreshadowing_ids: [],
+      execution_stage: 'planning',
+      draft_content: '',
+      outline_content: '',
     };
-    const mockScenes = frontstageSeed ? frontstageSeed.scenes || [defaultSeedScene] : [];
+    const mockScenes = frontstageSeed
+      ? frontstageSeed.scenes || [defaultSeedScene]
+      : richBackstage
+        ? [
+            {
+              ...defaultSeedScene,
+              title: '雨夜封门',
+              execution_stage: 'drafting',
+              draft_content: '雨水沿着门缝往里渗，陈砚握着修复刀，没有后退。',
+              content:
+                '雨水沿着老街的青石板奔流而下。陈砚站在旧宅门前，看着新砌的水泥墙，指尖还留着修复刀的温度。门后传来母亲模糊的呼唤，他必须在天亮前找到回家的入口。\n\n邻居们聚在巷口，有人压低声音争吵，有人悄悄收起旧照片。陈砚把缺失的档案编号记进练习本，转身走向还亮着灯的修表铺。',
+              dramatic_goal: '在旧宅被封死前确认母亲是否安全，并保住修复师的身份。',
+              external_pressure: '拆迁队将在天亮后完成封门，任何阻拦都会引来保安。',
+              setting_location: '旧宅门前',
+              characters_present: [],
+              foreshadowing_ids: [],
+            },
+          ]
+        : [];
     const extraStorySeeds = extraStories.map(s => ({
       story: s.story,
       chapters: s.chapters,
@@ -133,7 +160,9 @@ export function getMockTauriInitScript() {
         : undefined;
     const extraScenesForChapter = (chapterId?: string) =>
       chapterId
-        ? extraStorySeeds.flatMap(s => s.scenes).filter(sc => String(sc.chapter_id ?? '') === chapterId)
+        ? extraStorySeeds
+            .flatMap(s => s.scenes)
+            .filter(sc => String(sc.chapter_id ?? '') === chapterId)
         : [];
 
     // 调用记录 + smart_execute 应答队列（供 spec 断言与手动放行）
@@ -179,11 +208,55 @@ export function getMockTauriInitScript() {
       emitSyncEvent: (eventName: string, payload: any) => emitEvent(eventName, payload),
     };
 
+    const mockModels = richBackstage
+      ? [
+          {
+            id: 'model-creative',
+            name: 'deepseek-v4-long-name',
+            type: 'chat',
+            provider: 'deepseek',
+            model: 'deepseek-v4',
+            enabled: true,
+            is_default: true,
+            api_base: 'https://example.invalid',
+            capabilities: ['Text'],
+          },
+          {
+            id: 'model-tool',
+            name: 'Qwen127',
+            type: 'chat',
+            provider: 'qwen',
+            model: 'qwen-127',
+            enabled: true,
+            is_default: false,
+            api_base: 'https://example.invalid',
+            capabilities: ['Text', 'Json'],
+          },
+          {
+            id: 'model-embedding',
+            name: 'bge-m3',
+            type: 'embedding',
+            provider: 'local',
+            model: 'bge-m3',
+            enabled: true,
+            is_default: true,
+            dimensions: 1024,
+          },
+        ]
+      : [];
+
     const mockSettings = {
       version: '0.1.0',
       updated_at: new Date().toISOString(),
       models: { chat: [], embedding: [], multimodal: [], image: [] },
-      active_models: {},
+      active_models: richBackstage
+        ? {
+            chat: 'model-creative',
+            creative: 'model-creative',
+            tool: 'model-tool',
+            background: 'model-creative',
+          }
+        : {},
       agent_mappings: [],
       general: {
         theme: 'dark',
@@ -249,7 +322,10 @@ export function getMockTauriInitScript() {
             mockContent = persisted;
             const scoped = mockScenes.filter(s => s.chapter_id === chapterId);
             if (scoped.length > 0) {
-              return scoped.map(s => ({ ...s, content: s.content || persisted }));
+              return scoped.map(s => ({
+                ...s,
+                content: s.content || persisted,
+              }));
             }
             return [
               {
@@ -330,7 +406,11 @@ export function getMockTauriInitScript() {
             if (frontstageSeed) {
               const seeded = mockScenes.find(s => s.id === args?.scene_id) || mockScenes[0];
               if (seeded) {
-                return { ...seeded, content: mockContent, word_count: mockContent.length };
+                return {
+                  ...seeded,
+                  content: mockContent,
+                  word_count: mockContent.length,
+                };
               }
             }
             mockContent = enablePersistence ? sessionStorage.getItem(STORAGE_KEY) || '' : '';
@@ -406,7 +486,12 @@ export function getMockTauriInitScript() {
             };
           case 'check_auto_write_quota':
           case 'check_auto_revise_quota':
-            return { allowed: true, remaining: 10, daily_limit: 10, daily_used: 0 };
+            return {
+              allowed: true,
+              remaining: 10,
+              daily_limit: 10,
+              daily_used: 0,
+            };
           // 自动更新检查：App.tsx 的 useUpdater(true) 在挂载 5s 后触发
           // check_update。此前未实现 → 默认 null → 读 .has_update 抛错 →
           // 页面加载类用例的「无 console 错误」断言在用例耗时超过 5s
@@ -436,7 +521,7 @@ export function getMockTauriInitScript() {
           case 'get_settings':
             return mockSettings;
           case 'get_models':
-            return [];
+            return mockModels;
           case 'get_gateway_status':
             return {
               last_probe_at: undefined,
@@ -463,6 +548,72 @@ export function getMockTauriInitScript() {
             return [];
           case 'get_agent_mappings':
             return [];
+          case 'get_skills':
+          case 'list_quality_debts':
+          case 'list_pending_reviews':
+          case 'list_style_preferences':
+          case 'list_stale_materials':
+          case 'get_recent_llm_calls':
+          case 'list_recent_generation_traces':
+          case 'list_cascade_impacts':
+          case 'agency_list_checkpoints':
+          case 'get_archived_entities':
+            return [];
+          case 'get_llm_call_stats':
+            return { count: 0, total_tokens: 0, total_cost: 0 };
+          case 'get_story_cost_summary':
+            return {
+              summary: {
+                story_id: args?.story_id ?? mockStory.id,
+                total_calls: 0,
+                total_tokens: 0,
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                failed_calls: 0,
+                zero_token_calls: 0,
+                first_call_at: null,
+                last_call_at: null,
+                budget_warning: false,
+                warn_threshold: 500000,
+              },
+              anomalies: [],
+            };
+          case 'get_story_graph':
+            return { entities: [], relations: [] };
+          case 'agency_eval_overview':
+            return {
+              gate_history: [],
+              pass_rate: 0,
+              checkpoints: [],
+              human_signals: [],
+              editor_agreement: {
+                chapters: [],
+                total_findings: 0,
+                total_judgeable: 0,
+                total_adopted: 0,
+                adoption_rate: 0,
+                per_kilo_chars: 0,
+              },
+              token_usage: [],
+              story_tokens: { total_tokens: 0, run_count: 0 },
+            };
+          case 'agency_learning_overview':
+            return {
+              instincts: [],
+              candidates: [],
+              recent_observations: [],
+              unanalyzed_count: 0,
+              analyze_min_new: 2,
+              technique_stats: [],
+            };
+          case 'get_story_chapter_drafts':
+          case 'get_draft_revision_history':
+          case 'get_draft_review_history':
+            return [];
+          case 'get_pipeline_active_draft':
+          case 'get_latest_pipeline_review':
+          case 'get_post_process_status':
+            return null;
           // v0.74.0：语料 / 导演剧组对话 / 任务现场最小 mock
           case 'corpus_list':
             return [
@@ -542,7 +693,10 @@ export function getMockTauriInitScript() {
               updated_at: '2026-10-30T10:00:00+08:00',
             };
           case 'corpus_read_media':
-            return { mime: 'image/png', data_url: 'data:image/png;base64,AAAA' };
+            return {
+              mime: 'image/png',
+              data_url: 'data:image/png;base64,AAAA',
+            };
           case 'corpus_distill':
             return {
               version: 1,
@@ -564,7 +718,11 @@ export function getMockTauriInitScript() {
           case 'create_foreshadowing':
             return 'foreshadow-1';
           case 'create_character':
-            return { id: 'character-1', story_id: mockStory.id, name: '守夜人' };
+            return {
+              id: 'character-1',
+              story_id: mockStory.id,
+              name: '守夜人',
+            };
           case 'create_world_building':
             return { id: 'world-1', story_id: mockStory.id };
           case 'agency_list_runs':
@@ -693,7 +851,11 @@ export function getMockTauriInitScript() {
               alerts: [],
             };
           case 'agency_chat_send':
-            return { session_id: 'chat-s1', message_id: 'chat-m2', turn_task_id: 'task-1' };
+            return {
+              session_id: 'chat-s1',
+              message_id: 'chat-m2',
+              turn_task_id: 'task-1',
+            };
           case 'agency_director_execute':
             return [];
           case 'agency_director_reject':
@@ -704,7 +866,11 @@ export function getMockTauriInitScript() {
           case 'agency_crew_release_lease':
             return null;
           case 'health_check':
-            return { status: 'ok', timestamp: new Date().toISOString(), version: '0.1.0' };
+            return {
+              status: 'ok',
+              timestamp: new Date().toISOString(),
+              version: '0.1.0',
+            };
           case 'get_window_state':
             return { width: 1920, height: 1080 };
           case 'list_genesis_runs':

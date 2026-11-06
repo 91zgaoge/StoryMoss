@@ -113,7 +113,9 @@ test.describe('Backstage 页面加载测试', () => {
     await page.locator('nav').getByRole('button', { name: '设置', exact: true }).click();
 
     // 设置视图同样渲染 StudioNavRail（nav），无 Sidebar（aside）
-    await expect(page.locator('h1')).toContainText('工作室配置', { timeout: 10000 });
+    await expect(page.locator('h1')).toContainText('工作室配置', {
+      timeout: 10000,
+    });
     await expect(page.locator('aside')).toHaveCount(0);
 
     const settingsTabs = page.getByTestId('settings-tabs');
@@ -140,7 +142,9 @@ test.describe('Backstage 页面加载测试', () => {
 
     // 通过导航轨进入设置页面
     await page.locator('nav').getByRole('button', { name: '设置', exact: true }).click();
-    await expect(page.locator('h1')).toContainText('工作室配置', { timeout: 10000 });
+    await expect(page.locator('h1')).toContainText('工作室配置', {
+      timeout: 10000,
+    });
 
     const settingsTabs = page.getByTestId('settings-tabs');
 
@@ -161,7 +165,9 @@ test.describe('Backstage 页面加载测试', () => {
     await page.goto('/index.html');
 
     await page.locator('nav').getByRole('button', { name: '设置', exact: true }).click();
-    await expect(page.locator('h1')).toContainText('工作室配置', { timeout: 10000 });
+    await expect(page.locator('h1')).toContainText('工作室配置', {
+      timeout: 10000,
+    });
 
     // 模型页签默认选中「管理」，切到「超时」
     await page.getByRole('button', { name: '超时', exact: true }).click();
@@ -181,7 +187,9 @@ test.describe('Backstage 页面加载测试', () => {
     await page.goto('/index.html');
 
     await page.locator('nav').getByRole('button', { name: '设置', exact: true }).click();
-    await expect(page.locator('h1')).toContainText('工作室配置', { timeout: 10000 });
+    await expect(page.locator('h1')).toContainText('工作室配置', {
+      timeout: 10000,
+    });
 
     const settingsTabs = page.getByTestId('settings-tabs');
     await settingsTabs.getByRole('button', { name: '写作', exact: true }).click();
@@ -205,9 +213,7 @@ test.describe('Backstage 页面加载测试', () => {
 
     // 卡片点击必须广播 storySelected 给幕前（旧版只有卡片上的「打开」会发）
     const call = await page.evaluate(() =>
-      (window as any).__calls?.find(
-        (c: any) => c.cmd === 'notify_frontstage_story_selected'
-      )
+      (window as any).__calls?.find((c: any) => c.cmd === 'notify_frontstage_story_selected')
     );
     expect(call, '卡片点击应调用 notify_frontstage_story_selected').toBeTruthy();
     expect(call.args.story_id).toBe('test-story-1');
@@ -234,8 +240,8 @@ test.describe('Backstage 页面加载测试', () => {
     expect(consoleErrors.filter(e => !e.includes('enablePersistence'))).toHaveLength(0);
   });
 
-  test('日志页右上「复制」按钮不被幕前悬浮启动器遮挡（v0.73.5）', async ({ page }) => {
-    // 用户截图宽度 1680：内容区右缘约 40px，旧版 top-4 right-4 启动器会压住页头按钮
+  test('日志页「复制」不被幕前入口遮挡', async ({ page }) => {
+    // 幕前入口固定在 Sidebar 普通布局，不再以右下角浮层覆盖页面操作。
     await page.setViewportSize({ width: 1680, height: 900 });
     await page.addInitScript(getMockTauriInitScript());
     await page.goto('/index.html');
@@ -246,11 +252,24 @@ test.describe('Backstage 页面加载测试', () => {
     await expect(aside).toBeVisible({ timeout: 10000 });
     await aside.getByRole('button', { name: /运维/ }).click();
     await aside.getByRole('button', { name: /^日志/ }).click();
-    await expect(page.locator('h1')).toContainText('日志', { exact: true, timeout: 10000 });
+    await expect(page.locator('h1')).toContainText('日志', {
+      exact: true,
+      timeout: 10000,
+    });
 
-    // 启动器应可见（mock 实现了 get_window_state），但位于右下角
-    const launcher = page.getByRole('button', { name: /^(开幕前|幕前已开启)$/ });
+    // Sidebar 保留幕前入口，但其布局链中不得存在 fixed 遮挡层。
+    const launcher = aside.getByRole('button', {
+      name: '打开幕前写作',
+      exact: true,
+    });
     await expect(launcher).toBeVisible({ timeout: 10000 });
+    const hasFixedAncestor = await launcher.evaluate(element => {
+      for (let current = element; current; current = current.parentElement) {
+        if (getComputedStyle(current).position === 'fixed') return true;
+      }
+      return false;
+    });
+    expect(hasFixedAncestor).toBe(false);
 
     // trial click 会执行 hit-target 检查：若仍被悬浮层盖住会直接失败
     await page.getByRole('button', { name: /复制/, exact: false }).click({ trial: true });

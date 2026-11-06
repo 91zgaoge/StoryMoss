@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { loggedInvoke } from '@/services/tauri';
 import { createLogger } from '@/utils/logger';
@@ -29,8 +29,6 @@ import { Logs } from '@/pages/Logs';
 import { TracingPanel } from '@/pages/TracingPanel';
 import { DataLoader } from '@/components/DataLoader';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { ConnectionStatus } from '@/components/ConnectionStatus';
-import { FrontstageLauncher } from '@/components/FrontstageLauncher';
 import { UpdateNotification } from '@/components/updater';
 import { useUpdater } from '@/hooks/useUpdater';
 import { useSyncStore } from '@/hooks/useSyncStore';
@@ -47,6 +45,19 @@ import {
 } from '@/stores/agencyActivityStore';
 import type { ViewType, Story } from '@/types';
 import toast from 'react-hot-toast';
+
+const FULL_HEIGHT_VIEWS = new Set<ViewType>([
+  'dashboard',
+  'settings',
+  'scenes',
+  'corpus',
+  'knowledge-graph',
+  'book-deconstruction',
+  'story-system',
+  'agency-studio',
+  'logs',
+  'tracing',
+]);
 
 function App() {
   const queryClient = useQueryClient();
@@ -93,7 +104,6 @@ function App() {
   // 导航统一走 appStore，避免页面 setCurrentView 与壳层 local state 失步
   const currentView = useAppStore(state => state.currentView);
   const setCurrentView = useAppStore(state => state.setCurrentView);
-  const [isFrontstageOpen, setIsFrontstageOpen] = useState(false);
   // W2-F2: 从 local state 迁移到 Zustand store，替代 DOM CustomEvent 通信
   const isLoginOpen = useAppStore(state => state.isLoginModalOpen);
   // W2-F3: WebView 重绘修复 — 封装 DOM hack 为可复用 hook
@@ -112,18 +122,6 @@ function App() {
     installUpdate,
     dismissUpdate,
   } = useUpdater(true);
-
-  // Check if we're in frontstage mode (via URL or window label)
-  useEffect(() => {
-    const checkFrontstage = () => {
-      const url = window.location.href;
-      const isFrontstage =
-        url.includes('frontstage') || (window as any).__TAURI__?.window?.label === 'frontstage';
-      setIsFrontstageOpen(isFrontstage);
-    };
-
-    checkFrontstage();
-  }, []);
 
   // W2-F2: show-login-modal 已废弃，改用 Zustand store (isLoginModalOpen / setLoginModalOpen)
   // 原 window.addEventListener('show-login-modal', ...) 已移除
@@ -173,12 +171,6 @@ function App() {
               break;
             case 'GenerationRequested':
               toast('幕前请求生成内容', { icon: '✨' });
-              break;
-            case 'FrontstageClosed':
-              setIsFrontstageOpen(false);
-              break;
-            case 'FrontstageFocused':
-              setIsFrontstageOpen(true);
               break;
             // DataRefresh 已统一由 useSyncStore 处理，避免重复刷新
             case 'NavigateTo':
@@ -405,9 +397,8 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <div className="flex h-screen bg-cinema-950 film-grain dark">
+      <div className="flex h-dvh min-h-0 overflow-hidden bg-cinema-950 film-grain dark">
         <DataLoader />
-        <ConnectionStatus />
         <ConfirmPortal />
         <UpdateNotification
           isOpen={hasUpdate}
@@ -421,10 +412,6 @@ function App() {
           onDismiss={dismissUpdate}
           onCheck={checkUpdate}
         />
-        <FrontstageLauncher
-          isOpen={isFrontstageOpen}
-          onToggle={() => setIsFrontstageOpen(!isFrontstageOpen)}
-        />
         <LoginModal
           isOpen={isLoginOpen}
           onClose={() => useAppStore.getState().setLoginModalOpen(false)}
@@ -432,11 +419,15 @@ function App() {
         {currentView !== 'dashboard' && currentView !== 'settings' && (
           <Sidebar currentView={currentView} onNavigate={setCurrentView} />
         )}
-        <main
-          ref={mainRef}
-          className="flex-1 overflow-auto transition-colors duration-500 ease-out"
-        >
-          <div key={currentView} className="animate-fade-in">
+        <main ref={mainRef} className="min-w-0 min-h-0 flex-1 overflow-hidden">
+          <div
+            key={currentView}
+            className={`animate-fade-in min-w-0 min-h-0 ${
+              FULL_HEIGHT_VIEWS.has(currentView)
+                ? 'h-full overflow-hidden'
+                : 'h-full overflow-y-auto'
+            }`}
+          >
             <ErrorBoundary key={currentView}>{renderView()}</ErrorBoundary>
           </div>
         </main>

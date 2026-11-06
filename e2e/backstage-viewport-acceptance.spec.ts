@@ -3,10 +3,11 @@ import { getMockTauriInitScript } from './mock-tauri';
 
 /**
  * 幕后重设计视口验收探针（设计文档 §7.8）：
- * 800×600（最小窗口）与 1400×900 双档，全导航页断言无横向溢出并留档截图。
+ * 800×600（最小窗口）、1024×768（断点边界）与 1400×900 三档，全导航页断言无横向溢出并留档截图。
  */
 const VIEWPORTS = [
   { width: 800, height: 600 },
+  { width: 1024, height: 768 },
   { width: 1400, height: 900 },
 ];
 
@@ -37,9 +38,21 @@ const VIEWS: { view: string; navLabel: string; group?: '运维' | '分析' }[] =
   { view: 'settings', navLabel: '设置' },
 ];
 
+const READY_TEXT: Record<string, RegExp> = {
+  skills: /该分类下暂无技能/,
+  maintenance: /暂无未结清的质量债/,
+  'cascade-center': /暂无改稿影响/,
+  tracing: /暂无 trace 记录/,
+  'usage-stats': /暂无 LLM 调用记录/,
+  'agency-eval': /暂无评分数据/,
+  'agency-learning': /尚无模式/,
+  'knowledge-graph': /0 实体 · 0 关系/,
+  'story-system': /故事合同/,
+};
+
 for (const vp of VIEWPORTS) {
   for (const { view, navLabel, group } of VIEWS) {
-    test(`幕后 ${view} @ ${vp.width}×${vp.height} 无横向溢出`, async ({ page }) => {
+    test(`幕后 ${view} @ ${vp.width}×${vp.height} 成功渲染且无横向溢出`, async ({ page }) => {
       await page.setViewportSize(vp);
       await page.addInitScript(getMockTauriInitScript());
       await page.goto('/index.html');
@@ -55,14 +68,9 @@ for (const vp of VIEWPORTS) {
           .click();
         const aside = page.locator('aside');
         if (group) {
-          // 折叠组（运维/分析）：窄态下组头是 hidden lg:flex，不可见但可程序点击展开；
-          // 宽态直接点组头。
+          // 窄态使用真实可见的分组按钮；宽态直接点组头。
           if (vp.width < 1024) {
-            const groupId = group === '运维' ? 'ops' : 'analysis';
-            await page.evaluate(id => {
-              const groupEl = document.querySelector(`[data-testid="nav-group-${id}"]`);
-              groupEl?.querySelector('button')?.click();
-            }, groupId);
+            await aside.getByRole('button', { name: `展开${group}分组`, exact: true }).click();
           } else {
             await aside
               .getByRole('button', { name: new RegExp(`^${group}`) })
@@ -78,6 +86,23 @@ for (const vp of VIEWPORTS) {
         }
       }
       await page.waitForTimeout(500);
+
+      const main = page.locator('main').last();
+      await expect(main.getByText('应用出错', { exact: true })).toHaveCount(0);
+      await expect.poll(async () => (await main.innerText()).trim().length).toBeGreaterThan(0);
+      const readyText = READY_TEXT[view];
+      if (readyText) {
+        await expect(main.getByText(readyText).first()).toBeVisible();
+      }
+
+      if (vp.width === 800 && (view === 'story-system' || view === 'knowledge-graph')) {
+        const tabs = page.getByTestId(view === 'story-system' ? 'story-system-tabs' : 'kg-tabs');
+        const heights = await tabs
+          .locator('button')
+          .evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().height));
+        expect(heights.length).toBeGreaterThan(0);
+        expect(Math.max(...heights)).toBeLessThanOrEqual(50);
+      }
 
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth

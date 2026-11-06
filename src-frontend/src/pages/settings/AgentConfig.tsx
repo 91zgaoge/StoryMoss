@@ -181,8 +181,8 @@ export function AgentConfig() {
   };
 
   return (
-    <Card>
-      <CardContent className="p-6 space-y-6">
+    <Card className="@container" data-testid="agent-config">
+      <CardContent className="space-y-5 p-4 sm:p-6">
         <div className="flex items-start gap-4">
           <div className="p-3 bg-cinema-gold/10 rounded-xl">
             <Bot className="w-6 h-6 text-cinema-gold" />
@@ -204,8 +204,8 @@ export function AgentConfig() {
                   key={agent.agent_id}
                   className="border border-cinema-800 rounded-xl overflow-hidden"
                 >
-                  <div className="p-4 flex items-center justify-between gap-4 bg-cinema-900/50">
-                    <div>
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-cinema-900/50 p-4">
+                    <div className="min-w-0">
                       <div className="text-sm font-medium text-white flex items-center gap-2">
                         {agent.agent_name}
                         {agent.task_type && (
@@ -226,7 +226,7 @@ export function AgentConfig() {
                     </button>
                   </div>
 
-                  <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-cinema-800/50">
+                  <div className="grid grid-cols-1 gap-4 border-t border-cinema-800/50 p-4 @md:grid-cols-2 @3xl:grid-cols-3">
                     <div>
                       <label className="block text-xs text-gray-400 mb-1.5">聊天模型</label>
                       <ModelSelect
@@ -273,7 +273,7 @@ export function AgentConfig() {
 
                   {isExpanded && (
                     <div className="p-4 border-t border-cinema-800/50 bg-cinema-900/30 space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2 @3xl:grid-cols-4">
                         <div>
                           <label className="block text-xs text-gray-400 mb-1.5">任务类型</label>
                           <PolicySelect

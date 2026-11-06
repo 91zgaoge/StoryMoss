@@ -16,10 +16,11 @@ export function UserMenu() {
     return (
       <button
         onClick={() => useAppStore.getState().setLoginModalOpen(true)}
-        className="flex items-center gap-2 px-3 py-1.5 text-sm text-ai-ink-2 hover:text-ai-ink hover:bg-cinema-800 rounded-lg transition-colors"
+        className="flex w-full items-center justify-center gap-2 rounded-lg px-2 py-2 text-sm text-ai-ink-2 transition-colors hover:bg-cinema-800 hover:text-ai-ink lg:justify-start"
+        title="登录"
       >
-        <User className="w-4 h-4" />
-        <span>登录</span>
+        <User className="h-4 w-4 shrink-0" />
+        <span className="hidden whitespace-nowrap lg:inline">登录</span>
       </button>
     );
   }
@@ -28,7 +29,7 @@ export function UserMenu() {
     <div className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-cinema-800 transition-colors"
+        className="flex w-full items-center justify-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-cinema-800 lg:justify-start"
       >
         {user.avatar_url ? (
           <img
@@ -41,7 +42,7 @@ export function UserMenu() {
             {(user.display_name || user.email || 'U').charAt(0).toUpperCase()}
           </div>
         )}
-        <span className="text-sm text-ai-ink-2 max-w-[120px] truncate">
+        <span className="hidden max-w-[120px] truncate text-sm text-ai-ink-2 lg:inline">
           {user.display_name || user.email || 'User'}
         </span>
       </button>
@@ -49,7 +50,7 @@ export function UserMenu() {
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 w-48 bg-cinema-900 rounded-xl shadow-float border border-borderSubtle py-1 z-50">
+          <div className="absolute bottom-full left-0 z-50 mb-2 w-48 rounded-xl border border-borderSubtle bg-cinema-900 py-1 shadow-float">
             <div className="px-3 py-2 border-b border-borderSubtle">
               <p className="text-sm font-medium text-ai-ink truncate">
                 {user.display_name || 'User'}

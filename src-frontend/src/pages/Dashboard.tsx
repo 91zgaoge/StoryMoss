@@ -198,34 +198,34 @@ export function Dashboard() {
     .slice(0, 3);
 
   return (
-    <div className="h-full min-h-full bg-cinema-950 text-cinema-gold/90 font-body flex">
+    <div className="flex h-full min-h-0 bg-cinema-950 font-body text-ai-ink">
       {/* 左侧导航轨 */}
       <StudioNavRail activeView="dashboard" />
 
       {/* 主区 */}
-      <main className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 flex items-center justify-between px-6 border-b border-borderSubtle bg-cinema-900/80 backdrop-blur-sm">
-          <h1 className="text-sm font-bold uppercase tracking-widest text-cinema-gold">工作室</h1>
+      <main className="flex min-w-0 min-h-0 flex-1 flex-col">
+        <header className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-borderSubtle bg-cinema-900/70 px-5 backdrop-blur-sm sm:px-6">
+          <h1 className="font-body text-base font-semibold text-ai-ink">工作室</h1>
           <div className="flex items-center gap-3">
-            <span className="text-xs font-mono text-cinema-gold/60">MODEL: ONLINE</span>
-            <Button variant="cinema" size="sm" onClick={() => setIsModalOpen(true)}>
+            <span className="hidden font-mono text-xs text-ai-ink-3 sm:inline">MODEL: ONLINE</span>
+            <Button variant="primary" size="sm" onClick={() => setIsModalOpen(true)}>
               新建
             </Button>
           </div>
         </header>
 
-        <div className="flex-1 p-6 overflow-auto">
-          <div className="grid grid-cols-12 gap-4">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6" data-testid="dashboard-scroll">
+          <div className="mx-auto grid max-w-[1440px] grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(320px,360px)]">
             {/* 作品概览 */}
-            <div className="col-span-12 lg:col-span-8 space-y-4">
+            <div className="min-w-0 space-y-5">
               <Panel title="作品概览">
                 <div className="space-y-6">
                   {/* Hero */}
-                  <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-cinema-800 to-cinema-900 border border-borderSubtle p-6">
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-cinema-gold/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+                  <div className="relative overflow-hidden rounded-xl border border-borderSubtle bg-cinema-900/55 p-6 sm:p-8">
+                    <div className="pointer-events-none absolute right-0 top-0 h-64 w-64 translate-x-1/2 -translate-y-1/2 rounded-full bg-cinema-gold/5 blur-3xl" />
 
                     <div className="relative z-10">
-                      <h2 className="font-display text-2xl font-bold text-ai-ink mb-2">
+                      <h2 className="mb-2 font-body text-2xl font-semibold tracking-tight text-ai-ink sm:text-3xl">
                         欢迎回到创作工作室
                       </h2>
                       <p className="text-ai-ink-2 text-base font-body italic max-w-2xl">
@@ -250,7 +250,7 @@ export function Dashboard() {
                   </div>
 
                   {/* Stats */}
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                     {stats.map(stat => {
                       const Icon = stat.icon;
                       return (
@@ -295,7 +295,7 @@ export function Dashboard() {
                         </Button>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
                         {recentStories.map(story => (
                           <button
                             key={story.id}
@@ -321,7 +321,7 @@ export function Dashboard() {
                                     {story.genre || '未分类'} · {story.chapter_count || 0} 章
                                     {story.word_count ? ` · ${story.word_count} 字` : ''}
                                   </p>
-                                  <p className="text-[10px] text-ai-ink0 mt-2">
+                                  <p className="mt-2 text-xs text-ai-ink-3">
                                     更新于 {formatDate(story.updated_at)}
                                   </p>
                                 </div>
@@ -370,7 +370,7 @@ export function Dashboard() {
             </div>
 
             {/* 创作路径 */}
-            <div className="col-span-12 lg:col-span-4">
+            <div className="min-w-0">
               <Panel title="创作路径">
                 <CreationPathGuide
                   onFrontstage={handleOpenFrontstage}
@@ -384,7 +384,7 @@ export function Dashboard() {
             </div>
 
             {/* 运行记录 */}
-            <div className="col-span-12">
+            <div className="min-w-0 xl:col-span-2">
               <Panel title="运行记录" collapsible defaultOpen>
                 <div className="h-80">
                   <GenesisPanel embedded />

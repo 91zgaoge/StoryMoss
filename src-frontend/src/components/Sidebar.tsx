@@ -200,7 +200,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
   };
 
   return (
-    <aside className="w-20 lg:w-64 bg-cinema-900 border-r border-cinema-800 flex flex-col">
+    <aside className="flex h-full min-h-0 w-20 shrink-0 flex-col border-r border-borderSubtle bg-cinema-900 lg:w-64">
       <div className="p-4 flex items-center justify-center lg:justify-start gap-3 border-b border-cinema-800">
         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cinema-gold to-cinema-gold-dark flex items-center justify-center">
           <Film className="w-5 h-5 text-cinema-900" />
@@ -223,7 +223,10 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
         </button>
       </div>
 
-      <nav className="flex-1 p-3 space-y-3 overflow-y-auto" data-testid="sidebar-nav">
+      <nav
+        className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2 lg:p-3"
+        data-testid="sidebar-nav"
+      >
         {NAV_GROUPS.map(group => {
           const isActiveGroup = group.id === activeGroupId;
           const isCollapsed = collapsed[group.id] === true && !isActiveGroup;
@@ -233,7 +236,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
               <button
                 type="button"
                 onClick={() => toggleGroup(group.id)}
-                className="hidden lg:flex w-full items-center justify-between px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-ai-ink-3 hover:text-ai-ink-2"
+                className="hidden w-full items-center justify-between px-3 py-2 text-[13px] font-semibold tracking-wide text-ai-ink-2 transition-colors hover:text-ai-ink lg:flex"
               >
                 <span>{group.label}</span>
                 <ChevronDown
@@ -243,6 +246,20 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
                     isActiveGroup && 'text-cinema-gold/70'
                   )}
                 />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => toggleGroup(group.id)}
+                aria-label={`${isCollapsed ? '展开' : '收起'}${group.label}分组`}
+                title={`${isCollapsed ? '展开' : '收起'}${group.label}分组`}
+                className={cn(
+                  'flex h-7 w-full items-center justify-center rounded-lg text-[13px] font-medium transition-colors lg:hidden',
+                  'hover:bg-cinema-800/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinema-gold/50',
+                  isActiveGroup ? 'text-cinema-gold' : 'text-ai-ink-3'
+                )}
+              >
+                {group.label}
               </button>
 
               {!isCollapsed && (
@@ -260,7 +277,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
                         data-impact={item.impact}
                         aria-current={isActive ? 'page' : undefined}
                         className={cn(
-                          'relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200',
+                          'relative flex w-full items-center justify-center gap-3 rounded-lg px-2 py-2.5 transition-colors lg:justify-start lg:px-3',
                           'hover:bg-cinema-800',
                           isActive && 'bg-cinema-gold/10 text-cinema-gold',
                           !isActive && 'text-ai-ink-2'

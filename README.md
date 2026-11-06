@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.84.2-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.85.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -26,6 +26,7 @@
 | | 特性 | 说明 |
 | :---: | --- | --- |
 | 🎬 | **双界面创作** | 幕前「墨纸」沉浸写作 + 幕后「机械」工作室管理，两套设计语言各得其所 |
+| 🎛️ | **自适应幕后工作台** | 暗色主题、容器感知卡片与表单、独立面板滚动；800×600 到宽屏均无逐字竖排、固定限高裁切或悬浮遮挡 |
 | 🤖 | **Agency 多代理创作** | 主创 / 管理 / 编辑审计三代理黑板并行协作，每章经 Gate v2 加权质量门（代码 0.2 / 规则 0.3 / 编辑 0.5，阈值 0.75）才交付；你的修改率作为独立信号回流 |
 | 🗂️ | **语料资产** | 新闻 / 故事 / 概念 / 灵感 / 图片 / 链接 / 笔记按故事隔离；支持导入、AI 提炼、转为角色/世界观/伏笔草稿、交给导演调度 |
 | 🎬 | **导演 Agent 与剧组对话** | 代理工作室三栏：导演统筹管理 / 编审 / 主创；子 agent 异步派发、心跳、租约、重试与审批；幕后可直接 @ 三个 agent |

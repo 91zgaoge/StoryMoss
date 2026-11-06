@@ -103,7 +103,9 @@ describe('Scenes edit-mode layout (P1a)', () => {
   it('does not render a standalone pipeline column while editing', async () => {
     render(<Scenes />, { wrapper });
 
-    expect(screen.getByTestId('scenes-execution-column')).toBeInTheDocument();
+    const execution = screen.getByTestId('scenes-execution-column');
+    expect(execution).toBeInTheDocument();
+    expect(execution).toHaveClass('w-full', 'lg:col-span-2', 'xl:col-span-1');
     expect(screen.queryByTestId('standalone-pipeline-column')).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByTestId('edit-scene'));

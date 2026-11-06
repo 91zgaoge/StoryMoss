@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.84.2)
+# 🧪 StoryMoss 自动化测试环境 (v0.85.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.85.0 变更说明
+
+- **幕后布局与视觉精修（前端）**：修复创作路径/模型角色逐字竖排、Panel 1000px 裁切、Scenes Grid 错位、故事线标题零宽与幕前浮层遮挡；设置、场景编辑和代理工作台补齐容器回退与滚动。
+- **探针升级**：`backstage-viewport-acceptance.spec.ts` 扩为 23 视图 ×3 档（800×600 / 1024×768 / 1400×900）；全部视图断言无错误边界且主区非空，技能/维护/级联/用量/链路/评估/学习等页面另验数据就绪文本，故事合同与知识图谱验页签不竖排；新增 `backstage-layout-regression.spec.ts` 六项真实内容验收；mock 补齐多模型、长正文场景、合法管线数组与各页空态响应。
+- **结果**：Vitest **686 passed / 3 skipped**；Playwright **126 passed / 5 skipped**；tsc / Prettier / architecture_guard 全绿。Rust 源码未改，未重复执行 Rust 全量测试。
+- **未关闭**：原生安装包的窗口缩放、滚动与幕前打开仍需使用 CI 产物在 macOS/Windows 复测。
 
 ### v0.84.2 变更说明
 

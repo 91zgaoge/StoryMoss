@@ -148,16 +148,14 @@ export function Settings() {
   };
 
   return (
-    <div className="h-full min-h-full bg-cinema-950 text-cinema-gold/90 font-body flex">
+    <div className="flex h-full min-h-0 bg-cinema-950 font-body text-ai-ink">
       {/* 左侧导航轨 */}
       <StudioNavRail activeView="settings" />
 
       {/* 主区 */}
-      <main className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 flex items-center justify-between px-6 border-b border-borderSubtle bg-cinema-900/80 backdrop-blur-sm">
-          <h1 className="text-sm font-bold uppercase tracking-widest text-cinema-gold">
-            工作室配置
-          </h1>
+      <main className="flex min-w-0 min-h-0 flex-1 flex-col">
+        <header className="flex h-16 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-borderSubtle bg-cinema-900/70 px-5 backdrop-blur-sm sm:px-6">
+          <h1 className="font-body text-base font-semibold text-ai-ink">工作室配置</h1>
           <div className="flex items-center gap-3">
             <Button
               variant="ghost"
@@ -179,122 +177,127 @@ export function Settings() {
           </div>
         </header>
 
-        <div className="settings-panel-scope flex-1 p-6 overflow-auto">
-          {/* Tab 水平轨 */}
-          <div
-            className="flex items-center gap-2 border-b border-borderSubtle pb-4 overflow-x-auto"
-            data-testid="settings-tabs"
-          >
-            {SETTINGS_TABS.map(tab => {
-              const Icon = tab.icon;
-              return (
-                <TabButton
-                  key={tab.id}
-                  active={activeTab === tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  icon={<Icon className="w-4 h-4" />}
-                  label={tab.label}
-                />
-              );
-            })}
-          </div>
+        <div
+          className="settings-panel-scope min-h-0 flex-1 overflow-y-auto"
+          data-testid="settings-scroll"
+        >
+          <div className="mx-auto flex max-w-[1440px] flex-col gap-6 p-4 sm:p-6 xl:grid xl:grid-cols-[196px_minmax(0,1fr)] xl:items-start">
+            {/* Tab 水平轨 / 宽屏设置导航 */}
+            <div
+              className="flex items-center gap-2 overflow-x-auto pb-2 xl:sticky xl:top-0 xl:flex-col xl:items-stretch xl:gap-1 xl:overflow-visible xl:pb-0"
+              data-testid="settings-tabs"
+            >
+              {SETTINGS_TABS.map(tab => {
+                const Icon = tab.icon;
+                return (
+                  <TabButton
+                    key={tab.id}
+                    active={activeTab === tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    icon={<Icon className="w-4 h-4" />}
+                    label={tab.label}
+                  />
+                );
+              })}
+            </div>
 
-          <div className="mt-6">
-            {isLoading ? (
-              <div className="text-center py-12 text-cinema-gold/50">加载中...</div>
-            ) : (
-              <>
-                {activeTab === 'models' && (
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2">
-                      {(
-                        [
-                          { id: 'manage' as const, label: '管理', icon: Cpu },
-                          { id: 'routing' as const, label: '路由模拟', icon: Route },
-                          { id: 'health' as const, label: '健康', icon: HeartPulse },
-                          { id: 'timeout' as const, label: '超时', icon: Clock },
-                        ] as const
-                      ).map(sub => {
-                        const Icon = sub.icon;
-                        return (
-                          <button
-                            key={sub.id}
-                            type="button"
-                            aria-current={modelSubTab === sub.id ? 'true' : undefined}
-                            onClick={() => setModelSubTab(sub.id)}
-                            className={cn(
-                              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinema-gold/50',
-                              modelSubTab === sub.id
-                                ? 'bg-cinema-gold/10 text-cinema-gold border border-cinema-gold/30'
-                                : 'text-cinema-gold/60 hover:text-cinema-gold hover:bg-cinema-800/50'
-                            )}
-                          >
-                            <Icon className="w-3.5 h-3.5" />
-                            {sub.label}
-                          </button>
-                        );
-                      })}
+            <div className="min-w-0">
+              {isLoading ? (
+                <div className="text-center py-12 text-cinema-gold/50">加载中...</div>
+              ) : (
+                <>
+                  {activeTab === 'models' && (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2">
+                        {(
+                          [
+                            { id: 'manage' as const, label: '管理', icon: Cpu },
+                            { id: 'routing' as const, label: '路由模拟', icon: Route },
+                            { id: 'health' as const, label: '健康', icon: HeartPulse },
+                            { id: 'timeout' as const, label: '超时', icon: Clock },
+                          ] as const
+                        ).map(sub => {
+                          const Icon = sub.icon;
+                          return (
+                            <button
+                              key={sub.id}
+                              type="button"
+                              aria-current={modelSubTab === sub.id ? 'true' : undefined}
+                              onClick={() => setModelSubTab(sub.id)}
+                              className={cn(
+                                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinema-gold/50',
+                                modelSubTab === sub.id
+                                  ? 'bg-cinema-gold/10 text-cinema-gold border border-cinema-gold/30'
+                                  : 'text-cinema-gold/60 hover:text-cinema-gold hover:bg-cinema-800/50'
+                              )}
+                            >
+                              <Icon className="w-3.5 h-3.5" />
+                              {sub.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {modelSubTab === 'manage' && (
+                        <Panel title="模型管理">
+                          <UnifiedModelManager />
+                        </Panel>
+                      )}
+                      {modelSubTab === 'routing' && (
+                        <Panel title="路由模拟">
+                          <RouteSimulator />
+                        </Panel>
+                      )}
+                      {modelSubTab === 'health' && (
+                        <Panel title="模型健康">
+                          <ModelHealthPanel />
+                        </Panel>
+                      )}
+                      {modelSubTab === 'timeout' && <GeneralSettings sections={['timeouts']} />}
                     </div>
-                    {modelSubTab === 'manage' && (
-                      <Panel title="模型管理">
-                        <UnifiedModelManager />
+                  )}
+                  {activeTab === 'agents' && (
+                    <div className="space-y-4">
+                      <Panel title="Agent 配置">
+                        <AgentConfig />
                       </Panel>
-                    )}
-                    {modelSubTab === 'routing' && (
-                      <Panel title="路由模拟">
-                        <RouteSimulator />
+                      <GeneralSettings sections={['agent']} />
+                    </div>
+                  )}
+                  {activeTab === 'writing' && (
+                    <div className="space-y-4">
+                      <Panel title="方法论">
+                        <MethodologySettings />
                       </Panel>
-                    )}
-                    {modelSubTab === 'health' && (
-                      <Panel title="模型健康">
-                        <ModelHealthPanel />
+                      <Panel title="工作流">
+                        <WorkflowSettings />
                       </Panel>
-                    )}
-                    {modelSubTab === 'timeout' && <GeneralSettings sections={['timeouts']} />}
-                  </div>
-                )}
-                {activeTab === 'agents' && (
-                  <div className="space-y-4">
-                    <Panel title="Agent 配置">
-                      <AgentConfig />
+                      <GeneralSettings sections={['writing']} />
+                    </div>
+                  )}
+                  {activeTab === 'prompts' && (
+                    <Panel title="提示词注册表">
+                      <PromptsPanel />
                     </Panel>
-                    <GeneralSettings sections={['agent']} />
-                  </div>
-                )}
-                {activeTab === 'writing' && (
-                  <div className="space-y-4">
-                    <Panel title="方法论">
-                      <MethodologySettings />
-                    </Panel>
-                    <Panel title="工作流">
-                      <WorkflowSettings />
-                    </Panel>
-                    <GeneralSettings sections={['writing']} />
-                  </div>
-                )}
-                {activeTab === 'prompts' && (
-                  <Panel title="提示词注册表">
-                    <PromptsPanel />
-                  </Panel>
-                )}
-                {activeTab === 'extensions' && (
-                  <div className="space-y-3">
-                    <p
-                      className="text-xs text-cinema-gold/50 leading-relaxed"
-                      data-testid="extensions-note"
-                    >
-                      MCP 扩展连接不进入默认续写热路径；仅供高级工具调用与外部服务器联调。
-                    </p>
-                    <Panel title="MCP 扩展">
-                      <Mcp />
-                    </Panel>
-                  </div>
-                )}
-                {activeTab === 'appearance' && <GeneralSettings sections={['appearance']} />}
-                {activeTab === 'about' && <GeneralSettings sections={['about']} />}
-                {activeTab === 'account' && <AccountSettings />}
-              </>
-            )}
+                  )}
+                  {activeTab === 'extensions' && (
+                    <div className="space-y-3">
+                      <p
+                        className="text-xs text-cinema-gold/50 leading-relaxed"
+                        data-testid="extensions-note"
+                      >
+                        MCP 扩展连接不进入默认续写热路径；仅供高级工具调用与外部服务器联调。
+                      </p>
+                      <Panel title="MCP 扩展">
+                        <Mcp />
+                      </Panel>
+                    </div>
+                  )}
+                  {activeTab === 'appearance' && <GeneralSettings sections={['appearance']} />}
+                  {activeTab === 'about' && <GeneralSettings sections={['about']} />}
+                  {activeTab === 'account' && <AccountSettings />}
+                </>
+              )}
+            </div>
           </div>
         </div>
       </main>
@@ -319,10 +322,10 @@ function TabButton({
       aria-current={active ? 'true' : undefined}
       onClick={onClick}
       className={cn(
-        'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinema-gold/50',
+        'flex items-center gap-2 whitespace-nowrap rounded-lg px-4 py-2.5 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinema-gold/50 xl:w-full',
         active
-          ? 'bg-cinema-gold text-cinema-950'
-          : 'text-cinema-gold/60 hover:text-cinema-gold hover:bg-cinema-800/50'
+          ? 'bg-cinema-gold/10 text-cinema-gold'
+          : 'text-ai-ink-2 hover:bg-cinema-800/60 hover:text-ai-ink'
       )}
     >
       {icon}

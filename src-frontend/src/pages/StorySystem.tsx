@@ -87,12 +87,15 @@ export function StorySystem() {
         </div>
       </div>
 
-      <div className="flex gap-2 mb-6 border-b border-cinema-800 pb-2">
+      <div
+        className="mb-6 flex gap-2 overflow-x-auto border-b border-cinema-800 pb-2"
+        data-testid="story-system-tabs"
+      >
         {tabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
               activeTab === tab.id
                 ? 'bg-cinema-gold/20 text-cinema-gold'
                 : 'text-gray-400 hover:text-white hover:bg-cinema-800'

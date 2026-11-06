@@ -203,9 +203,9 @@ export function BookDeconstruction() {
       </div>
 
       {activeTab === 'books' && (
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
           {/* 左侧栏 */}
-          <div className="w-80 border-r border-cinema-800 flex flex-col bg-cinema-900">
+          <div className="flex w-full min-h-0 flex-col border-b border-cinema-800 bg-cinema-900 lg:w-80 lg:shrink-0 lg:border-b-0 lg:border-r">
             {/* 头部 */}
             <div className="p-4 border-b border-cinema-800">
               <div className="flex items-center justify-between mb-3">
@@ -278,7 +278,9 @@ export function BookDeconstruction() {
           </div>
 
           {/* 右侧内容区 */}
-          <div className="flex-1 overflow-hidden">{renderContent()}</div>
+          <div className="min-h-[420px] min-w-0 flex-1 overflow-hidden lg:min-h-0">
+            {renderContent()}
+          </div>
         </div>
       )}
 

@@ -226,55 +226,7 @@ export function StoryTimeline({
                   {getExecutionStageLabel(scene.execution_stage)}
                 </span>
 
-                {/* Actions */}
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0"
-                    onClick={e => {
-                      e.stopPropagation();
-                      moveScene(index, 'up');
-                    }}
-                    disabled={index === 0}
-                  >
-                    <ArrowUp className="w-3 h-3" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0"
-                    onClick={e => {
-                      e.stopPropagation();
-                      moveScene(index, 'down');
-                    }}
-                    disabled={index === scenes.length - 1}
-                  >
-                    <ArrowDown className="w-3 h-3" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0"
-                    onClick={e => {
-                      e.stopPropagation();
-                      onEditScene(scene);
-                    }}
-                  >
-                    <Edit3 className="w-3 h-3" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0 text-red-400 hover:text-red-300"
-                    onClick={e => {
-                      e.stopPropagation();
-                      onDeleteScene(scene.id);
-                    }}
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
-                </div>
+                {/* Actions 移至卡片底部，避免透明按钮仍挤占标题宽度 */}
               </div>
 
               {/* Outline content subtitle */}
@@ -368,6 +320,63 @@ export function StoryTimeline({
                   {scene.content.length > 100 ? '...' : ''}
                 </p>
               )}
+
+              <div className="mt-3 flex items-center justify-end gap-1 border-t border-borderSubtle pt-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="上移场景"
+                  title="上移场景"
+                  className="h-7 w-7 p-0"
+                  onClick={e => {
+                    e.stopPropagation();
+                    moveScene(index, 'up');
+                  }}
+                  disabled={index === 0}
+                >
+                  <ArrowUp className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="下移场景"
+                  title="下移场景"
+                  className="h-7 w-7 p-0"
+                  onClick={e => {
+                    e.stopPropagation();
+                    moveScene(index, 'down');
+                  }}
+                  disabled={index === scenes.length - 1}
+                >
+                  <ArrowDown className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="编辑此场景"
+                  title="编辑此场景"
+                  className="h-7 w-7 p-0"
+                  onClick={e => {
+                    e.stopPropagation();
+                    onEditScene(scene);
+                  }}
+                >
+                  <Edit3 className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="删除此场景"
+                  title="删除此场景"
+                  className="h-7 w-7 p-0 text-status-danger hover:text-status-danger"
+                  onClick={e => {
+                    e.stopPropagation();
+                    onDeleteScene(scene.id);
+                  }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             </div>
 
             {/* Drag handle */}

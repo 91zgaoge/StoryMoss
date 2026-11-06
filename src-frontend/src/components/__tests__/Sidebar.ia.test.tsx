@@ -88,6 +88,14 @@ describe('Sidebar IA v0.81.1（设计文档 §3.1）', () => {
     expect(analysis?.defaultCollapsed).toBe(true);
   });
 
+  it('窄态也提供可见的折叠组展开入口', () => {
+    render(<Sidebar currentView="dashboard" onNavigate={onNavigate} />);
+    const toggle = screen.getByRole('button', { name: '展开运维分组' });
+    fireEvent.click(toggle);
+    expect(screen.getByText('任务')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '收起运维分组' })).toBeInTheDocument();
+  });
+
   it('每项应有 impact 徽章映射', () => {
     const byId = Object.fromEntries(NAV_GROUPS.flatMap(g => g.items.map(i => [i.id, i.impact])));
     expect(byId.stories).toBe('hot');
