@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.83.9 项目完成状态
+# StoryMoss (草苔) v0.84.0 项目完成状态
 
+> 最后更新: 2026-11-06（**v0.84.0：Cinzel 字体自托管**——本地 400/600 TTF + @font-face；幕后 LXGW+Cinzel 零外部字体依赖。playwright **97 / 5**；vitest 679/3；tsc/prettier 全绿。）
+>
 > 最后更新: 2026-11-06（**v0.83.9：Login 弹窗迁 Modal 并暗色化**——邀请码 Input、OAuth 按钮保留、stone→ai token；法律声明逐字保留。vitest **679 / 3**；playwright **97 / 5**；tsc/prettier 全绿。）
 >
 > 最后更新: 2026-11-06（**v0.83.8：启动可靠性修复**——移除 Google Fonts 外链阻塞，本地 LXGW @font-face；loading 屏在 React 挂载时隐藏（load+8s 兜底）。playwright **97 / 5**；vitest 679/3；tsc/prettier 全绿。）

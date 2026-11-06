@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.83.9 架构文档
+# StoryMoss (草苔) v0.84.0 架构文档
 
+> **v0.84.0**：**字体零外部依赖**——public/fonts/cinzel-400/600.ttf + index.css @font-face；配合 v0.83.8 的本地 LXGW，幕后字体不依赖 Google Fonts。
+>
 > **v0.83.9**：**Login 迁移**——LoginModal 外壳迁共享 `Modal`，邀请码改 `Input`，stone/bg-white 全改 ai-ink/cinema 令牌；OAuth 按钮与法律声明保留。
 >
 > **v0.83.8**：**启动可靠性**——index.html 移除 Google Fonts 外链（离线/网络挂起会阻塞 DCL 与 load），index.css 使用本地 LXGW @font-face；loading 屏改为 MutationObserver 在 React 挂载首个节点时隐藏，load + 8s 兜底。

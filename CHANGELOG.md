@@ -2,6 +2,14 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.84.0（2026-11-06）
+
+**品牌字体自托管收尾：Cinzel 本地化，彻底移除 Google Fonts 依赖。**
+
+- **资产**：`public/fonts/cinzel-400.ttf` / `cinzel-600.ttf`（OFL，共 ~90KB）；`index.css` 增加 `Cinzel` @font-face（400/600）。
+- **效果**：display 字体保持 Cinzel 品牌字形，同时离线可用；与 v0.83.8 的本地 LXGW 组合后，幕后字体零外部依赖。
+- **验证**：playwright **97 passed / 5 skipped**；vitest **679 / 3**；tsc / prettier 全绿；Rust 未改（2008 / 15 ignored）。
+
 ## v0.83.9（2026-11-06）
 
 **Login 弹窗迁 Modal 并暗色化。**

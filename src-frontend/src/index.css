@@ -317,3 +317,20 @@
   font-style: normal;
   font-display: swap;
 }
+
+/* v0.84.0：display 字体 Cinzel 自托管（保留品牌字形，不再依赖 Google Fonts） */
+@font-face {
+  font-family: 'Cinzel';
+  src: url('/fonts/cinzel-400.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Cinzel';
+  src: url('/fonts/cinzel-600.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
