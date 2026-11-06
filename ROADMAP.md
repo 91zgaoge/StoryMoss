@@ -1,5 +1,7 @@
 # StoryMoss (草苔) 开发路线图
 
+> 最后更新: 2026-11-06（v0.84.1：弹窗壳收尾 + 伏笔计划窗口补齐——StyleDnaModal/ExportDialog 迁 Modal；卷号计划/12 条上限；V155 碎片线程继承。Rust **2010 / 15**；vitest **684 / 3**；playwright **97 / 5**。**未关闭**：126 条碎片仅少数命中数值线程（其余不伪造窗口）；卷号无法映射场景序号；安装包 UI 交互复测。）
+>
 > 最后更新: 2026-11-06（v0.84.0：Cinzel 字体自托管——400/600 TTF + @font-face；幕后字体零外部依赖。playwright **97 / 5**；vitest 679/3。**未关闭**：StyleDnaModal/ExportDialog 壳；安装包 UI 交互复测。）
 >
 > 最后更新: 2026-11-06（v0.83.9：Login 弹窗迁 Modal + 暗色化；邀请码 Input、OAuth 与法律声明保留。vitest **679 / 3**；playwright **97 / 5**。**未关闭**：StyleDnaModal/ExportDialog 壳；安装包 UI 交互复测。）

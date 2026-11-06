@@ -90,14 +90,15 @@ describe('StyleDnaModal', () => {
     expect(setStoryStyleDna).not.toHaveBeenCalled();
   });
 
-  it('弹窗限高且内容区可滚动（保存按钮不会被挤出视口）', () => {
+  it('弹窗走共享 Modal：85dvh 限高、内容区滚动、底部保存/取消固定', () => {
     renderModal();
     const dialog = screen.getByTestId('style-dna-modal');
-    const card = dialog.firstElementChild as HTMLElement;
-    expect(card.className).toContain('max-h-[calc(100dvh-2rem)]');
-    expect(card.className).toContain('overflow-hidden');
+    expect(dialog).toHaveClass('max-h-[85dvh]');
+    const subtitle = screen.getByText(/为「测试故事」配置风格/);
+    expect(subtitle.parentElement).toHaveClass('overflow-y-auto');
     expect(screen.getByTestId('style-dna-confirm')).toBeInTheDocument();
     expect(screen.getByTestId('style-dna-cancel')).toBeInTheDocument();
+    expect(screen.getByTestId('style-dna-close')).toBeInTheDocument();
   });
 
   it('风格混合页签展示固定底部的保存/取消，并可保存配置', async () => {

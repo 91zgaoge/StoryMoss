@@ -57,9 +57,26 @@ fn parse_planned_payoff_chapters(content: &str) -> Vec<i32> {
     out
 }
 
+/// v0.84.1：计划回收引用可以是章号（第12章）或卷号（卷2 / 第二卷）。
+/// 旧实现只认「第N章」，跨卷计划会被压成 `收-`，丢失可执行窗口。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlanRef {
+    Chapter(i32),
+    Volume(i32),
+}
+
+impl PlanRef {
+    fn label(self) -> String {
+        match self {
+            PlanRef::Chapter(n) => format!("第{n}章"),
+            PlanRef::Volume(n) => format!("卷{n}"),
+        }
+    }
+}
+
 /// v0.83.2：把「伏笔清单」类 blob 的多条计划行压成紧凑摘要：
-/// `F1 代签笔迹（埋第1章 → 收第12章）`。最多 6 条，避免 240 字截断
-/// 只露出前两条、丢掉真正可执行的回收计划。
+/// `F1 代签笔迹（埋第1章 → 收第12章）`。v0.84.1 起最多 12 条，
+/// 覆盖清单里可能超过 6 条的线程；卷号计划显示「收卷2」而不是 `收-`。
 fn plan_line_summaries(content: &str) -> Vec<String> {
     let mut out = Vec::new();
     for line in content.lines() {
@@ -68,8 +85,8 @@ fn plan_line_summaries(content: &str) -> Vec<String> {
         {
             continue;
         }
-        let bury = chapter_after_marker(line, '埋');
-        let pay = chapter_after_marker(line, '收');
+        let bury = plan_ref_after_marker(line, '埋');
+        let pay = plan_ref_after_marker(line, '收');
         if bury.is_none() && pay.is_none() {
             continue;
         }
@@ -84,24 +101,25 @@ fn plan_line_summaries(content: &str) -> Vec<String> {
         if label.is_empty() {
             continue;
         }
-        let bury_txt = bury
-            .map(|n| format!("第{n}章"))
-            .unwrap_or_else(|| "-".into());
-        let pay_txt = pay
-            .map(|n| format!("第{n}章"))
-            .unwrap_or_else(|| "-".into());
+        let bury_txt = bury.map(PlanRef::label).unwrap_or_else(|| "-".into());
+        let pay_txt = pay.map(PlanRef::label).unwrap_or_else(|| "-".into());
         out.push(format!("{label}（埋{bury_txt} → 收{pay_txt}）"));
-        if out.len() >= 6 {
+        if out.len() >= 12 {
             break;
         }
     }
     out
 }
 
-/// 在 marker 之后找「第N章」并解析章号。
-fn chapter_after_marker(line: &str, marker: char) -> Option<i32> {
+/// 在 marker 之后找章号或卷号计划引用。
+fn plan_ref_after_marker(line: &str, marker: char) -> Option<PlanRef> {
     let pos = line.find(marker)?;
     let tail = &line[pos..];
+    chapter_ref_after(tail).or_else(|| volume_ref_after(tail))
+}
+
+/// 解析 `第N章`（阿拉伯/中文数字）。
+fn chapter_ref_after(tail: &str) -> Option<PlanRef> {
     let hash = tail.find('第')?;
     let after: String = tail[hash..].chars().skip(1).collect();
     let mut raw = String::new();
@@ -115,6 +133,71 @@ fn chapter_after_marker(line: &str, marker: char) -> Option<i32> {
         raw.push(c);
     }
     parse_chapter_number(&raw)
+        .filter(|n| *n >= 1)
+        .map(PlanRef::Chapter)
+}
+
+/// 解析 `卷2` / `第二卷` / `第2卷` 这类卷号引用。
+fn volume_ref_after(tail: &str) -> Option<PlanRef> {
+    // 卷2 / 卷十二：卷后直接跟数字
+    if let Some(vpos) = tail.find('卷') {
+        let after: String = tail[vpos..].chars().skip(1).collect();
+        let raw = leading_plan_number(&after);
+        if let Some(n) = parse_chapter_number(&raw) {
+            if n >= 1 {
+                return Some(PlanRef::Volume(n));
+            }
+        }
+    }
+    // 第2卷 / 第二卷
+    if let Some(hpos) = tail.find('第') {
+        let after: String = tail[hpos..].chars().skip(1).collect();
+        let mut raw = String::new();
+        for c in after.chars() {
+            if c == '卷' {
+                break;
+            }
+            if c.is_whitespace() {
+                continue;
+            }
+            raw.push(c);
+        }
+        if let Some(n) = parse_chapter_number(&raw) {
+            if n >= 1 {
+                return Some(PlanRef::Volume(n));
+            }
+        }
+    }
+    None
+}
+
+/// 取字符串前缀里的连续数字（阿拉伯或中文数字），用于「卷2成为…」这类文本。
+fn leading_plan_number(after: &str) -> String {
+    let mut raw = String::new();
+    for c in after.chars() {
+        if c.is_whitespace() {
+            continue;
+        }
+        if c.is_ascii_digit() || "零〇一两二三四五六七八九十百千".contains(c) {
+            raw.push(c);
+        } else {
+            break;
+        }
+    }
+    raw
+}
+
+/// 收集文本里除章号计划之外的卷号计划（「回收：卷2」），用于窗口提示。
+fn parse_planned_payoff_volumes(content: &str) -> Vec<i32> {
+    let mut out = Vec::new();
+    for line in content.lines() {
+        if let Some(PlanRef::Volume(n)) = plan_ref_after_marker(line, '收') {
+            if n >= 1 && !out.contains(&n) {
+                out.push(n);
+            }
+        }
+    }
+    out
 }
 
 /// 解析「4」「9」「十二」「一百零八」这类章号（0 视为无效）。
@@ -573,7 +656,8 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
                 };
                 // 单条 hint 截断：普通线索 60
                 // 字符；含「埋/收/回收计划」的清单类
-                // 记录保留 240 字符，避免把用户/创世写下的回收计划一刀切掉。
+                // 记录保留 400 字符，覆盖 9+ 条计划行（v0.84.1 起单清单最多 12
+                // 条）。
                 let raw: String = r
                     .content
                     .replace('\n', " ")
@@ -586,7 +670,7 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
                 } else {
                     Vec::new()
                 };
-                let cap = if blob_like { 240 } else { 60 };
+                let cap = if blob_like { 400 } else { 60 };
                 let content = if !planned.is_empty() {
                     planned.join("；")
                 } else if raw.chars().count() > cap {
@@ -613,20 +697,25 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
                                 .min()
                         })
                 });
-                let window_note = match (r.target_start_scene, planned_end) {
-                    (_, Some(end)) if current > 0 && end <= current => {
+                let planned_volume = if planned_end.is_none() {
+                    parse_planned_payoff_volumes(&r.content).into_iter().min()
+                } else {
+                    None
+                };
+                let window_note = if let Some(end) = planned_end {
+                    if current > 0 && end <= current {
                         format!("（已到/超过计划回收点第{end}章，请尽快回收）")
-                    }
-                    (_, Some(end)) if current > 0 && end > current && end - current <= 5 => {
+                    } else if current > 0 && end > current && end - current <= 5 {
                         format!("（计划第{end}章前后回收，请勿提前回收）")
-                    }
-                    (_, Some(end)) if end > 0 => {
+                    } else {
                         format!("（计划第{end}章前后回收，本拍只可铺垫）")
                     }
-                    (Some(start), None) if start > 0 => {
-                        format!("（计划第{start}章起回收）")
-                    }
-                    _ => String::new(),
+                } else if let Some(volume) = planned_volume {
+                    format!("（计划卷{volume}回收，本拍只可铺垫）")
+                } else if let Some(start) = r.target_start_scene.filter(|s| *s > 0) {
+                    format!("（计划第{start}章起回收）")
+                } else {
+                    String::new()
                 };
                 format!(
                     "{} 未回收伏笔: {}{}",
@@ -1315,8 +1404,33 @@ mod tests {
             "清单应压成紧凑计划摘要: {hints:?}"
         );
         assert!(
-            hints[0].contains("F2 缺页（埋第7章 → 收-）"),
-            "第二条计划也应保留: {hints:?}"
+            hints[0].contains("F2 缺页（埋第7章 → 收卷2）"),
+            "跨卷计划也应保留卷号而不是收-: {hints:?}"
+        );
+    }
+
+    /// v0.84.1：单清单超过 6 条计划时不再截断；纯卷号计划给出「计划卷N回收」
+    /// 窗口提示，而不是因为没有章号而完全丢失。
+    #[test]
+    fn service_hints_plan_blob_over_six_lines_and_volume_window() {
+        let pool = in_memory_pool();
+        seed_story_and_scenes(&pool, "story-1");
+        let service = ForeshadowingServiceImpl::new(pool);
+
+        let mut blob = String::from("【伏笔清单】\n");
+        for i in 1..=9 {
+            blob.push_str(&format!("F{i} 线索{i}——埋：第1章；回收：卷2\n"));
+        }
+        service.create("story-1", &blob, Some("s1"), 8).unwrap();
+
+        let hints = service.get_writing_hints("story-1", 3).unwrap();
+        assert!(
+            hints[0].contains("F9 线索9（埋第1章 → 收卷2）"),
+            "第 9 条计划不应被 6 条上限截掉: {hints:?}"
+        );
+        assert!(
+            hints[0].contains("计划卷2回收"),
+            "纯卷号计划应给出卷窗口提示: {hints:?}"
         );
     }
 

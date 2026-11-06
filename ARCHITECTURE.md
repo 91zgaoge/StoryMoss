@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.84.0 架构文档
+# StoryMoss (草苔) v0.84.1 架构文档
 
+> **v0.84.1**：**弹窗壳收尾 + 伏笔窗口**——StyleDnaModal/ExportDialog 迁共享 `Modal`（xl/testid 契约）；`plan_line_summaries` 支持卷号与 12 条；V155 迁移把碎片命中清单数值线程时继承 `target_start/end`（通用词过滤、幂等、卷号不伪造）。
+>
 > **v0.84.0**：**字体零外部依赖**——public/fonts/cinzel-400/600.ttf + index.css @font-face；配合 v0.83.8 的本地 LXGW，幕后字体不依赖 Google Fonts。
 >
 > **v0.83.9**：**Login 迁移**——LoginModal 外壳迁共享 `Modal`，邀请码改 `Input`，stone/bg-white 全改 ai-ink/cinema 令牌；OAuth 按钮与法律声明保留。

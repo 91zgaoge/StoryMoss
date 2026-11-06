@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.84.0 项目完成状态
+# StoryMoss (草苔) v0.84.1 项目完成状态
 
+> 最后更新: 2026-11-06（**v0.84.1：弹窗壳收尾 + 伏笔计划窗口补齐**——StyleDnaModal/ExportDialog 迁共享 Modal；卷号计划/12 条上限；V155 碎片按清单线程继承窗口。Rust **2010 / 15**；vitest 684/3；playwright 97/5；tsc/prettier/fmt/clippy/guard 全绿。）
+>
 > 最后更新: 2026-11-06（**v0.84.0：Cinzel 字体自托管**——本地 400/600 TTF + @font-face；幕后 LXGW+Cinzel 零外部字体依赖。playwright **97 / 5**；vitest 679/3；tsc/prettier 全绿。）
 >
 > 最后更新: 2026-11-06（**v0.83.9：Login 弹窗迁 Modal 并暗色化**——邀请码 Input、OAuth 按钮保留、stone→ai token；法律声明逐字保留。vitest **679 / 3**；playwright **97 / 5**；tsc/prettier 全绿。）

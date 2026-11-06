@@ -1,8 +1,13 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.84.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.84.1)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.84.1 变更说明
+
+- **弹窗壳收尾 + 伏笔窗口（前端/Rust）**：StyleDnaModal/ExportDialog 迁共享 Modal；`plan_line_summaries` 支持卷号与 12 条；V155 碎片继承数值线程窗口。Rust **2010 / 15**（+2）；vitest **684 / 3**（+5）；playwright **97 / 5**；tsc/prettier/fmt/clippy/guard 全绿。
+- **未关闭**：126 条碎片仅少数命中数值线程（其余保持无窗口，不伪造）；卷号无法映射场景序号；安装包 UI 交互复测。
 
 ### v0.84.0 变更说明
 

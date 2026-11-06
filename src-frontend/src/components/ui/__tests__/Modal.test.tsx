@@ -49,6 +49,16 @@ describe('Modal', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it('迁移中的专用弹窗可保留 testid 契约', () => {
+    render(
+      <Modal open onClose={() => {}} title="t" testId="legacy-modal" closeTestId="legacy-close">
+        <p>正文</p>
+      </Modal>
+    );
+    expect(screen.getByTestId('legacy-modal')).toHaveClass('max-h-[85dvh]');
+    expect(screen.getByTestId('legacy-close')).toHaveAttribute('aria-label', '关闭');
+  });
+
   it('danger 变体标题为危险色，内容区限高滚动', () => {
     render(
       <Modal open onClose={() => {}} title="危险" danger>

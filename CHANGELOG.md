@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.84.1（2026-11-06）
+
+**弹窗壳收尾 + 伏笔计划窗口补齐：StyleDnaModal / ExportDialog 迁共享 Modal，卷号计划可读，碎片按清单线程继承窗口。**
+
+- **UI 壳收尾**：`StyleDnaModal` 与 `ExportDialog` 自带遮罩/Card 迁共享 `Modal`（统一标题、关闭、Esc、85dvh 限高、footer 固定）；`style-dna-modal` / `style-dna-close` testid 与混合面板 sticky 保存按钮保留；导出格式/模板/选项、Anti-AI 体检/审查结果步骤与按钮全部保留。「AI 一键创作中」进度弹窗有意保留（非可关闭状态面板）。
+- **Modal 能力**：新增 `size="xl"`、`ariaLabel`、`testId`、`closeTestId`，迁移中的专用弹窗可保留原 testid 契约。
+- **卷号计划解析**：`plan_line_summaries` 支持「回收：卷2」「第二卷」→ 显示 `收卷2`（不再 `收-`）；续写窗口提示新增「计划卷N回收，本拍只可铺垫」；单清单计划行上限 6→12，blob hint 上限 240→400 字符。
+- **V155 碎片窗口继承**：解析伏笔清单 blob 的 F 行（标签 + 埋设描述关键词，排除通用词并去掉角色名简称），碎片命中数值章号线程时继承 `target_start/end`；卷号计划不伪造章号窗口；只处理 `target_end_scene IS NULL` 的 setup 行，幂等。
+- **验证**：Rust **2010 passed / 15 ignored**（+2：计划超 6 条/卷窗口、V155 继承/幂等）；fmt/clippy/guard 全绿；vitest **684 passed / 3 skipped**（+5：Modal testid、ExportDialog 4）；playwright **97 passed / 5 skipped**；tsc / prettier 全绿。
+- **未关闭**：126 条自动提取碎片中仅少数能命中数值计划线程（本机数据模拟约 9 条）；其余保持无窗口（自动线索，不伪造作者计划）；卷号计划无法映射到场景序号；安装包 UI 交互复测需装 v0.84.1 后人工操作。
+
 ## v0.84.0（2026-11-06）
 
 **品牌字体自托管收尾：Cinzel 本地化，彻底移除 Google Fonts 依赖。**

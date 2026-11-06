@@ -9,16 +9,22 @@ export interface ModalProps {
   title?: React.ReactNode;
   /** danger：红色标题与分隔线，用于危险操作确认 */
   danger?: boolean;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
   footer?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
+  /** 标题为 ReactNode 时用于可访问名称 */
+  ariaLabel?: string;
+  /** 迁移中的专用弹窗保留原有 testid 契约 */
+  testId?: string;
+  closeTestId?: string;
 }
 
 const sizeMap: Record<NonNullable<ModalProps['size']>, string> = {
   sm: 'max-w-sm',
   md: 'max-w-lg',
   lg: 'max-w-2xl',
+  xl: 'max-w-xl',
 };
 
 /**
@@ -36,6 +42,9 @@ export const Modal: React.FC<ModalProps> = ({
   footer,
   children,
   className,
+  ariaLabel,
+  testId,
+  closeTestId,
 }) => {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -66,8 +75,9 @@ export const Modal: React.FC<ModalProps> = ({
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label={typeof title === 'string' ? title : undefined}
+        aria-label={ariaLabel ?? (typeof title === 'string' ? title : undefined)}
         tabIndex={-1}
+        data-testid={testId}
         className={cn(
           'flex max-h-[85dvh] w-full flex-col rounded-xl border border-borderSubtle bg-cinema-900 shadow-float outline-none',
           sizeMap[size],
@@ -93,6 +103,7 @@ export const Modal: React.FC<ModalProps> = ({
               type="button"
               aria-label="关闭"
               onClick={onClose}
+              data-testid={closeTestId}
               className="rounded-lg p-1 text-ai-ink-3 transition-colors hover:bg-cinema-800 hover:text-ai-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinema-gold/40"
             >
               <X className="h-4 w-4" />

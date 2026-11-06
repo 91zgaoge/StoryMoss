@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.84.0
+- **版本**: v0.84.1
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -112,9 +112,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 2008 passed / 15 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 / 空正文冷却·上下文自动探测 / 续写跨档兜底 / 角色身份·改名去重·实体链接 / v0.74 语料仓储·V149 lane/task/lease·导演角色/分区·异步调度·租约·聊天/动作·IPC 契约 / v0.74.1 导演 ToolLoop 拒绝·动作校验·空正文候选剔除·capability 归一化·关系别名 / v0.74.2 大提示词超时豁免·稳定前缀排序·语料分段摘要 / v0.74.3 stable/dynamic 前缀拆分·冷预填充超时校准 / v0.75.0 情感回路·V150·OCC·压力场·读者面板 / v0.76.0 批量续写章节情感弧·gate/revision 同计划·persist_chapter_plan / v0.77.0 多 write 并行·V151 章号序列·pinned 语料·真机导演/语料探针 / v0.77.1 资产引导租约·图片语料元数据/摘要 / v0.78.0 视觉多模态·图片提炼/转资产·真机视觉探针 / v0.79.0 叙事契约 P0·场简报·契约门禁·情感最小链·active story 切换·姓名校验 / v0.80.0 章契约·1–3 场投影·legacy 方法论/叙事策略接线·回滚开关·多故事切换 E2E / v0.80.1 SceneOutcome 落库·姓名账本/称呼块 / v0.80.2 复合姓·候选池·作者称呼规则 / v0.80.3 批量 LLM 章契约·确定性兜底·环境开关 / v0.80.4 多代理熔断 salvage·调度器状态语义·网关 tool_calls·ingest 宽容解析 / v0.80.5 导演 LeadWriter 派发接续写管线·原子章号·GateRunner 装配·导演指令注入 / v0.80.6 导演 target_chapter 修订既有章·原 scene 更新·修订仍过 gate / v0.80.7 章节下拉就地改名·中文数字标题展示 / v0.80.8 幕后窗口关闭白屏修复（prevent_close + from_config 重建） / v0.81.0 幕后 UI 重设计 P0 基建（Modal/ConfirmDialog/Table 等 8 组件·Button 收敛·z 契约） / v0.81.1 导航重组 创作5·资产7·运维5·分析5·系统1·双壳金条指示 / v0.81.2 核心六页模板化·Scenes 800px 溢出修复·视口验收探针 / v0.81.3 数据诊断页模板化·Logs/Tracing 高度魔法数清除·探针 21 页 42 用例 / v0.81.4 confirmDialog 全局入口·20 处 confirm 迁移·UserMenu 暗色化·Settings 文案删除·探针 23 页 46 用例 / v0.81.5 弹窗限高内滚补齐·Card 圆角契约 / v0.81.6 设置控件作用域统一·页面级错误边界 / v0.82.0 伏笔排序/去重/配额8/预算保护/硬指令（+3 测试） / v0.82.1 WriteTimeBundle 限额 3/1→8/2（续写主路径） / v0.82.2 导演 target_scene 指定场景修订·场景 override·gate 只更新目标 scene / v0.82.3 导演快照场景序号·审批卡目标显示 / v0.82.4 伏笔文本计划「收：第N章」进窗口提示 / v0.82.5 中文数字·多条计划优先逾期 / v0.82.6 V154 伏笔计划文本回填结构化窗口 / v0.82.7 补交遗漏新增文件（仓库完整性修复） / v0.82.8 真机探针 导演场景目标·伏笔实际使用（本机实跑） / v0.82.9 Dashboard/Stories 弹窗迁统一 Modal / v0.83.0 体裁·角色·世界观手写弹窗全迁 Modal / v0.83.1 弹窗 800×600 视口回归探针 / v0.83.2 伏笔清单 blob 紧凑计划摘要（埋第X→收第Y） / v0.83.3 升级·角色编辑·模型编辑弹窗壳迁 Modal / v0.83.4 模型编辑 13 控件迁 Input/Select/Textarea（设置逐字段样板） / v0.83.5 AgentConfig·RouteSimulator·PromptsPanel 控件迁共享组件 / v0.83.6 GeneralSettings 9 控件迁 Input/Select/Textarea / v0.83.7 UnifiedModelManager 控件迁移·设置控件组件化完成 / v0.83.8 移除 Google Fonts 阻塞·loading 挂 React 挂载 / v0.83.9 Login 弹窗迁 Modal·暗色化 / v0.84.0 Cinzel 字体自托管·字体零外部依赖 ·共 15 ignored）
+- `cargo test -p storymoss` ✅ 2010 passed / 15 ignored（迁移治理 / 级联 / 取消传播 / 质检闭环 / 提示词资产 / 导出加固 / 网关故障注入 / golden harness / JSON 尾随逗号 / 知识边界·物品归属·级联影响 / 分层摘要 / 文本质检·文风学习·成本哨兵 / 质量债·时间旅行·指南针·待确认·三把尺子 / 投影路由 / 关系不变量 / 段落收尾符 / 生死状态 / 人类文笔基线 / 续写检索门 / 章纲重规划 / 判官一致率 / 手法回灌 / 卷纲 / 稳定性回归门·概念体检 / 语料校准 / 真机功能探针（4 项含换模矩阵）/ 后台链效率（同内容 ingest 复用·摘要+快评合并）/ 创世熔断 salvage·单调用回退 / 超时语义拆分 / 空正文冷却·上下文自动探测 / 续写跨档兜底 / 角色身份·改名去重·实体链接 / v0.74 语料仓储·V149 lane/task/lease·导演角色/分区·异步调度·租约·聊天/动作·IPC 契约 / v0.74.1 导演 ToolLoop 拒绝·动作校验·空正文候选剔除·capability 归一化·关系别名 / v0.74.2 大提示词超时豁免·稳定前缀排序·语料分段摘要 / v0.74.3 stable/dynamic 前缀拆分·冷预填充超时校准 / v0.75.0 情感回路·V150·OCC·压力场·读者面板 / v0.76.0 批量续写章节情感弧·gate/revision 同计划·persist_chapter_plan / v0.77.0 多 write 并行·V151 章号序列·pinned 语料·真机导演/语料探针 / v0.77.1 资产引导租约·图片语料元数据/摘要 / v0.78.0 视觉多模态·图片提炼/转资产·真机视觉探针 / v0.79.0 叙事契约 P0·场简报·契约门禁·情感最小链·active story 切换·姓名校验 / v0.80.0 章契约·1–3 场投影·legacy 方法论/叙事策略接线·回滚开关·多故事切换 E2E / v0.80.1 SceneOutcome 落库·姓名账本/称呼块 / v0.80.2 复合姓·候选池·作者称呼规则 / v0.80.3 批量 LLM 章契约·确定性兜底·环境开关 / v0.80.4 多代理熔断 salvage·调度器状态语义·网关 tool_calls·ingest 宽容解析 / v0.80.5 导演 LeadWriter 派发接续写管线·原子章号·GateRunner 装配·导演指令注入 / v0.80.6 导演 target_chapter 修订既有章·原 scene 更新·修订仍过 gate / v0.80.7 章节下拉就地改名·中文数字标题展示 / v0.80.8 幕后窗口关闭白屏修复（prevent_close + from_config 重建） / v0.81.0 幕后 UI 重设计 P0 基建（Modal/ConfirmDialog/Table 等 8 组件·Button 收敛·z 契约） / v0.81.1 导航重组 创作5·资产7·运维5·分析5·系统1·双壳金条指示 / v0.81.2 核心六页模板化·Scenes 800px 溢出修复·视口验收探针 / v0.81.3 数据诊断页模板化·Logs/Tracing 高度魔法数清除·探针 21 页 42 用例 / v0.81.4 confirmDialog 全局入口·20 处 confirm 迁移·UserMenu 暗色化·Settings 文案删除·探针 23 页 46 用例 / v0.81.5 弹窗限高内滚补齐·Card 圆角契约 / v0.81.6 设置控件作用域统一·页面级错误边界 / v0.82.0 伏笔排序/去重/配额8/预算保护/硬指令（+3 测试） / v0.82.1 WriteTimeBundle 限额 3/1→8/2（续写主路径） / v0.82.2 导演 target_scene 指定场景修订·场景 override·gate 只更新目标 scene / v0.82.3 导演快照场景序号·审批卡目标显示 / v0.82.4 伏笔文本计划「收：第N章」进窗口提示 / v0.82.5 中文数字·多条计划优先逾期 / v0.82.6 V154 伏笔计划文本回填结构化窗口 / v0.82.7 补交遗漏新增文件（仓库完整性修复） / v0.82.8 真机探针 导演场景目标·伏笔实际使用（本机实跑） / v0.82.9 Dashboard/Stories 弹窗迁统一 Modal / v0.83.0 体裁·角色·世界观手写弹窗全迁 Modal / v0.83.1 弹窗 800×600 视口回归探针 / v0.83.2 伏笔清单 blob 紧凑计划摘要（埋第X→收第Y） / v0.83.3 升级·角色编辑·模型编辑弹窗壳迁 Modal / v0.83.4 模型编辑 13 控件迁 Input/Select/Textarea（设置逐字段样板） / v0.83.5 AgentConfig·RouteSimulator·PromptsPanel 控件迁共享组件 / v0.83.6 GeneralSettings 9 控件迁 Input/Select/Textarea / v0.83.7 UnifiedModelManager 控件迁移·设置控件组件化完成 / v0.83.8 移除 Google Fonts 阻塞·loading 挂 React 挂载 / v0.83.9 Login 弹窗迁 Modal·暗色化 / v0.84.0 Cinzel 字体自托管·字体零外部依赖 / v0.84.1 StyleDnaModal·ExportDialog 迁共享 Modal·卷号计划·V155 碎片窗口继承 ·共 15 ignored）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 679 passed / 3 skipped（v0.81.4 +2：confirmDialog 回退/Portal 确认取消；v0.81.1 +1：Sidebar IA 契约按新五组重写；v0.81.0 +19：Modal 4、ConfirmDialog 3、Field/controls 3、Table 4、Skeleton/EmptyState 2、Button 别名与 token 回归 3；v0.80.7 +4：中文数字标题展示 1、下拉就地改名 2、大标题铅笔入口 1；v0.79.0 +3：story-selected seq/origin 契约 2、生成中切换集成 1；v0.75.0 +1：代理工作室情感页签契约/张力/债务/读者面板；v0.74.3 徽章文案改为冷缓存预估（断言更新，数量不变）；v0.74.2 +2：大提示词徽章显示/阈值以下不显示；v0.74.0 +3：语料页列表/详情/AI 提炼与交给导演；AgencyStudio +11：四角色/黑板/时间线/run 选择/错误提示/去重/观察/资产跳转/发送消息/审批确认；v0.73.14 +5：`StyleDnaModal` 单一风格先选后确认 / 关闭不落库 / 弹窗限高 / 混合面板固定按钮与保存 / 混合配置异步回填；v0.73.13 +7：`useExecutionState` 取数与降级 3、`loggedInvoke` 失败日志 4；v0.73.12 +2：文思活跃火焰/被动静态图标契约；+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
+- `npx vitest run` ✅ 684 passed / 3 skipped（v0.84.1 +5：Modal testid 契约 1、ExportDialog Modal 壳/步骤 4；v0.81.4 +2：confirmDialog 回退/Portal 确认取消；v0.81.1 +1：Sidebar IA 契约按新五组重写；v0.81.0 +19：Modal 4、ConfirmDialog 3、Field/controls 3、Table 4、Skeleton/EmptyState 2、Button 别名与 token 回归 3；v0.80.7 +4：中文数字标题展示 1、下拉就地改名 2、大标题铅笔入口 1；v0.79.0 +3：story-selected seq/origin 契约 2、生成中切换集成 1；v0.75.0 +1：代理工作室情感页签契约/张力/债务/读者面板；v0.74.3 徽章文案改为冷缓存预估（断言更新，数量不变）；v0.74.2 +2：大提示词徽章显示/阈值以下不显示；v0.74.0 +3：语料页列表/详情/AI 提炼与交给导演；AgencyStudio +11：四角色/黑板/时间线/run 选择/错误提示/去重/观察/资产跳转/发送消息/审批确认；v0.73.14 +5：`StyleDnaModal` 单一风格先选后确认 / 关闭不落库 / 弹窗限高 / 混合面板固定按钮与保存 / 混合配置异步回填；v0.73.13 +7：`useExecutionState` 取数与降级 3、`loggedInvoke` 失败日志 4；v0.73.12 +2：文思活跃火焰/被动静态图标契约；+11 幕前切章正文同步 / 幽灵保留 / 懒加载可重开；+2 章纲重规划预览/勾选与忽略；+判官一致率卡；+章法偏好渲染与重置；+2 卷纲页签与合同展示；v0.68.1 分章切换用例 CI 超时加固：`asyncUtilTimeout` 5s + 三处显式等待 10s）
 - `npx playwright test` ✅ 97 passed / 5 skipped（v0.83.1 +3：Modal 800×600 boundingBox+内滚探针；v0.81.4 +14：探针 23 视图 46 用例；v0.81.3 +20：视口探针扩到全导航 21 页；v0.81.2 +12：核心六页 800×600/1400×900 视口验收探针（无横向溢出断言+截图）；v0.80.7 +1：章节下拉就地改名 E2E；v0.80.0 +1：多故事切换 E2E；v0.74.0 +2：语料页加载/选中/AI 提炼；代理工作室剧组/对话/现场与 `agency_chat_send`；v0.73.9 +1：故事卡片点击同步 `notify_frontstage_story_selected`；v0.73.5 +1：日志页「复制」按钮不被幕前悬浮启动器遮挡（1680px trial click）；v0.73.1 +2：模型页签「超时」子页签直达超时设置、写作页签在 `list_workflows` 返回 null 时不崩溃；v0.72.3 修掉一处既有 flake：`e2e/mock-tauri.ts` 补 `check_update`/`get_current_version` handler——`useUpdater(true)` 挂载 5s 后自动检查，mock 未实现时慢机/并行负载下页面加载类用例会在「无 console 错误」断言上偶发红；门禁仍非阻塞，见未关闭）
 - `cargo +nightly-2026-10-05 fmt` ✅（固定版本，避免 nightly 漂移）
 - `cargo clippy` ✅ 0 error（v0.64.0 起纳入每版验证：CI 用不带 -D warnings 的 cargo clippy，deny 级 lint 会阻塞发布）
@@ -125,6 +125,22 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.73.13 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 起瘦身，v0.77.0 归档 v0.74.2；根文件只保留最近 5 个版本与关键教训）。
+
+### v0.84.1 - 弹窗壳收尾 + 伏笔计划窗口补齐
+
+**为什么**：幕后 UI 收尾还剩 StyleDnaModal/ExportDialog 自带遮罩与 Card；伏笔清单跨卷计划
+「回收：卷2」被显示成 `收-`，单清单第 7+ 条计划被截掉；126 条自动提取碎片没有窗口。
+
+**改动**：①两个弹窗迁共享 Modal（保留 testid、混合面板 sticky 按钮、导出全部步骤）；
+Modal 增 `xl/ariaLabel/testId/closeTestId`。②`plan_line_summaries` 支持卷号、上限 12 条、
+blob hint 400 字符；窗口提示补「计划卷N回收」。③新增 V155：解析清单 F 行标签+埋设关键词，
+碎片命中数值章号线程时继承 target_start/end；通用词过滤、角色名简称剥离、只处理 NULL、幂等。
+
+**验证**：Rust **2010 / 15**（+2）；vitest **684 / 3**（+5）；playwright **97 / 5**；
+tsc/prettier/fmt/clippy/guard 全绿。
+
+**未关闭**：126 条碎片仅少数命中数值线程（本机模拟约 9 条），其余保持无窗口（不伪造）；
+卷号计划无法映射场景序号；安装包 UI 交互复测。
 
 ### v0.84.0 - Cinzel 字体自托管
 
