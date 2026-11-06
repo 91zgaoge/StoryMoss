@@ -2,6 +2,14 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.83.9（2026-11-06）
+
+**Login 弹窗迁 Modal 并暗色化。**
+
+- **迁移**：`LoginModal` 外壳迁共享 `Modal`（标题「登录 StoryMoss」、统一关闭/Esc/85dvh）；邀请码输入改 `Input`；OAuth 按钮（Google/GitHub/微信/QQ）与等待授权状态保留。
+- **暗色化**：stone/bg-white 全部改 ai-ink/cinema 令牌，与幕后主题一致；法律声明文案逐字保留。
+- **验证**：tsc / prettier 全绿；vitest **679 / 3**；playwright **97 / 5**（含登录路径）；Rust 未改（2008 / 15 ignored）。
+
 ## v0.83.8（2026-11-06）
 
 **启动可靠性修复：移除外部 Google Fonts 阻塞 + loading 屏挂 React 挂载。**
