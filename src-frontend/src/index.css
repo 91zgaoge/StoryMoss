@@ -300,3 +300,20 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* v0.83.8：幕后正文/标题本地字体（离线可用，替换 Google Fonts 外链） */
+@font-face {
+  font-family: 'LXGW WenKai';
+  src: url('/fonts/lxgwwenkai-regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'LXGW WenKai';
+  src: url('/fonts/lxgwwenkai-medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}

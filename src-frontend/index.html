@@ -6,10 +6,6 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CINEMA-AI | 越写越懂的创作系统</title>
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   </head>
   <body class="bg-cinema-950 text-gray-100 antialiased">
     <!-- v5.0.0 修复：加载指示器，防止 React 挂载前被误认为白屏 -->
@@ -25,12 +21,30 @@
       @keyframes spin { to { transform: rotate(360deg); } }
     </style>
     <script>
+      // v0.83.8: loading 屏不再只依赖 window load——外部资源挂起时 load 可能永不
+      // 触发（真机离线白屏）。React 挂载出第一个节点即隐藏；load + 8s 兜底。
       window.addEventListener('load', () => {
         setTimeout(() => {
           const ls = document.getElementById('loading-screen');
           if (ls) ls.style.display = 'none';
-        }, 500);
+        }, 300);
       });
+      (function () {
+        const root = document.getElementById('root');
+        if (!root) return;
+        const hide = () => {
+          const ls = document.getElementById('loading-screen');
+          if (ls) ls.style.display = 'none';
+        };
+        const obs = new MutationObserver(() => {
+          if (root.childElementCount > 0) {
+            hide();
+            obs.disconnect();
+          }
+        });
+        obs.observe(root, { childList: true, subtree: false });
+        setTimeout(hide, 8000);
+      })();
     </script>
   </body>
 </html>

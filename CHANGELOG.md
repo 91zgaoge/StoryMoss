@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.83.8（2026-11-06）
+
+**启动可靠性修复：移除外部 Google Fonts 阻塞 + loading 屏挂 React 挂载。**
+
+- **真因**：`index.html` 的 Google Fonts stylesheet 在离线/网络挂起时阻塞 DOMContentLoaded 与 window load；loading 屏只在 `load` 后隐藏 → 幕后永久停在加载屏（真机/browser 验证复现）。
+- **修复**：①删除 Google Fonts 外链；`index.css` 增加本地 LXGW WenKai @font-face（`public/fonts` 已有 woff2），display/mono 走系统中日文字体兜底。②loading 屏改由 MutationObserver 在 React 挂载出第一个节点时立即隐藏，`load` 与 8s 定时器兜底。
+- **验证**：playwright **97 passed / 5 skipped**（含导航/视口/弹窗全量）；vitest **679 / 3**；tsc / prettier 全绿；Rust 未改（2008 / 15 ignored）。
+- **未关闭**：Cinzel 显示字体改为系统 serif 兜底（品牌字形略变）；真机离线启动需安装包复测。
+
 ## v0.83.7（2026-11-05）
 
 **设置控件组件化完成：13 面板标准控件全部迁 Input/Select/Textarea。**
