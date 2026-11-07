@@ -12,7 +12,7 @@ use crate::{
 };
 
 /// 获取故事的叙事结构分析（从 story_outlines.analyzed_structure_json）
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn analyze_narrative_structure(
     story_id: String,
     state: tauri::State<'_, DbPool>,
@@ -41,7 +41,7 @@ pub async fn analyze_narrative_structure(
 }
 
 /// 获取故事的叙事事件（从 scenes 表的 narrative 字段）
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn get_narrative_events(
     story_id: String,
     state: tauri::State<'_, DbPool>,
@@ -78,7 +78,7 @@ pub async fn get_narrative_events(
 }
 
 /// 获取故事的叙事线索（从 story_system::ForeshadowingService 单一真源读取）
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn get_narrative_threads(
     story_id: String,
     state: tauri::State<'_, DbPool>,
@@ -119,7 +119,7 @@ fn get_narrative_threads_inner(
 }
 
 /// 获取故事的叙事感知文本块
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn get_narrative_chunks(
     story_id: String,
     state: tauri::State<'_, DbPool>,

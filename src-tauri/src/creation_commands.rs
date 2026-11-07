@@ -1060,7 +1060,7 @@ pub async fn list_style_dnas(pool: State<'_, DbPool>) -> Result<Vec<serde_json::
     }
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 
 pub async fn set_story_style_dna(
     story_id: String,

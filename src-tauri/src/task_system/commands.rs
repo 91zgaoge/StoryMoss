@@ -3,7 +3,7 @@
 use super::{models::*, service::TaskService};
 use crate::error::AppError;
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn create_task(
     name: String,
     description: Option<String>,
@@ -30,7 +30,7 @@ pub async fn create_task(
     service.create_task(req)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn update_task(
     id: String,
     name: Option<String>,
@@ -52,7 +52,7 @@ pub async fn update_task(
     service.update_task(&id, req)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn delete_task(
     id: String,
     service: tauri::State<'_, TaskService>,
@@ -60,7 +60,7 @@ pub async fn delete_task(
     service.delete_task(&id)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn list_tasks(
     status_filter: Option<String>,
     service: tauri::State<'_, TaskService>,
@@ -68,7 +68,7 @@ pub async fn list_tasks(
     service.list_tasks(status_filter)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn trigger_task(
     id: String,
     service: tauri::State<'_, TaskService>,
@@ -76,7 +76,7 @@ pub async fn trigger_task(
     service.trigger_task(&id)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn cancel_task(
     id: String,
     service: tauri::State<'_, TaskService>,
@@ -84,7 +84,7 @@ pub async fn cancel_task(
     service.cancel_task(&id)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn get_task_logs(
     task_id: String,
     service: tauri::State<'_, TaskService>,
@@ -93,7 +93,7 @@ pub async fn get_task_logs(
 }
 
 /// 便捷命令：创建 AI 生成任务
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn run_ai_generation_task(
     story_id: String,
     input: String,
@@ -129,7 +129,7 @@ pub async fn run_ai_generation_task(
 }
 
 /// 便捷命令：创建 Pipeline 审校任务
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn run_pipeline_task(
     story_id: String,
     draft_id: String,

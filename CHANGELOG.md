@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.89.9（2026-11-08）
+
+**修复 task_system / 叙事 / 风格 DNA 三族 IPC 参数契约（真机日志实证）。**
+
+真机日志（2026-11-07 16:53）连续报 `get_task_logs: invalid args 'taskId' … missing required key taskId`：前端统一以 snake_case 传参，而这三族命令用 Tauri 默认 camelCase 绑定，真机上参数永远对不上——E2E 因 mock-tauri 拦截 invoke 而一直未暴露。影响面：任务页查看日志、创建/编辑任务（`task_type`/`schedule_type` 等必填参数缺失→创建必失败）、任务列表状态过滤、`set_story_style_dna` 风格绑定、叙事结构分析/事件/线程/分块四命令。
+
+- **修复**：`task_system/commands.rs` 全部 9 个命令、`creation_commands.rs::set_story_style_dna`、`commands/narrative.rs` 全部 4 个命令统一加 `#[tauri::command(rename_all = "snake_case")]`，与前端 `loggedInvoke` 的 snake_case 传参对齐；与既有级联命令（早已用 snake_case）保持一致。
+- **顺带修正**：`landing/src/hooks/useLatestRelease.ts` 的 `FALLBACK_VERSION` 自 v0.86.0 后未随版本 bump（v0.87–v0.89 遗漏），本版一并更新到 0.89.9。
+- **验证**：Rust **2033 passed / 15 ignored**（task_system 20 项通过）；Clippy/check/fmt/guard 全绿；tsc 0 错误；Vitest **696 / 3**；Playwright 基线通过；未本地打包。
+- **未关闭**：真机升级后复验任务页日志、创建任务、风格 DNA 绑定与叙事分析页；qwen-1（`maas.qianwenaiapi.com`）返回 DashScope 原生 400 `Field required: input.contents`，属该中转配置问题，建议作者更换端点或移出写作候选链。
+
 ## v0.89.8（2026-11-07）
 
 **v0.89.7 的 `rm -rf dist` 顺序颠倒——把 scp 刚传来的镜像删了。** 修正为 `ls -t` 取最新镜像文件，load 成功后再清理 dist。

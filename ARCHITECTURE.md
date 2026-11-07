@@ -1,5 +1,7 @@
-# StoryMoss v0.89.0 架构文档
+# StoryMoss v0.89.9 架构文档
 
+> **v0.89.9**：**IPC 参数绑定契约**——前端统一以 snake_case 传参（`loggedInvoke`），命令层必须显式 `#[tauri::command(rename_all = "snake_case")]`；task_system（9）、`set_story_style_dna`、narrative（4）已补齐，与级联命令保持一致。E2E 的 mock-tauri 会拦截 invoke，无法暴露此类契约错配——以真机日志 `invalid args 'taskId' … missing required key taskId` 为准绳。
+>
 > **v0.89.0**：**日志上传与运维闭环**——桌面 `log_report.rs`：近 3 天日志收集（mtime 过滤、traces 限额 50、20MB 字节预算从大丢弃）+ `manifest.json`（版本/平台/文件清单）→ zip Deflated → SHA-256 命名/判重（本机 `log_upload_history.json`）；`ServerClient::upload_log_package`（reqwest multipart，409=幂等成功）。src-server：`log_packages` 表（sha256 UNIQUE）、`/api/logs/upload`（AuthClaims + actix-multipart + 服务端重算哈希）、`/api/logs/packages[/download]`（`LOG_OPS_TOKEN` bearer）、`retention_sweep` 每小时删 >72h 文件与行。前端日志页两步授权（打包不上传 → 确认才传），无静默上传。
 >
 > **v0.88.0**：**MCP HTTP 传输与训练闭环**——`mcp/transport.rs` 新增 `HttpTransport`（Streamable HTTP：POST JSON-RPC、Accept JSON+SSE 双格式、`Mcp-Session-Id` 会话头保持、SSE `data:` 解析、通知 202、DELETE 会话），`McpClient::connect` 按 `McpServerConfig.url` 分流，HTTP 补发 `notifications/initialized`；`tools/list` 按规范解 `{tools:[...]}`。V156 `mcp_server_configs` 持久化，启动 `auto_connect_saved_servers` 重连 HTTP 型。`task_system/continuation_training.rs` 执行器（`TaskType::ContinuationTraining`，12h 墙钟豁免）：取章（MCP 显式工具+模板 / `parse_book`）→ 独立沙盒故事 → `SceneRepository` 逐章灌稿 → `StyleAnalyzer` 风格 DNA → 上轮 improvement 注入 → `run_continue_batch_with_cancel` 续写 → 真实后续章 LLM 五维对比 → V157 `continuation_training_reports` 落库 → 同书保留 3 个沙盒级联清理。前端新增「续写训练」页（ViewType `training-lab`）。

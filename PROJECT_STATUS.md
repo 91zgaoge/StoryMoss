@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.89.0 项目完成状态
+# StoryMoss (草苔) v0.89.9 项目完成状态
 
+> 最后更新: 2026-11-08（**v0.89.9：三族 IPC 参数契约修复**——task_system 9 命令 + `set_story_style_dna` + 叙事 4 命令统一 `rename_all = "snake_case"`，修掉真机 `get_task_logs missing required key taskId` 及同族的任务创建/过滤/风格绑定静默失效；顺带补正 v0.87–v0.89 遗漏的 `FALLBACK_VERSION` 同步。Rust **2033/15**；Vitest **696/3**；tsc/prettier/guard 全绿。**未关闭**：真机复验任务页日志与创建任务。）
+>
 > 最后更新: 2026-11-07（**v0.89.0：日志压缩上传官网 + ZCode 每日分析修复**——`log_report.rs` 打包近 3 天日志（20MB 预算、SHA-256 命名、不含正文），日志页两步显式授权上传（无静默上传），本机+服务端双 sha256 去重；src-server `/api/logs/*`（005 迁移、运维令牌下载、每小时 72h 清理、docker volume + deploy 注入 secret）；ZCode 每天 10:00 下载日志包分析修复（每轮 ≤3 个，全门禁，无问题只写报告）。Rust **2033/15**（+3）。**未关闭**：deploy-server 部署 + LOG_OPS_TOKEN secret 需用户操作。）
 >
 > 历史摘要（v0.88.0：MCP 流式 HTTP 客户端 + 续写训练定时闭环**——`McpServerConfig` 增 url/headers，新增 `HttpTransport`（Streamable HTTP/SSE/会话保持），V156 配置持久化 + 启动自动重连，MCP 页 HTTP/stdio 模式；`TaskType::ContinuationTraining` 执行器：栗子读书/本地书取章 → 独立沙盒 → 风格 DNA → 上轮建议注入 → 续写 → 真实后续章五维对比（V157 报告表）→ 沙盒自动清理；新增「续写训练」页。Rust **2030/15**（+5）；Vitest **696/3**；Playwright **127/5**。**未关闭**：栗子读书真机接入实测。）

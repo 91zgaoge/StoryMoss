@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.89.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.89.9-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.89.9 · 任务页与叙事功能在安装版上恢复正常
+
+真机上「任务」页查看任务日志报参数错误、创建任务不生效、叙事分析页加载失败、写作风格绑定静默失效——
+原因都是前端与后端的参数名对不上（前端 snake_case、命令层 camelCase）。本版把任务系统、叙事分析、
+风格 DNA 三组命令的参数绑定全部对齐，安装版上这些功能恢复工作。
 
 ### v0.89.0 · 日志一键上传官网，错误修复快一天拍
 

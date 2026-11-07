@@ -1,8 +1,13 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.89.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.89.9)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.89.9 变更说明
+
+- **IPC 契约修复**：task_system 9 命令 + `set_story_style_dna` + narrative 4 命令补 `rename_all = "snake_case"`；task_system 20 项测试通过；Rust 全量 **2033 / 15**、Vitest **696 / 3**、tsc/prettier/guard 全绿。
+- **注意**：E2E mock 层拦截 invoke，无法覆盖 IPC 参数名契约；此类问题以真机日志为准（本次由 `get_task_logs missing required key taskId` 实证）。
 
 ### v0.89.0 变更说明
 
