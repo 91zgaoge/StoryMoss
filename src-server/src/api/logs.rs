@@ -32,8 +32,7 @@ pub async fn retention_sweep(pool: PgPool) {
 
 async fn sweep_once(pool: &PgPool) -> Result<(), String> {
     let rows = sqlx::query!(
-        "SELECT id, stored_path FROM log_packages WHERE uploaded_at < NOW() - ($1)::interval",
-        "72 hours"
+        "SELECT id, stored_path FROM log_packages WHERE uploaded_at < NOW() - INTERVAL '72 hours'"
     )
     .fetch_all(pool)
     .await
@@ -42,8 +41,7 @@ async fn sweep_once(pool: &PgPool) -> Result<(), String> {
         let _ = std::fs::remove_file(&row.stored_path);
     }
     let deleted = sqlx::query!(
-        "DELETE FROM log_packages WHERE uploaded_at < NOW() - ($1)::interval",
-        "72 hours"
+        "DELETE FROM log_packages WHERE uploaded_at < NOW() - INTERVAL '72 hours'"
     )
     .execute(pool)
     .await
@@ -102,8 +100,7 @@ async fn upload(
             Ok(None) => break,
             Err(e) => return HttpResponse::BadRequest().body(format!("multipart error: {e}")),
         };
-        // actix-multipart 0.7: Field::name() -> &str
-        let name = field.name().to_string();
+        let name = field.name().unwrap_or("").to_string();
         let mut data = Vec::new();
         loop {
             match field.try_next().await {
@@ -138,9 +135,8 @@ async fn upload(
 
     // 幂等：同 sha256 未过期 → 返回已有记录（客户端把 409 视为已上传）
     if let Ok(Some(existing)) = sqlx::query!(
-        "SELECT id, size_bytes FROM log_packages WHERE sha256 = $1 AND uploaded_at >= NOW() - ($2)::interval",
-        sha,
-        "72 hours"
+        "SELECT id, size_bytes FROM log_packages WHERE sha256 = $1 AND uploaded_at >= NOW() - INTERVAL '72 hours'",
+        sha
     )
     .fetch_optional(pool.get_ref())
     .await
@@ -158,7 +154,8 @@ async fn upload(
     if let Err(e) = std::fs::create_dir_all(dir) {
         return HttpResponse::InternalServerError().body(format!("storage dir: {e}"));
     }
-    let id = uuid::Uuid::new_v4().to_string();
+    let id_uuid = uuid::Uuid::new_v4();
+    let id = id_uuid.to_string();
     let stored_path = dir.join(format!("{id}.zip"));
     if let Err(e) = std::fs::write(&stored_path, &bytes) {
         return HttpResponse::InternalServerError().body(format!("write failed: {e}"));
@@ -172,7 +169,7 @@ async fn upload(
         "INSERT INTO log_packages (id, sha256, filename, stored_path, size_bytes, app_version, platform, user_id) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
          ON CONFLICT (sha256) DO NOTHING RETURNING id, size_bytes",
-        id,
+        id_uuid,
         sha,
         filename_of(&stored_path),
         stored_path.to_string_lossy().to_string(),
@@ -191,7 +188,7 @@ async fn upload(
 
     match result {
         Ok(Some(row)) => HttpResponse::Created().json(UploadResponse {
-            id: row.id,
+            id: row.id.to_string(),
             sha256: sha,
             duplicate: false,
             size_bytes: row.size_bytes,
@@ -259,7 +256,7 @@ async fn list_packages(req: HttpRequest, pool: web::Data<PgPool>) -> impl Respon
         Ok(rows) => HttpResponse::Ok().json(
             rows.into_iter()
                 .map(|r| PackageRow {
-                    id: r.id,
+                    id: r.id.to_string(),
                     filename: r.filename,
                     size_bytes: r.size_bytes,
                     app_version: r.app_version,

@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.89.3（2026-11-07）
+
+**修复 server 首次 CI 编译暴露的 6 处错误（本地无 PG 编译不了的债，sqlx 宏在 CI 上真实展开才暴露）。**
+
+- `api::logs` 模块私有导致 main.rs 的 retention_sweep 不可见 → `pub(crate) mod logs`；
+- `($1)::interval` 参数化字符串不符合 sqlx PgInterval 类型 → interval 内联 SQL（`NOW() - INTERVAL '72 hours'`，3 处）；
+- actix-multipart 0.7 `Field::name()` 实际返回 `Option<&str>` → `unwrap_or("")`；
+- INSERT 的 id / RETURNING 与列表查询的 id 在 String 与 Uuid 间映射错误 → 显式 `id_uuid` 直传 + `.to_string()`。
+- 本地无 PostgreSQL 的验证局限再次确认：sqlx 宏代码只能靠 CI/Docker 构建暴露类型错误。
+
 ## v0.89.2（2026-11-07）
 
 **部署架构改为 CI 构建镜像 + 服务器 load（1GB 内存机无法容器内编译）。**

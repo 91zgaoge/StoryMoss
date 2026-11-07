@@ -4,7 +4,7 @@ use actix_web::web;
 
 pub(crate) mod admin;
 mod health;
-mod logs;
+pub(crate) mod logs;
 pub(crate) mod subscription;
 mod user;
 
