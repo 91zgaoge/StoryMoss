@@ -141,6 +141,91 @@ test('场景预览在中屏为执行区保留完整宽度并可滚动到达', as
   });
 });
 
+test('场景预览在五档宽度不错位且可返回顶部', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await page.addInitScript(getMockTauriInitScript(), { richBackstage: true });
+  await page.goto('/index.html');
+  await page.waitForTimeout(800);
+  await page.getByRole('button', { name: '场景', exact: true }).click();
+  await page.getByText('雨夜封门', { exact: true }).click();
+  await expect(page.locator('h1').getByText('雨夜封门', { exact: true })).toBeVisible();
+
+  const workspace = page.getByTestId('scenes-workspace');
+  const timeline = page.getByTestId('scenes-timeline-column');
+  const preview = page.getByTestId('scenes-preview-column');
+  const execution = page.getByTestId('scenes-execution-column');
+  const storyHeading = page.getByRole('heading', { name: '故事线', exact: true });
+  const sceneHeading = page.locator('h1').getByText('雨夜封门', { exact: true });
+
+  for (const width of [1000, 1024, 1279, 1280, 1400]) {
+    await page.setViewportSize({ width, height: 800 });
+    await workspace.evaluate(element => {
+      element.scrollTop = 0;
+    });
+    await page.waitForTimeout(250);
+
+    expect(await workspace.evaluate(element => element.scrollTop)).toBe(0);
+    await expect(storyHeading).toBeInViewport();
+    await expect(sceneHeading).toBeInViewport();
+
+    const workspaceBox = await workspace.boundingBox();
+    const timelineBox = await timeline.boundingBox();
+    const previewBox = await preview.boundingBox();
+    const executionBox = await execution.boundingBox();
+    expect(workspaceBox).not.toBeNull();
+    expect(timelineBox).not.toBeNull();
+    expect(previewBox).not.toBeNull();
+    expect(executionBox).not.toBeNull();
+
+    const sceneHeadingBox = await sceneHeading.boundingBox();
+    expect(sceneHeadingBox).not.toBeNull();
+    expect(sceneHeadingBox!.y).toBeGreaterThanOrEqual(previewBox!.y - 1);
+    expect(sceneHeadingBox!.y + sceneHeadingBox!.height).toBeLessThanOrEqual(
+      previewBox!.y + previewBox!.height + 1
+    );
+
+    if (width < 1024) {
+      expect(timelineBox!.y + timelineBox!.height).toBeLessThanOrEqual(previewBox!.y + 1);
+      expect(previewBox!.y + previewBox!.height).toBeLessThanOrEqual(executionBox!.y + 1);
+    } else if (width < 1280) {
+      expect(Math.abs(timelineBox!.y - previewBox!.y)).toBeLessThanOrEqual(1);
+      expect(timelineBox!.height).toBeGreaterThanOrEqual(workspaceBox!.height - 2);
+      expect(previewBox!.height).toBeGreaterThanOrEqual(workspaceBox!.height - 2);
+      expect(executionBox!.y).toBeGreaterThanOrEqual(previewBox!.y + previewBox!.height - 1);
+      expect(executionBox!.width).toBeGreaterThanOrEqual(workspaceBox!.width * 0.95);
+    } else {
+      expect(Math.abs(timelineBox!.y - workspaceBox!.y)).toBeLessThanOrEqual(1);
+      expect(Math.abs(previewBox!.y - workspaceBox!.y)).toBeLessThanOrEqual(1);
+      expect(Math.abs(executionBox!.y - workspaceBox!.y)).toBeLessThanOrEqual(1);
+    }
+
+    await workspace.evaluate(element => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await expect(execution).toBeInViewport();
+    await workspace.evaluate(element => {
+      element.scrollTop = 0;
+    });
+    await expect(storyHeading).toBeInViewport();
+    await expect(sceneHeading).toBeInViewport();
+    await page.waitForTimeout(400);
+    await page.screenshot({
+      path: `test-results/studio-refinement/scenes-geometry-${width}.png`,
+    });
+  }
+
+  await page.setViewportSize({ width: 1024, height: 800 });
+  await workspace.evaluate(element => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await page.setViewportSize({ width: 1000, height: 800 });
+  const resizedTimeline = await timeline.boundingBox();
+  const resizedPreview = await preview.boundingBox();
+  const resizedExecution = await execution.boundingBox();
+  expect(resizedTimeline!.y + resizedTimeline!.height).toBeLessThanOrEqual(resizedPreview!.y + 1);
+  expect(resizedPreview!.y + resizedPreview!.height).toBeLessThanOrEqual(resizedExecution!.y + 1);
+});
+
 test('场景编辑在窄屏把管线放到正文下方而不是挤占正文', async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 600 });
   await page.addInitScript(getMockTauriInitScript(), { richBackstage: true });

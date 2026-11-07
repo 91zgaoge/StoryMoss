@@ -207,7 +207,7 @@ export function Scenes() {
     /* T2 主从模板（设计文档 §4）：<lg 单列堆叠（右栏给 70dvh 保底高度），
        lg 起双栏、左栏定宽区间、右栏自适应，全部 min-w-0/min-h-0 防溢出 */
     <div
-      className={`grid h-full min-h-0 min-w-0 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)] ${
+      className={`grid h-full min-h-0 min-w-0 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)] lg:grid-rows-[100%_auto] xl:grid-rows-[minmax(0,1fr)] ${
         isEditing
           ? ''
           : 'xl:grid-cols-[minmax(280px,320px)_minmax(420px,1fr)_minmax(280px,320px)] xl:overflow-hidden'
@@ -215,7 +215,10 @@ export function Scenes() {
       data-testid="scenes-workspace"
     >
       {/* Left Panel - Timeline */}
-      <div className="flex h-80 min-h-0 min-w-0 flex-col border-b border-cinema-700 bg-cinema-900/50 lg:h-full lg:border-b-0 lg:border-r">
+      <div
+        className="flex h-80 min-h-0 min-w-0 flex-col border-b border-cinema-700 bg-cinema-900/50 lg:h-full lg:border-b-0 lg:border-r"
+        data-testid="scenes-timeline-column"
+      >
         <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
           <StoryTimeline
             scenes={scenes}
@@ -231,7 +234,10 @@ export function Scenes() {
       </div>
 
       {/* Middle Panel - Editor */}
-      <div className="min-w-0 min-h-0 h-[70dvh] lg:h-full bg-cinema-950">
+      <div
+        className="min-w-0 min-h-0 h-[70dvh] lg:h-full bg-cinema-950"
+        data-testid="scenes-preview-column"
+      >
         {isEditing && selectedScene ? (
           <div className="h-full p-6">
             <SceneEditor
@@ -428,12 +434,12 @@ export function Scenes() {
       {/* Right Panel - Execution preview only (pipeline lives inside SceneEditor when editing) */}
       {!isEditing && (
         <div
-          className="w-full min-w-0 lg:col-span-2 xl:col-span-1 xl:min-h-0"
+          className="h-auto w-full min-w-0 lg:col-span-2 xl:col-span-1 xl:h-full xl:min-h-0"
           data-testid="scenes-execution-column"
         >
           <ExecutionPanel
             storyId={currentStory.id}
-            className="border-l-0 border-t border-cinema-800 xl:border-l xl:border-t-0"
+            className="h-auto border-l-0 border-t border-cinema-800 xl:h-full xl:border-l xl:border-t-0"
             onCreateScene={handleCreateScene}
             onEditScene={sceneId => {
               const scene = scenes.find(s => s.id === sceneId);

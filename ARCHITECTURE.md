@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.85.1 架构文档
+# StoryMoss (草苔) v0.85.2 架构文档
 
+> **v0.85.2**：**Scenes 行高契约**——中屏 Grid 使用 `lg:grid-rows-[100%_auto]`，故事线/正文第一行占满工作区，执行面板第二行跨两列且 `h-auto`；宽屏使用 `xl:grid-rows-[minmax(0,1fr)]` 与三栏 `h-full/min-h-0`。新增九场景五档几何探针，验证面板矩形、正文归属、滚动返回与缩放。
+>
 > **v0.85.1**：**双源 updater**——`updater/mod.rs` 以单源 builder 按 GitHub → 官网检查清单；清单 20s 总超时，下载经 `configure_client` 使用 10s 连接/30s 读取超时且无总时长上限；`download` 验签后才发完成事件并调用 `install`。仅 Reqwest/Network 错误可换源，备用源版本必须一致；Minisign/IO/安装错误不重试。pubkey、IPC 与发布产物不变。
 >
 > **v0.85.0**：**幕后布局契约重建**——App 以 `h-dvh/min-w-0/min-h-0` 和视图模板划分页面/面板滚动；Panel 展开不再固定限高；CreationPathGuide 与设置/Agent 表单使用容器查询；Scenes 按预览/编辑匹配 Grid 轨道，SceneEditor 管线窄态转入正常文档流；幕前入口归入双导航普通布局。设计见 `docs/plans/2026-11-06-backstage-studio-refinement-design.md`。

@@ -130,21 +130,21 @@ export function getMockTauriInitScript() {
     const mockScenes = frontstageSeed
       ? frontstageSeed.scenes || [defaultSeedScene]
       : richBackstage
-        ? [
-            {
-              ...defaultSeedScene,
-              title: '雨夜封门',
-              execution_stage: 'drafting',
-              draft_content: '雨水沿着门缝往里渗，陈砚握着修复刀，没有后退。',
-              content:
-                '雨水沿着老街的青石板奔流而下。陈砚站在旧宅门前，看着新砌的水泥墙，指尖还留着修复刀的温度。门后传来母亲模糊的呼唤，他必须在天亮前找到回家的入口。\n\n邻居们聚在巷口，有人压低声音争吵，有人悄悄收起旧照片。陈砚把缺失的档案编号记进练习本，转身走向还亮着灯的修表铺。',
-              dramatic_goal: '在旧宅被封死前确认母亲是否安全，并保住修复师的身份。',
-              external_pressure: '拆迁队将在天亮后完成封门，任何阻拦都会引来保安。',
-              setting_location: '旧宅门前',
-              characters_present: [],
-              foreshadowing_ids: [],
-            },
-          ]
+        ? Array.from({ length: 9 }, (_, index) => ({
+            ...defaultSeedScene,
+            id: index === 0 ? defaultSeedScene.id : `rich-scene-${index + 1}`,
+            sequence_number: index + 1,
+            title: index === 0 ? '雨夜封门' : `第${index + 1}场 · 拆迁线持续发酵`,
+            execution_stage: 'drafting',
+            draft_content: '雨水沿着门缝往里渗，陈砚握着修复刀，没有后退。',
+            content:
+              '雨水沿着老街的青石板奔流而下。陈砚站在旧宅门前，看着新砌的水泥墙，指尖还留着修复刀的温度。门后传来母亲模糊的呼唤，他必须在天亮前找到回家的入口。\n\n邻居们聚在巷口，有人压低声音争吵，有人悄悄收起旧照片。陈砚把缺失的档案编号记进练习本，转身走向还亮着灯的修表铺。',
+            dramatic_goal: '在旧宅被封死前确认母亲是否安全，并保住修复师的身份。',
+            external_pressure: '拆迁队将在天亮后完成封门，任何阻拦都会引来保安。',
+            setting_location: '旧宅门前',
+            characters_present: [],
+            foreshadowing_ids: [],
+          }))
         : [];
     const extraStorySeeds = extraStories.map(s => ({
       story: s.story,
