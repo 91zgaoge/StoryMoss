@@ -1269,6 +1269,11 @@ impl<R: Runtime> LlmService<R> {
                 m.contains("timeout")
                     || m.contains("connection")
                     || m.contains("network")
+                    || m.contains("error sending request")
+                    // v0.86.0：reqwest 发送阶段失败（DNS/拒连/网络瞬断）的
+                    // Display 是「error sending request for url (...)」，不含
+                    // 上述任何子串——2026-11-07 真机导演派发续写因瞬时断网
+                    // 0 次重试直接判死。归为可重试，走既有退避。
                     || m.contains("5")
                     || m.contains("502")
                     || m.contains("503")
@@ -3289,6 +3294,19 @@ mod tests {
         assert!(LlmService::<Wry>::is_retriable_error(&response_err));
         assert!(!LlmService::<Wry>::is_retriable_error(&generation_err));
         assert!(!LlmService::<Wry>::is_retriable_error(&generic_timeout));
+    }
+
+    /// v0.86.0：reqwest 发送阶段失败（DNS/拒连/瞬断）包装后的消息必须
+    /// 可重试——2026-11-07 真机导演派发续写因瞬时断网 0 次重试直接判死。
+    #[test]
+    fn test_reqwest_send_error_is_retriable() {
+        use crate::error::AppError;
+
+        let send_err = AppError::internal(
+            "Generation failed: error sending request for url (https://api.deepseek.com/chat/completions)"
+                .to_string(),
+        );
+        assert!(LlmService::<Wry>::is_retriable_error(&send_err));
     }
 
     #[test]

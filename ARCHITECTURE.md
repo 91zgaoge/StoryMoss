@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.85.2 架构文档
+# StoryMoss (草苔) v0.86.0 架构文档
 
+> **v0.86.0**：**导演派发可靠性**——`render_director_user_prompt` 输出完整 task/run UUID；`DirectorExecutor` 新增 `resolve_task_target`/`resolve_run_target`（全等→唯一前缀解析）并把每个动作 arm 包成 async 块收集失败（单动作失败不再炸整回合，全部失败才判回合死，部分失败追加系统消息）。`is_retriable_error` 认可 reqwest 「error sending request」。新增 `DirectorActionSpec.target_end_chapter`：`AgencyRepository::peek_next_chapter`（与原子分配同口径只读预览）换算批量章数，`run_directed_chapter_task` 走既有批量管线，`directed_batch_count` 单次上限 5 章、越界/超限给可操作错误。
+>
 > **v0.85.2**：**Scenes 行高契约**——中屏 Grid 使用 `lg:grid-rows-[100%_auto]`，故事线/正文第一行占满工作区，执行面板第二行跨两列且 `h-auto`；宽屏使用 `xl:grid-rows-[minmax(0,1fr)]` 与三栏 `h-full/min-h-0`。新增九场景五档几何探针，验证面板矩形、正文归属、滚动返回与缩放。
 >
 > **v0.85.1**：**双源 updater**——`updater/mod.rs` 以单源 builder 按 GitHub → 官网检查清单；清单 20s 总超时，下载经 `configure_client` 使用 10s 连接/30s 读取超时且无总时长上限；`download` 验签后才发完成事件并调用 `install`。仅 Reqwest/Network 错误可换源，备用源版本必须一致；Minisign/IO/安装错误不重试。pubkey、IPC 与发布产物不变。

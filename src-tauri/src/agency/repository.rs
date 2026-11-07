@@ -332,6 +332,23 @@ impl AgencyRepository {
         Ok((start..start + count).map(|n| n as i32).collect())
     }
 
+    /// v0.86.0：只读预览下一可分配章号，不推进序列、不落行。
+    /// 口径与 [`Self::allocate_chapter_numbers`] 的起点一致：
+    /// `MAX(next_chapter, MAX(scenes.sequence_number)+1)`，缺省 1。
+    /// 供导演「续写到第 N 章」换算批量章数。
+    pub fn peek_next_chapter(&self, story_id: &str) -> Result<i32, rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        let next: i64 = conn.query_row(
+            "SELECT MAX(
+                    COALESCE((SELECT next_chapter FROM story_chapter_sequences WHERE story_id = ?1), 0),
+                    COALESCE((SELECT MAX(sequence_number) + 1 FROM scenes WHERE story_id = ?1), 1)
+                 )",
+            params![story_id],
+            |r| r.get(0),
+        )?;
+        Ok(next.max(1) as i32)
+    }
+
     pub fn has_running_run_for_story(
         &self,
         story_id: &str,
@@ -1053,6 +1070,42 @@ mod tests {
         assert_eq!(second, vec![8]);
         let third = repo.allocate_chapter_numbers(&story.id, 2).unwrap();
         assert_eq!(third, vec![9, 10]);
+    }
+
+    /// v0.86.0：peek_next_chapter 与 allocate_chapter_numbers 起点口径一致，
+    /// 且只读不推进序列——导演「续写到第 N 章」换算批量章数的依据。
+    #[test]
+    fn test_peek_next_chapter_matches_allocate_start_without_consuming() {
+        let (repo, pool) = repo();
+        let story = crate::db::repositories::StoryRepository::new(pool.clone())
+            .create(crate::db::dto::CreateStoryRequest {
+                title: "目标章换算".into(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        // 无序列行、无场景 → 1
+        assert_eq!(repo.peek_next_chapter(&story.id).unwrap(), 1);
+        {
+            let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
+            let mut conn = pool.get().unwrap();
+            let tx = conn.transaction().unwrap();
+            scene_repo
+                .create_in_tx(&tx, &story.id, 48, Some("第48章"))
+                .unwrap();
+            tx.commit().unwrap();
+        }
+        // 有场景无序列行 → MAX(scenes)+1
+        assert_eq!(repo.peek_next_chapter(&story.id).unwrap(), 49);
+        // peek 不消费：分配起点应仍是 49
+        let allocated = repo.allocate_chapter_numbers(&story.id, 2).unwrap();
+        assert_eq!(allocated, vec![49, 50]);
+        // 分配后 peek 跟进
+        assert_eq!(repo.peek_next_chapter(&story.id).unwrap(), 51);
     }
 
     /// V151 部分唯一索引：write lane 允许多活跃 run（多 write 并行），

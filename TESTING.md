@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.85.2)
+# 🧪 StoryMoss 自动化测试环境 (v0.86.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.86.0 变更说明
+
+- **导演链路回归**：`target_end_chapter` 校验（仅 lead_writer/≥1/互斥）、快照完整 ID 断言、`directed_batch_count` 边界（=5 过/6 拒/越过拒）、2 章批量端到端（分配 4-5 → 逐章 gate+装配 → 到章自动停且不多写）、越界/超限失败不留半截章、执行器 8 位短 ID 解析 + 未知 ID 可操作错误 + 部分失败系统消息隔离、reqwest 发送错误可重试分类、`peek_next_chapter` 与分配口径一致性。
+- **结果**：Rust **2021 passed / 15 ignored**（+8）；Vitest **686 / 3**；Playwright **127 / 5** 基线不变；tsc/Prettier/guard 全绿。
+- **未关闭**：真机（另一台机器）升级后复测「60 章结束第一阶段」全流程。
 
 ### v0.85.2 变更说明
 

@@ -30,6 +30,29 @@ use crate::{
 pub const EVENT_CHAT_UPDATE: &str = "agency-chat-update";
 pub const STORY_TASK_CONCURRENCY: usize = 4;
 
+/// v0.86.0：导演单次「续写到第 N 章」的最大章数。与幕前批量续写
+/// `agency_continue_batch` 的 `clamp(1, 5)` 上限一致；更长区间由导演
+/// 用多个 dispatch + depends_on_action 串行分批。
+pub const MAX_DIRECTED_BATCH_CHAPTERS: usize = 5;
+
+/// 「续写到第 end 章自动停」的批量章数换算。
+/// `next_chapter` 为原子分配器口径的下一可分配章号；目标章被越过或
+/// 超出 [`MAX_DIRECTED_BATCH_CHAPTERS`] 时返回可操作错误原因。
+pub(crate) fn directed_batch_count(next_chapter: i32, target_end: i32) -> Result<usize, String> {
+    if target_end < next_chapter {
+        return Err(format!(
+            "目标章 第{target_end}章 已被最新章越过（下一章为 第{next_chapter}章），请改用修订或提高目标章号"
+        ));
+    }
+    let count = (target_end - next_chapter + 1) as usize;
+    if count > MAX_DIRECTED_BATCH_CHAPTERS {
+        return Err(format!(
+            "一次最多连写 {MAX_DIRECTED_BATCH_CHAPTERS} 章（第{next_chapter}→第{target_end} 需 {count} 章），请用多个 dispatch + depends_on_action 串行分批"
+        ));
+    }
+    Ok(count)
+}
+
 type WaiterList = Vec<oneshot::Sender<()>>;
 
 /// 进程级任务取消登记表：不同命令/调度器实例共享，cancel 命令能停掉
@@ -150,7 +173,13 @@ impl TaskScheduler {
             .and_then(|v| v.get("target_scene").and_then(|x| x.as_i64()))
             .and_then(|n| i32::try_from(n).ok())
             .filter(|n| *n >= 1);
-        let target_chapter = if target_scene.is_some() {
+        // v0.86.0：导演派发「续写到第 N 章（含）自动停」
+        let target_end_chapter: Option<i32> = meta
+            .as_ref()
+            .and_then(|v| v.get("target_end_chapter").and_then(|x| x.as_i64()))
+            .and_then(|n| i32::try_from(n).ok())
+            .filter(|n| *n >= 1);
+        let target_chapter = if target_scene.is_some() || target_end_chapter.is_some() {
             None
         } else {
             target_chapter
@@ -164,6 +193,7 @@ impl TaskScheduler {
                         depends_on_task_id,
                         target_chapter,
                         target_scene,
+                        target_end_chapter,
                     )
                     .await;
             } else {
@@ -187,7 +217,14 @@ impl TaskScheduler {
             .await
             .map_err(|e| AppError::from(format!("retry join error: {e}")))?
             .map_err(AppError::from)?
-            .ok_or_else(|| AppError::from(format!("任务不存在: {task_id}")))?;
+            .ok_or_else(|| {
+                AppError::validation_failed(
+                    format!(
+                        "任务不存在或已清理: {task_id}（target_id 须为巡检快照中的完整任务 ID）"
+                    ),
+                    Some("task_id"),
+                )
+            })?;
         if !matches!(old.status.as_str(), "failed" | "cancelled" | "stale") {
             return Err(AppError::validation_failed(
                 format!("任务 {} 状态为 {}，不能重试", task_id, old.status),
@@ -336,6 +373,7 @@ impl TaskScheduler {
         depends_on_task_id: Option<String>,
         target_chapter: Option<i32>,
         target_scene: Option<i32>,
+        target_end_chapter: Option<i32>,
     ) {
         if let Some(parent) = depends_on_task_id {
             if !self.wait_for_parent(&parent).await {
@@ -619,17 +657,66 @@ impl TaskScheduler {
             return;
         }
 
+        // v0.86.0：「续写到第 N 章（含）自动停」——按下一可分配章号换算
+        // 批量章数；目标章被越过或超出单次上限时任务失败并给出可操作原因。
+        let batch_count: usize = match target_end_chapter {
+            None => 1,
+            Some(end) => {
+                let pool = self.pool.clone();
+                let sid = task.story_id.clone();
+                let next = match tokio::task::spawn_blocking(move || {
+                    AgencyRepository::new(pool)
+                        .peek_next_chapter(&sid)
+                        .map_err(AppError::from)
+                })
+                .await
+                {
+                    Ok(Ok(n)) => n,
+                    Ok(Err(e)) => {
+                        self.finish_directed_task(
+                            &task,
+                            &reporter,
+                            "failed",
+                            None,
+                            Some(format!("目标章换算失败: {e}")),
+                        )
+                        .await;
+                        return;
+                    }
+                    Err(e) => {
+                        self.finish_directed_task(
+                            &task,
+                            &reporter,
+                            "failed",
+                            None,
+                            Some(format!("目标章换算 join error: {e}")),
+                        )
+                        .await;
+                        return;
+                    }
+                };
+                match directed_batch_count(next, end) {
+                    Ok(n) => n,
+                    Err(reason) => {
+                        self.finish_directed_task(&task, &reporter, "failed", None, Some(reason))
+                            .await;
+                        return;
+                    }
+                }
+            }
+        };
+
         // 章号分配：唯一写者 story_chapter_sequences，禁止猜 MAX+1。
         let pool = self.pool.clone();
         let sid = task.story_id.clone();
         let chapter = match tokio::task::spawn_blocking(move || {
             AgencyRepository::new(pool)
-                .allocate_chapter_numbers(&sid, 1)
+                .allocate_chapter_numbers(&sid, batch_count)
                 .map_err(AppError::from)
         })
         .await
         {
-            Ok(Ok(mut chapters)) => match chapters.pop() {
+            Ok(Ok(mut chapters)) => match chapters.first().copied() {
                 Some(n) => n,
                 None => {
                     self.finish_directed_task(
@@ -667,15 +754,27 @@ impl TaskScheduler {
                 &task.id,
                 &task.story_id,
                 chapter,
-                1,
+                batch_count,
                 &instruction,
                 cancel.clone(),
             )
             .await;
         let cancelled = cancel.load(Ordering::SeqCst);
         let (status, summary, error) = match result {
-            Ok(batch) if !cancelled => match batch.chapters.first() {
-                Some(ch) => (
+            Ok(batch) if !cancelled => match (batch.chapters.first(), batch.chapters.last()) {
+                (Some(first), Some(last)) if batch.chapters.len() > 1 => (
+                    "completed",
+                    Some(format!(
+                        "第{}-{}章已全部续写并通过质量门并装配（{} 章，到达第{}章自动停止；末章 verdict={}）",
+                        first.chapter_number,
+                        last.chapter_number,
+                        batch.chapters.len(),
+                        target_end_chapter.unwrap_or(last.chapter_number),
+                        last.verdict.verdict
+                    )),
+                    None,
+                ),
+                (Some(ch), _) => (
                     "completed",
                     Some(format!(
                         "第{}章已续写并通过质量门并装配（scene={}，verdict={}）",
@@ -683,7 +782,7 @@ impl TaskScheduler {
                     )),
                     None,
                 ),
-                None => ("failed", None, Some("质量门/装配未产出章节".to_string())),
+                (None, _) => ("failed", None, Some("质量门/装配未产出章节".to_string())),
             },
             Ok(_) => ("cancelled", Some("已取消".to_string()), None),
             Err(e) if cancelled => ("cancelled", Some("已取消".to_string()), Some(e.to_string())),

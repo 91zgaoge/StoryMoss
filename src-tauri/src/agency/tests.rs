@@ -3711,6 +3711,296 @@ async fn test_director_target_scene_revises_specific_scene_with_gate() {
     );
 }
 
+/// v0.86.0：「续写到第 N 章」换算——越过/超上限给可操作原因。
+#[test]
+fn test_directed_batch_count_conversions() {
+    use crate::agency::scheduler::directed_batch_count;
+    // 正好写 1 章
+    assert_eq!(directed_batch_count(49, 49).unwrap(), 1);
+    // 正常区间（≤5 章）
+    assert_eq!(directed_batch_count(49, 52).unwrap(), 4);
+    // 上限边界：5 章可，6 章拒
+    assert_eq!(directed_batch_count(49, 53).unwrap(), 5);
+    let err = directed_batch_count(49, 54).unwrap_err();
+    assert!(err.contains("分批"), "超上限应提示分批: {err}");
+    // 真机场景：48 章续写到 60 需 12 章 → 单次拒绝，由导演串行分批
+    let err = directed_batch_count(49, 60).unwrap_err();
+    assert!(err.contains("需 12 章"), "应报告所需章数: {err}");
+    // 目标章被越过
+    let err = directed_batch_count(49, 48).unwrap_err();
+    assert!(err.contains("越过"), "应提示目标章被越过: {err}");
+}
+
+/// v0.86.0：导演 target_end_chapter——从下一章连续续写到目标章（含）
+/// 自动停止，逐章过 gate 并装配。
+#[tokio::test]
+async fn test_directed_target_end_chapter_writes_range_and_stops() {
+    let pool = create_test_pool().unwrap();
+    let story_id = seed_story_with_assets(&pool);
+    // 预置第 3 章 → 下一章为 4，target_end=5 → 批量 2 章（4、5）
+    let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
+    let existing = scene_repo.create(&story_id, 3, Some("第三章")).unwrap();
+    scene_repo
+        .update(
+            &existing.id,
+            &crate::db::repositories::SceneUpdate {
+                content: Some("已有的第三章正文。".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let mock = RoutingMock::new(0);
+    let write4 = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第4章","content":"{}","summary":"四"}}}}"#,
+        pass_grade_content("第四章正文：阿苔穿过星环。")
+    );
+    let write5 = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第5章","content":"{}","summary":"五"}}}}"#,
+        pass_grade_content("第五章正文：星环彼岸传来回声。")
+    );
+    mock.push(
+        "writer",
+        vec![write4.as_str(), r#"{"type":"final","content":"完成"}"#],
+    );
+    mock.push("editor", vec![
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过\"}"}"#,
+    ]);
+    mock.push(
+        "writer",
+        vec![write5.as_str(), r#"{"type":"final","content":"完成"}"#],
+    );
+    mock.push("editor", vec![
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过\"}"}"#,
+    ]);
+    let coordinator = Arc::new(AgencyCoordinator::for_test(pool.clone(), mock.clone()));
+    let scheduler = crate::agency::scheduler::TaskScheduler::new(pool.clone(), coordinator, None);
+    let meta = serde_json::json!({
+        "chat_session_id": "s1",
+        "chat_message_id": "m1",
+        "premise": "前提",
+        "directed_chapter": true,
+        "target_end_chapter": 5,
+    })
+    .to_string();
+    let task_id = scheduler
+        .dispatch_sub_agent(
+            &story_id,
+            "chat:s1",
+            crate::agency::models::AgentRole::LeadWriter,
+            "前提",
+            "续写到第5章，结束第一阶段",
+            None,
+            None,
+            meta,
+        )
+        .await
+        .unwrap();
+    let mut task = None;
+    for _ in 0..120 {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        task = crate::agency::task_repository::TaskRepository::new(pool.clone())
+            .get_task(&task_id)
+            .unwrap();
+        if task
+            .as_ref()
+            .map(|t| matches!(t.status.as_str(), "completed" | "failed" | "cancelled"))
+            .unwrap_or(false)
+        {
+            break;
+        }
+    }
+    let task = task.expect("任务应落库");
+    assert_eq!(
+        task.status, "completed",
+        "写到目标章应完成并自动停止: {:?}",
+        task.error
+    );
+    let summary = task.result_summary.as_deref().unwrap_or_default();
+    assert!(
+        summary.contains("第4-5章") && summary.contains("自动停止"),
+        "任务摘要应报告批量区间与到章即停: {summary}"
+    );
+    let scenes = crate::db::repositories::SceneRepository::new(pool.clone())
+        .get_by_story(&story_id)
+        .unwrap();
+    assert_eq!(scenes.len(), 3, "原有第三章 + 新装配的第4、5章");
+    for seq in [4, 5] {
+        let scene = scenes
+            .iter()
+            .find(|s| s.sequence_number == seq)
+            .unwrap_or_else(|| panic!("应装配第{seq}章 scene"));
+        assert!(
+            !scene.content.as_deref().unwrap_or("").is_empty(),
+            "第{seq}章应有装配正文"
+        );
+    }
+    // 到第 5 章自动停：不得多写
+    assert!(
+        !scenes.iter().any(|s| s.sequence_number > 5),
+        "到达目标章后不得继续写"
+    );
+}
+
+/// v0.86.0：目标章被越过 / 超出单次上限时任务失败并给出可操作原因，
+/// 不消耗 LLM 调用、不产生半截章节。
+#[tokio::test]
+async fn test_directed_target_end_chapter_rejects_overreach_and_excess() {
+    let pool = create_test_pool().unwrap();
+    let story_id = seed_story_with_assets(&pool);
+    let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
+    scene_repo.create(&story_id, 3, Some("第三章")).unwrap();
+
+    let mock = RoutingMock::new(0);
+    let coordinator = Arc::new(AgencyCoordinator::for_test(pool.clone(), mock.clone()));
+    let scheduler = crate::agency::scheduler::TaskScheduler::new(pool.clone(), coordinator, None);
+    for (end, expect) in [(3, "越过"), (30, "分批")] {
+        let meta = serde_json::json!({
+            "chat_session_id": "s1",
+            "chat_message_id": "m1",
+            "premise": "前提",
+            "directed_chapter": true,
+            "target_end_chapter": end,
+        })
+        .to_string();
+        let task_id = scheduler
+            .dispatch_sub_agent(
+                &story_id,
+                "chat:s1",
+                crate::agency::models::AgentRole::LeadWriter,
+                "前提",
+                "续写",
+                None,
+                None,
+                meta,
+            )
+            .await
+            .unwrap();
+        let mut task = None;
+        for _ in 0..60 {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            task = crate::agency::task_repository::TaskRepository::new(pool.clone())
+                .get_task(&task_id)
+                .unwrap();
+            if task
+                .as_ref()
+                .map(|t| matches!(t.status.as_str(), "completed" | "failed" | "cancelled"))
+                .unwrap_or(false)
+            {
+                break;
+            }
+        }
+        let task = task.expect("任务应落库");
+        assert_eq!(task.status, "failed", "target_end={end} 应失败");
+        let error = task.error.as_deref().unwrap_or_default();
+        assert!(
+            error.contains(expect),
+            "target_end={end} 的错误应提示「{expect}」: {error}"
+        );
+    }
+    // 未分配章号、未写任何新章
+    let scenes = crate::db::repositories::SceneRepository::new(pool.clone())
+        .get_by_story(&story_id)
+        .unwrap();
+    assert_eq!(scenes.len(), 1, "失败路径不得装配新章");
+}
+
+/// v0.86.0：导演执行器对 retry_task 的截断/短 ID 解析（真机「任务不存在:
+/// 8c0629c1」根因）+ 单动作失败不再炸整回合。
+#[tokio::test]
+async fn test_director_executor_resolves_truncated_task_id_and_isolates_failures() {
+    use crate::agency::{
+        director::{DirectorActionSpec, DirectorExecutor},
+        models::AgentRole,
+    };
+
+    let pool = create_test_pool().unwrap();
+    let story_id = seed_story_with_assets(&pool);
+    let old = crate::agency::models::AgencyAgentTask::new(
+        "run-x",
+        &story_id,
+        AgentRole::Producer,
+        "补齐缺失资产",
+        None,
+        r#"{"premise":"前提"}"#,
+    );
+    crate::agency::task_repository::TaskRepository::new(pool.clone())
+        .create_task(&old)
+        .unwrap();
+    crate::agency::task_repository::TaskRepository::new(pool.clone())
+        .set_status(&old.id, "failed")
+        .unwrap();
+    let prefix = old.id.chars().take(8).collect::<String>();
+
+    let coordinator = Arc::new(AgencyCoordinator::for_test(
+        pool.clone(),
+        RoutingMock::new(0),
+    ));
+    let scheduler = crate::agency::scheduler::TaskScheduler::new(pool.clone(), coordinator, None);
+    let session = crate::agency::chat_repository::ChatRepository::new(pool.clone())
+        .create_session(&story_id, "导演修复会话", "director")
+        .unwrap();
+    let sid = session.id.as_str();
+
+    // 1) 8 位短 ID 应解析为完整 ID 并成功派发
+    let actions = vec![DirectorActionSpec {
+        action_type: "retry_task".into(),
+        target_id: Some(prefix.clone()),
+        ..Default::default()
+    }];
+    let dispatched =
+        DirectorExecutor::execute(&pool, &story_id, sid, "m1", "前提", &actions, &scheduler)
+            .await
+            .expect("短 ID 应可解析");
+    assert_eq!(dispatched.len(), 1, "retry_task 应派发一个新任务");
+
+    // 2) 完全未知的 ID：全部动作失败 → 回合失败，错误可操作
+    let bad = vec![DirectorActionSpec {
+        action_type: "retry_task".into(),
+        target_id: Some("ffffffff".into()),
+        ..Default::default()
+    }];
+    let err = DirectorExecutor::execute(&pool, &story_id, sid, "m2", "前提", &bad, &scheduler)
+        .await
+        .expect_err("未知 ID 应失败");
+    assert!(
+        err.to_string().contains("任务不存在"),
+        "错误应可操作: {err}"
+    );
+
+    // 3) 部分失败：坏 retry + 好动作 → 不炸整回合，追加系统消息说明
+    let mixed = vec![
+        DirectorActionSpec {
+            action_type: "retry_task".into(),
+            target_id: Some("ffffffff".into()),
+            ..Default::default()
+        },
+        DirectorActionSpec {
+            action_type: "record_debt".into(),
+            instruction: Some("登记质量债".into()),
+            ..Default::default()
+        },
+    ];
+    let dispatched =
+        DirectorExecutor::execute(&pool, &story_id, sid, "m3", "前提", &mixed, &scheduler)
+            .await
+            .expect("部分失败不应炸整回合");
+    assert!(dispatched.is_empty(), "record_debt 不派任务");
+    let messages = crate::agency::chat_repository::ChatRepository::new(pool.clone())
+        .list_messages(&session.id, 10)
+        .unwrap();
+    assert!(
+        messages.iter().any(|m| m.role == "system"
+            && m.content.contains("执行失败")
+            && m.content.contains("任务不存在")),
+        "应以系统消息追加失败明细: {:?}",
+        messages
+            .iter()
+            .map(|m| (&m.role, &m.content))
+            .collect::<Vec<_>>()
+    );
+}
+
 /// v0.82.3：导演巡检快照必须带场景列表（序号/章/标题），供 target_scene 使用。
 #[test]
 fn test_crew_snapshot_includes_scene_numbers_for_director() {

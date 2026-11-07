@@ -2,6 +2,20 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.86.0（2026-11-07）
+
+**导演主工作流三项修复：巡检快照完整 ID、瞬时网络故障重试、「续写到第 N 章自动停」。**
+
+真机（超梦神探 48 章）复现：作者对导演说「续写，在 60 章结束第一阶段」，第一次主创调用 deepseek 瞬时网络故障 0 重试直接判死；第二次导演按快照里的 8 位截断 ID 发 `retry_task`，必然报「任务不存在: 8c0629c1」炸掉整回合；且导演派发本来就被硬编码为一次只写 1 章，「写到 60 章」在系统里没有对应机制。
+
+- **完整 ID（A）**：巡检快照 Runs/Tasks 区块改输出完整 UUID（`director.rs` 的 `render_director_user_prompt` 撤 `take(8)` 截断）；执行器新增 `resolve_task_target`/`resolve_run_target`——`retry_task`/`cancel_task`/`cancel_run` 的 target_id 按「全等 → 唯一前缀」解析（兼容旧习惯/截断输入），歧义与未命中都给可操作错误；`cancel_run` 精确未命中不再静默 Ok。
+- **单动作失败隔离（A）**：`DirectorExecutor::execute` 每个 arm 包 async 块，失败只记录该动作（落 `director_actions` failed），不再炸整回合；全部动作失败才判回合失败，部分失败以系统消息追加明细。
+- **网络重试（B）**：`is_retriable_error` 认可 reqwest 「error sending request」（DNS/拒连/瞬断），走既有指数退避（默认 2 次重试），候选链 fallback 不变。
+- **续写到目标章（C）**：`DirectorActionSpec.target_end_chapter`（仅 lead_writer、与 target_chapter/target_scene 互斥）；调度器经 `AgencyRepository::peek_next_chapter`（只读、与原子分配同口径）换算批量章数，走既有批量管线逐章 gate+装配，到章自动停止；单次上限 5 章（与幕前批量一致），更长区间由导演用 `depends_on_action` 串行分批；目标章被越过/超上限任务失败并提示，不消耗 LLM、不留半截章。
+- **提示词与 UI**：`agency_director_system.md` 升 0.86.0（新增 target_end_chapter 语义、5 章上限、串行分批示例、完整 ID 逐字复制要求），回退提示词同步；AgencyStudio 审批卡目标显示「续写至第N章」。
+- **验证**：Rust **2021 passed / 15 ignored**（+8：target_end_chapter 校验/快照完整 ID/换算边界/2 章批量端到端/越界拒绝/短 ID 解析与失败隔离/reqwest 重试分类/peek 一致性）；Clippy/check/fmt/guard 全绿；tsc 0 错误；Vitest **686 / 3**；Playwright **127 / 5** 基线不变。未本地打包。
+- **未关闭**：真机（另一台机器的超梦神探库）需升级到 v0.86.0 后复测「在 60 章结束第一阶段」全流程；导演串行分批（5+5+2）的 depends_on 等待行为需真机观察；第 48 章仅 1067 字的异常短章建议作者用导演 `target_chapter=48` 修订。
+
 ## v0.85.2（2026-11-07）
 
 **修复中窄屏场景页故事线/正文与章节执行面板错位。**
