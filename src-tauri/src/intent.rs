@@ -143,6 +143,14 @@ pub struct WritingIntentClassification {
     /// LLM 自评置信度 0.0-1.0；<0.5 时调用方可选用兜底。
     #[serde(default)]
     pub confidence: f32,
+    /// v0.87.0: 是否为与剧组 agent 的对话/调度意图（对导演/管理/编审/
+    /// 主创说话、下指令、问进度）。幕前底部输入栏据此把消息路由到
+    /// 剧组对话（`agency_chat_send`）而非生成管线。
+    /// 误判代价不对称：对话被塞进生成管线会启动一次无意义生成并污染
+    /// 上下文，故 LLM 识别到明确对话对象时置 true；兜底恒为 false
+    /// （保持既有生成行为，宁可漏路由不误路由）。
+    #[serde(default, alias = "is_chat_intent")]
+    pub is_chat: bool,
 }
 
 impl WritingIntentClassification {
@@ -163,6 +171,7 @@ impl WritingIntentClassification {
             input_clarity: InputClarity::Vague,
             detected_genre: None,
             confidence: 0.0,
+            is_chat: false,
         }
     }
 
@@ -183,6 +192,7 @@ impl WritingIntentClassification {
                 input_clarity: InputClarity::Vague,
                 detected_genre: None,
                 confidence: 0.0,
+                is_chat: false,
             }
         } else {
             #[allow(deprecated)]
@@ -206,6 +216,7 @@ impl WritingIntentClassification {
                 input_clarity: InputClarity::Vague,
                 detected_genre: None,
                 confidence: 0.0,
+                is_chat: false,
             }
         } else {
             Self::conservative_fallback_with_context(has_existing_story)
@@ -537,6 +548,7 @@ JSON Schema:
 用户输入：{input}
 
 判定规则：
+- is_chat: 用户想和创作剧组（导演/管理/编审/主创）对话、下指令或问进度——消息对象是"人"，不是让 AI 直接产出文本。以 @导演/@管理/@编审/@主创 开头，或"让导演…""问一下编审…""帮主创安排…"等对剧组说话的表达为 true。写作/续写/改写/分析请求（对象是文本）一律 false。
 - is_new_novel: 用户想从头创作一部新小说。"写一部/写一本/创作一部/新开一部"等创世表达均为 true。续写/改写/分析/闲聊均为 false。
   注意：判断依据是用户输入本身的表达，与是否已有故事无关。即使已有故事，用户仍可创建新小说。
 - is_continuation: 用户想接着已有内容往下写正文（续写/继续/接着写）。写后续的故事大纲/场景大纲不是续写。
@@ -547,6 +559,9 @@ JSON Schema:
 - confidence: 0.0-1.0。
 
 示例：
+- "@导演 现在进度怎么样" -> is_chat=true
+- "让导演安排主创续写下一章" -> is_chat=true, confidence=0.9
+- "让编审把最新一章的问题列出来" -> is_chat=true, confidence=0.9
 - "写一部科幻小说" -> is_new_novel=true, task_type=genesis, is_prose=true
 - "当一个退役间谍在布拉格被昔日组织追杀，必须在 48 小时内找出潜伏在情报局高层的内鬼，否则他的家人将遭遇灭顶之灾。" -> is_new_novel=true, task_type=genesis, is_prose=true, detected_genre="间谍"
 - "继续写" -> is_new_novel=false, is_continuation=true, task_type=continuation, is_prose=true
@@ -555,7 +570,7 @@ JSON Schema:
 - "写后续的故事大纲，同时生成后续的场景大纲" -> is_new_novel=false, is_continuation=false, task_type=asset_refresh, is_prose=false
 
 仅输出 JSON：
-{{"is_new_novel":bool,"is_continuation":bool,"task_type":"continuation|rewrite|genesis|audit|asset_refresh","is_prose":bool,"input_clarity":"vague|with_seed|with_full_concept","detected_genre":string|null,"confidence":0.0}}"#,
+{{"is_chat":bool,"is_new_novel":bool,"is_continuation":bool,"task_type":"continuation|rewrite|genesis|audit|asset_refresh","is_prose":bool,"input_clarity":"vague|with_seed|with_full_concept","detected_genre":string|null,"confidence":0.0}}"#,
             input = user_input,
         )
     }
@@ -1092,6 +1107,26 @@ mod tests {
         let json = r#"{"is_new_novel":false,"is_continuation":true,"task_type":"continuation","is_prose":true,"input_clarity":"vague","detected_genre":null,"confidence":1.5}"#;
         let c = IntentParser::parse_classification_json(json).unwrap();
         assert_eq!(c.confidence, 1.0, "confidence 应钳到 [0,1]");
+    }
+
+    #[test]
+    fn test_parse_classification_json_is_chat_defaults_false() {
+        // v0.87.0: 缺 is_chat 字段（旧提示词/旧模型输出）时兜底 false——
+        // 宁可漏路由到对话，不误路由把写作请求塞进聊天。
+        let json = r#"{"is_new_novel":false,"is_continuation":true,"task_type":"continuation","is_prose":true,"input_clarity":"vague","detected_genre":null,"confidence":0.8}"#;
+        let c = IntentParser::parse_classification_json(json).unwrap();
+        assert!(!c.is_chat);
+    }
+
+    #[test]
+    fn test_parse_classification_json_is_chat_true_and_alias() {
+        let json = r#"{"is_chat":true,"is_new_novel":false,"is_continuation":false,"task_type":"audit","is_prose":false,"input_clarity":"vague","detected_genre":null,"confidence":0.9}"#;
+        let c = IntentParser::parse_classification_json(json).unwrap();
+        assert!(c.is_chat);
+        // alias 兼容 is_chat_intent 命名
+        let aliased = r#"{"is_chat_intent":true,"is_new_novel":false,"is_continuation":false,"task_type":"audit","is_prose":false,"input_clarity":"vague","detected_genre":null,"confidence":0.9}"#;
+        let c2 = IntentParser::parse_classification_json(aliased).unwrap();
+        assert!(c2.is_chat, "is_chat_intent 别名应映射到 is_chat");
     }
 
     #[test]

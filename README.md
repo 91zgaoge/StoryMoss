@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.86.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.87.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,13 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.87.0 · 幕前幕后统一剧组对话，工作室可编辑每个 agent 的人设
+
+幕前（沉浸式写作）底部输入栏现在会「听懂」你在跟谁说话：以 `@导演` `@管理` `@编审` `@主创` 开头的消息直接发给对应 agent（幕前默认 @导演），
+说「让导演安排主创续写」这类对话也会被识别并转入剧组对话浮层（会话与幕后工作室实时同步）；普通写作指令仍走原来的生成管线，不受影响。
+代理工作室的每个角色卡新增「人设」按钮，可以直接编辑四个 agent 的 agent.md 系统提示词（专业默认模板 + 自定义覆盖，保存后下一个任务即生效），
+主创/管理/编审的默认人设也按各自职责做了专业化精修。
 
 ### v0.86.0 · 导演能「连续写到第 N 章自动停」，重试不再报任务不存在
 

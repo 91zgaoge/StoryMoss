@@ -999,4 +999,66 @@ mod tests {
         let leftover = crate::prompts::engine::leftover_mustache_idents("hello {{ghost}} world");
         assert_eq!(leftover, vec!["ghost".to_string()]);
     }
+
+    // ═══════════════════════════════════════════════════════
+    // v0.87.0: 工作室 agent.md 人设编辑——覆盖必须真实流入运行时 resolve
+    // ═══════════════════════════════════════════════════════
+
+    /// 建带 prompt_overrides 表的内存库
+    fn override_test_pool() -> DbPool {
+        let pool = DbPool::new(r2d2_sqlite::SqliteConnectionManager::memory()).unwrap();
+        pool.get()
+            .unwrap()
+            .execute(
+                "CREATE TABLE IF NOT EXISTS prompt_overrides (                 prompt_id TEXT PRIMARY KEY, overridden_content TEXT NOT NULL, updated_at INTEGER)",
+                [],
+            )
+            .unwrap();
+        pool
+    }
+
+    #[test]
+    fn persona_override_flows_into_runtime_resolve() {
+        let pool = override_test_pool();
+        let pid = "agency_lead_writer_system";
+
+        // 未覆盖时 resolve 返回内置默认
+        let default = resolve_prompt(&pool, pid).unwrap();
+        assert!(!default.contains("ZZZ_PERSONA_MARKER"));
+
+        // 工作室保存 agent.md 覆盖后，运行时
+        // resolve（ToolLoop/导演同一路径）读到覆盖内容
+        let persona = "你是「主创」测试版人设。ZZZ_PERSONA_MARKER 前提：{{premise}}";
+        save_override(&pool, pid, persona).unwrap();
+        let resolved = resolve_prompt(&pool, pid).unwrap();
+        assert!(resolved.contains("ZZZ_PERSONA_MARKER"));
+
+        // 变量渲染同路生效（resolve_role_prompt_with_pool 即此函数）
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("premise".to_string(), "一个测试故事".to_string());
+        let rendered = resolve_prompt_with_vars(&pool, pid, &vars).unwrap();
+        assert!(rendered.contains("ZZZ_PERSONA_MARKER"));
+        assert!(rendered.contains("一个测试故事"));
+
+        // 恢复默认后回到内置内容
+        reset_override(&pool, pid).unwrap();
+        assert_eq!(resolve_prompt(&pool, pid).unwrap(), default);
+    }
+
+    #[test]
+    fn persona_roles_prompts_are_registered() {
+        // 工作室四角色人设的 prompt_id 必须全部已注册（前端 PersonaEditModal
+        // 硬编码这四枚）
+        for pid in [
+            "agency_director_system",
+            "agency_lead_writer_system",
+            "agency_producer_system",
+            "agency_editor_auditor_system",
+        ] {
+            assert!(
+                resolve_prompt_default(pid).is_some(),
+                "工作室人设 {pid} 未注册"
+            );
+        }
+    }
 }

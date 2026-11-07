@@ -15,6 +15,8 @@ export interface WritingIntentClassification {
   input_clarity: string;
   detected_genre?: string;
   confidence: number;
+  /** v0.87.0: 对话/调度意图——幕前路由到剧组对话（@导演），不进生成管线。 */
+  is_chat?: boolean;
 }
 
 export const classifyIntent = (

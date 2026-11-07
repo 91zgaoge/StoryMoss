@@ -65,6 +65,8 @@ import { useDbPoolStatus } from '@/hooks/useDbPoolStatus';
 import { loadEditorConfig, STORAGE_KEY } from '@/hooks/contracts/useEditorConfig';
 import { UpgradePanel } from './components/UpgradePanel';
 import { WenSiPanel } from './components/WenSiPanel';
+import { FrontstageChatOverlay } from './components/FrontstageChatOverlay';
+import { parseAgentMention } from '@/utils/agentMention';
 import { displayStoryTitle } from './utils/displayStoryTitle';
 import { displayChapterTitle } from './utils/displayChapterTitle';
 import { genesisMainTimeoutSeconds, watchdogTimeoutSeconds } from './utils/genesisTimeout';
@@ -1237,6 +1239,11 @@ const FrontstageApp: React.FC = () => {
 
   // WenSi 浮动面板
   const [showWenSiPanel, setShowWenSiPanel] = useState(false);
+  // v0.87.0: 剧组对话浮层——@提及快路 autoSend=true；意图分类 is_chat 路 autoSend=false（预填待确认）
+  const [showChatOverlay, setShowChatOverlay] = useState(false);
+  const [chatPrefill, setChatPrefill] = useState<{ message: string; autoSend: boolean } | null>(
+    null
+  );
   const [wenSiTab, setWenSiTab] = useState<'write' | 'revise' | 'dialog'>('write');
 
   // F1 帮助面板
@@ -4721,6 +4728,19 @@ const FrontstageApp: React.FC = () => {
       }
       const isBootstrap = classification.is_new_novel;
 
+      // v0.87.0: 对话/调度意图 → 剧组对话浮层（幕前统一对话入口）。
+      // 仅在已有故事时路由（无故事先创世）；置信度 ≥0.6 才自动转，
+      // 模糊时保持生成行为；预填不自动发送（双保险），用户可再编辑或清空。
+      if (classification.is_chat && (classification.confidence ?? 0) >= 0.6 && currentStory?.id) {
+        frontstageLogger.info('[SmartGeneration] 对话意图，转入剧组对话', {
+          confidence: classification.confidence,
+        });
+        setOrchestratorStatus(null);
+        setChatPrefill({ message: userInput, autoSend: false });
+        setShowChatOverlay(true);
+        return;
+      }
+
       // Agency Append 生成即落库。未确认幽灵若丢弃，下一拍从旧正文分叉且覆盖 DB。
       if (!isBootstrap && generatedTextRef.current.length > 0) {
         const committed = commitPendingGhostBeforeContinue('handleSmartGeneration');
@@ -5365,6 +5385,14 @@ const FrontstageApp: React.FC = () => {
     setGhostHint('');
     setHistoryIndex(-1);
     setLoglineHint(''); // v0.30.24: 清除 logline 幽灵提示
+    // v0.87.0: @导演/@管理/@编审/@主创 快路——显式提及即明确意图，直接进剧组对话
+    // （无故事时回落生成管线，由创世/意图流程处理）
+    if (parseAgentMention(text) && sid) {
+      setChatPrefill({ message: text, autoSend: true });
+      setShowChatOverlay(true);
+      setInputValue('');
+      return;
+    }
     handleSmartGeneration(text);
     setInputValue('');
   }, [inputValue, inputHistory, currentStory?.id, handleSmartGeneration]);
@@ -5952,6 +5980,16 @@ const FrontstageApp: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* v0.87.0: 剧组对话浮层——@提及快路与意图分类对话统一入口 */}
+        <FrontstageChatOverlay
+          open={showChatOverlay}
+          onClose={() => setShowChatOverlay(false)}
+          storyId={currentStory?.id ?? null}
+          initialMessage={chatPrefill?.message ?? null}
+          autoSend={chatPrefill?.autoSend ?? false}
+          onConsume={() => setChatPrefill(null)}
+        />
 
         {/* F1 帮助面板 */}
         {showHelpPanel && !isZenMode && (

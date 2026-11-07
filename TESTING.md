@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.86.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.87.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.87.0 变更说明
+
+- Rust **2025 passed / 15 ignored**（+4）：`test_parse_classification_json_is_chat_defaults_false` / `..._is_chat_true_and_alias`（意图分类 is_chat serde default 与别名）、`persona_override_flows_into_runtime_resolve`（工作室 agent.md 覆盖 → resolve_prompt_with_vars 读到覆盖 → 变量渲染 → 恢复默认 全链路，内存库建 prompt_overrides 表）、`persona_roles_prompts_are_registered`（四枚 agency_*_system prompt_id 注册断言）。
+- Vitest **696 passed / 3 skipped**（+10）：`utils/__tests__/agentMention.test.ts`——四角色提及/全角 ＠/紧跟文字/仅提及空正文/句中提及不误判/未知角色/默认导演/角色 key 集合对齐。
+- Playwright **127 passed / 5 skipped** 基线不变；全量首轮出现一次 knowledge-graph@800×600 并行 flake，单文件与全量复跑均通过。
 
 ### v0.86.0 变更说明
 

@@ -2,6 +2,20 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.87.0（2026-11-07）
+
+**统一幕后/幕前人机对话（@agent 智能路由）+ 工作室 agent.md 人设显式编辑。**
+
+此前幕前没有真正的聊天（底部输入只走 `smart_execute` 生成管线），幕后 AgencyStudio 独享完整剧组对话；四个 agent 的人设提示词只能进设置页按扁平 prompt id 编辑，工作室里没有入口。本版把两边打通：
+
+- **@提及统一解析（F1）**：新增 `utils/agentMention.ts`——消息以 `@导演/@管理/@编审/@主创`（含全角 ＠）开头即路由到对应 agent，覆盖当前选中角色；幕后 `handleSend` 与幕前对话入口共用同一解析。全角/紧跟文字/仅提及等 10 个用例入 vitest。
+- **共享 ChatPanel（F1）**：聊天区从 AgencyStudio（1447 行）抽取为 `components/agency/ChatPanel.tsx`（消息列表/角色胶囊/会话选择/审批卡/输入栏），幕后工作室与幕前对话浮层共用同一组件与同一套 react-query 缓存——会话在两个窗口间天然同步。新增消息自动滚底。
+- **幕前智能路由（F1）**：`WritingIntentClassification` 新增 `is_chat`（serde default false，alias `is_chat_intent`；提示词补对话示例）；幕前 `handleSmartGeneration` 在意图分类后拦截——`is_chat && confidence≥0.6` 且已有故事时转入剧组对话浮层（预填不自动发送，双保险）；`@提及` 快路在底部输入栏直接发送。新组件 `FrontstageChatOverlay`：幕前默认 @导演，含新会话/巡检快捷操作；无故事时回落生成管线（先创世）。
+- **agent.md 人设编辑（F4）**：`resources/prompts/agency/` 三份人设专业化精修升 0.87.0——主创新增「场景引擎/修订模式/交付自查」，管理新增「交付标准（可执行/可检索/自洽/闭环）/边界与升级」（0.27.0→0.87.0），编审新增「复核模式（回归检查）/裁决纪律」；全部既有 operational 内容（JSON schema、AI 腔清单、文笔基线）逐字保留，`test_v0650_human_voice_doctrine_in_prompts` 断言不变。新组件 `PersonaEditModal`：工作室每个角色卡新增「人设」入口（Modal xl + 原生 textarea，CSP 安全），支持四角色切换编辑、已定制徽章、保存 `save_prompt_override`、恢复默认 `reset_prompt_override`（confirmDialog 确认）。
+- **确保生效（F4）**：覆盖内容经 `resolve_prompt_with_vars` 流入 `resolve_role_prompt_with_pool`（三角色 ToolLoop+质量门+复核兜底）与 `resolve_director_prompt`（导演），保存即生效无需重启；新增 Rust 测试 `persona_override_flows_into_runtime_resolve`（保存→resolve 读到覆盖→变量渲染→恢复默认）与 `persona_roles_prompts_are_registered`（四枚 prompt_id 注册断言）。
+- **验证**：Rust **2025 passed / 15 ignored**（+4：is_chat 缺省/别名解析、人设覆盖运行时生效/四角色注册）；Clippy/check/fmt/guard 全绿；tsc 0 错误；Vitest **696 / 3**（+10：@提及解析）；Playwright **127 / 5** 基线不变。未本地打包。
+- **未关闭**：幕前智能路由的误判率需真机观察（模糊输入保持生成行为，宁漏路由不误路由）；幕前浮层暂无黑板/时间线页签（深浏览仍去幕后工作室）。
+
 ## v0.86.0（2026-11-07）
 
 **导演主工作流三项修复：巡检快照完整 ID、瞬时网络故障重试、「续写到第 N 章自动停」。**

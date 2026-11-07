@@ -7,7 +7,6 @@ import {
   Heart,
   Layers,
   ListChecks,
-  MessageSquare,
   PenLine,
   Plus,
   RefreshCw,
@@ -26,7 +25,9 @@ import {
 import { EmptyHint } from '@/components/ui/EmptyHint';
 import { AiThinking } from '@/components/ui/ai/AiThinking';
 import { AiContextCards } from '@/components/ui/ai/AiContextCards';
-import { AiPromptBar } from '@/components/ui/ai/AiPromptBar';
+import { ChatPanel, agencyRoleName, parseApprovalActions } from '@/components/agency/ChatPanel';
+import { parseAgentMention } from '@/utils/agentMention';
+import { PersonaEditModal } from '@/components/agency/PersonaEditModal';
 import { loggedInvoke } from '@/services/tauri';
 import {
   crewCancelTask,
@@ -62,16 +63,6 @@ import type { ViewType } from '@/types';
 import { cn } from '@/utils/cn';
 
 const ROLES = AGENCY_ROLES;
-const ROLE_NAMES: Record<string, string> = {
-  director: '导演',
-  lead_writer: '主创',
-  producer: '管理',
-  editor_auditor: '编审',
-  writer: '写手',
-  inspector: '检查',
-  outline_planner: '大纲',
-  style_mimic: '风格',
-};
 const ROLE_META: Record<string, { icon: typeof Bot; role: string; lane: string }> = {
   director: { icon: Clapperboard, role: '总控 · 统筹调度', lane: 'inspect' },
   producer: { icon: Layers, role: '资产 · 计划', lane: 'write' },
@@ -114,7 +105,7 @@ function hhmmss(at: number) {
 }
 
 function roleName(key: string) {
-  return ROLE_NAMES[key] ?? key;
+  return agencyRoleName(key);
 }
 
 const EMOTION_LABELS: [keyof EmotionVector, string][] = [
@@ -194,42 +185,6 @@ function boardItemView(itemType: string): ViewType | null {
   }
 }
 
-function parseApprovalActions(msg: ChatMessage): Array<Record<string, unknown>> {
-  if (!msg.actions_json) return [];
-  try {
-    const parsed = JSON.parse(msg.actions_json);
-    if (Array.isArray(parsed.actions)) return parsed.actions;
-    if (Array.isArray(parsed)) return parsed;
-  } catch {
-    /* ignore malformed */
-  }
-  return [];
-}
-
-function actionSummary(action: Record<string, unknown>) {
-  let spec: Record<string, unknown> = {};
-  try {
-    spec = JSON.parse(String(action.params_json ?? '{}'));
-  } catch {
-    /* ignore */
-  }
-  const type = String(spec.type ?? action.action_type ?? '动作');
-  const role = spec.role ? roleName(String(spec.role)) : '';
-  // v0.82.3：导演动作目标可视化——场景序号优先于章号
-  // v0.86.0：target_end_chapter 显示「续写至第N章」
-  const target = spec.target_scene
-    ? `场景${spec.target_scene}`
-    : spec.target_chapter
-      ? `第${spec.target_chapter}章`
-      : spec.target_end_chapter
-        ? `续写至第${spec.target_end_chapter}章`
-        : '';
-  const instruction = spec.instruction ? String(spec.instruction) : '';
-  return `${type}${role ? ` · ${role}` : ''}${target ? ` · ${target}` : ''}${
-    instruction ? `：${instruction}` : ''
-  }`;
-}
-
 export default function AgencyStudio() {
   const currentStory = useAppStore(s => s.currentStory);
   const setCurrentView = useAppStore(s => s.setCurrentView);
@@ -248,6 +203,9 @@ export default function AgencyStudio() {
   const [editingContract, setEditingContract] = useState(false);
   const [focus, setFocus] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  // v0.87.0: 剧组 agent.md 人设编辑弹窗
+  const [personaOpen, setPersonaOpen] = useState(false);
+  const [personaRole, setPersonaRole] = useState('director');
 
   const storyId = currentStory?.id ?? null;
   const runsQuery = useQuery({
@@ -466,11 +424,14 @@ export default function AgencyStudio() {
     if (!msg || busy) return;
     setBusy('send');
     try {
+      // v0.87.0: @导演/@管理/@编审/@主创 起始提及直接路由到对应 agent，
+      // 覆盖当前 targetRole——幕后与幕前共享同一解析（utils/agentMention）。
+      const mention = parseAgentMention(msg);
       const res = await sendChat({
         story_id: currentStory.id,
         session_id: sessionId,
         message: msg,
-        target_role: targetRole,
+        target_role: mention ? mention.targetRole : targetRole,
       });
       if (!sessionId) setSessionId(res.session_id);
       setInput('');
@@ -736,10 +697,17 @@ export default function AgencyStudio() {
             const Icon = meta?.icon ?? Bot;
             const selected = targetRole === r.key;
             return (
-              <button
+              <div
                 key={r.key}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => setTargetRole(r.key)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setTargetRole(r.key);
+                  }
+                }}
                 className={cn(
                   'flex flex-col gap-1 rounded border p-2 text-left',
                   selected
@@ -771,8 +739,22 @@ export default function AgencyStudio() {
                 <div className="truncate text-[10px] text-ai-ink-2">
                   {running?.task || failed?.error || `最近动作：${lastAction(r.key)}`}
                 </div>
-                <div className="text-[9px] text-ai-ink-3">run 状态：{runStatus}</div>
-              </button>
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[9px] text-ai-ink-3">run 状态：{runStatus}</span>
+                  <button
+                    type="button"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setPersonaRole(r.key);
+                      setPersonaOpen(true);
+                    }}
+                    className="shrink-0 rounded border border-ai-line px-1.5 py-0.5 text-[9px] text-ai-ink-3 hover:border-ai-accent hover:text-ai-accent-ink"
+                    title={`编辑${r.name}的 agent.md 人设`}
+                  >
+                    人设
+                  </button>
+                </div>
+              </div>
             );
           })}
           <button
@@ -786,161 +768,31 @@ export default function AgencyStudio() {
         </aside>
 
         <section className="flex min-w-0 flex-col rounded border border-ai-line bg-ai-surface">
-          <div className="flex flex-wrap items-center gap-2 border-b border-ai-line px-3 py-2">
-            <div className="flex flex-wrap gap-1">
-              {ROLES.map(r => (
-                <button
-                  key={r.key}
-                  type="button"
-                  onClick={() => setTargetRole(r.key)}
-                  className={cn(
-                    'rounded-full border px-2 py-0.5 text-[10px]',
-                    targetRole === r.key
-                      ? 'border-ai-accent bg-ai-accent-tint text-ai-accent-ink'
-                      : 'border-ai-line text-ai-ink-2'
-                  )}
-                >
-                  {r.name}
-                </button>
-              ))}
-            </div>
-            <select
-              aria-label="会话选择"
-              className="ml-auto rounded border border-ai-line bg-ai-field px-1.5 py-0.5 text-[10px] text-ai-ink-2"
-              value={sessionId ?? ''}
-              onChange={e => setSessionId(e.target.value)}
-            >
-              <option value="">选择会话</option>
-              {sessions.map(s => (
-                <option key={s.id} value={s.id}>
-                  {s.title}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
-            {messages.length === 0 ? (
-              <div className="flex flex-col gap-2 rounded border border-ai-line bg-ai-inset p-3">
-                <div className="text-xs text-ai-ink-2">
-                  剧组已就位。我会先看现场，再决定派谁。你可以直接说要什么结果。
-                </div>
-                <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-                  {QUICK.map(q => (
-                    <button
-                      key={q.label}
-                      type="button"
-                      onClick={() => handleSend(q.text)}
-                      className="flex items-center gap-1 rounded border border-ai-line px-2 py-1 text-[10px] text-ai-ink-2 hover:bg-ai-hover"
-                    >
-                      <MessageSquare className="h-3 w-3" />
-                      {q.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              messages.map(m => {
-                const isUser = m.role === 'user';
-                const approvals = parseApprovalActions(m);
-                const name = isUser ? '你' : roleName(m.role);
-                return (
-                  <div
-                    key={m.id}
-                    className={cn('flex flex-col gap-0.5', isUser ? 'items-end' : 'items-start')}
-                  >
-                    <div className="flex items-center gap-1.5 text-[10px] text-ai-ink-3">
-                      <span
-                        className={cn(
-                          'font-semibold',
-                          isUser ? 'text-ai-accent-ink' : 'text-ai-ink'
-                        )}
-                      >
-                        {name}
-                      </span>
-                      <span>{hhmmss(new Date(m.created_at).getTime())}</span>
-                      <span
-                        className={cn(statusColor(m.status === 'done' ? 'completed' : m.status))}
-                      >
-                        {m.status}
-                      </span>
-                    </div>
-                    <div
-                      className={cn(
-                        'max-w-[92%] rounded border px-2.5 py-2 text-xs leading-5',
-                        isUser
-                          ? 'border-ai-accent/40 bg-ai-accent-tint'
-                          : 'border-ai-line bg-ai-inset'
-                      )}
-                    >
-                      <div className="whitespace-pre-wrap">{m.content || '…'}</div>
-                      {approvals.length > 0 && (
-                        <div className="mt-2 rounded border border-ai-accent/40 bg-ai-surface p-2">
-                          <div className="mb-1 text-[10px] font-semibold text-ai-accent-ink">
-                            需要你确认
-                          </div>
-                          <ul className="list-disc space-y-1 pl-4 text-[10px] text-ai-ink-2">
-                            {approvals.map(a => (
-                              <li key={String(a.id)}>{actionSummary(a)}</li>
-                            ))}
-                          </ul>
-                          <div className="mt-2 flex gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleConfirmActions(m)}
-                              className="rounded border border-ai-accent bg-ai-accent px-2 py-0.5 text-[10px] text-ai-on-accent"
-                            >
-                              确认执行
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleRejectActions(m)}
-                              className="rounded border border-ai-line px-2 py-0.5 text-[10px] text-ai-ink-2"
-                            >
-                              先不动
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                      {m.error && <div className="mt-1 text-[10px] text-ai-red">{m.error}</div>}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-
-          <div className="border-t border-ai-line p-2">
-            <div className="mb-1 flex flex-wrap gap-1">
-              {['/巡检', '/修复', '/续写', '/语料'].map(c => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setInput(c)}
-                  className="rounded-full border border-ai-line px-1.5 py-0.5 text-[9px] text-ai-ink-3 hover:text-ai-accent-ink"
-                >
-                  {c}
-                </button>
-              ))}
-            </div>
-            <AiPromptBar
-              value={input}
-              onChange={setInput}
-              onSend={() => handleSend()}
-              placeholder={`对${roleName(targetRole)}说，或 @管理/@编审/@主创 直接下指令…`}
-              sources={ROLES.filter(r => r.key !== 'director').map(r => ({
-                key: r.key,
-                name: r.name,
-                desc: r.key,
-              }))}
-              commands={[
-                { key: 'patrol', name: '/巡检', desc: '导演看现场' },
-                { key: 'repair', name: '/修复', desc: '导演修故障' },
-                { key: 'continue', name: '/续写', desc: '派主创续写（需确认）' },
-                { key: 'corpus', name: '/语料', desc: '引用语料' },
-              ]}
-            />
-          </div>
+          {/* v0.87.0: 聊天区抽取为共享 ChatPanel——幕后/幕前同一组件、同一会话存储 */}
+          <ChatPanel
+            testId="agency-chat-panel"
+            messages={messages}
+            roles={ROLES}
+            targetRole={targetRole}
+            onTargetRoleChange={setTargetRole}
+            input={input}
+            onInputChange={setInput}
+            onSend={() => handleSend()}
+            onConfirmActions={handleConfirmActions}
+            onRejectActions={handleRejectActions}
+            sessions={sessions}
+            sessionId={sessionId}
+            onSessionChange={setSessionId}
+            quickPrompts={QUICK}
+            quickCommands={[
+              { key: 'patrol', name: '/巡检', desc: '导演看现场' },
+              { key: 'repair', name: '/修复', desc: '导演修故障' },
+              { key: 'continue', name: '/续写', desc: '派主创续写（需确认）' },
+              { key: 'corpus', name: '/语料', desc: '引用语料' },
+            ]}
+            placeholder={`对${roleName(targetRole)}说，或 @管理/@编审/@主创 直接下指令…`}
+            inlineCommands={['/巡检', '/修复', '/续写', '/语料']}
+          />
         </section>
 
         {!focus && (
@@ -1442,6 +1294,13 @@ export default function AgencyStudio() {
       </div>
 
       {runsQuery.isError && <EmptyHint>代理状态加载失败；每 10 秒会自动重试。</EmptyHint>}
+
+      {/* v0.87.0: 剧组 agent.md 人设编辑（覆盖经 prompt_overrides 即时生效） */}
+      <PersonaEditModal
+        open={personaOpen}
+        onClose={() => setPersonaOpen(false)}
+        initialRole={personaRole}
+      />
     </div>
   );
 }
