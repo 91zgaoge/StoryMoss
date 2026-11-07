@@ -37,6 +37,17 @@ export const getLlmCallStats = (storyId: string) =>
     story_id: storyId,
   });
 
+/** v0.86.0 A3：按角色标签聚合的用量（agency_writer/producer/editor/director 等）。 */
+export interface LlmUsageByRole {
+  label: string;
+  count: number;
+  total_tokens: number;
+  total_cost: number;
+}
+
+export const getLlmUsageByRole = (storyId?: string) =>
+  loggedInvoke<LlmUsageByRole[]>('get_llm_usage_by_role', { story_id: storyId ?? null });
+
 // --- Writing Analytics ---
 
 export const getWritingAnalytics = (storyId: string) =>

@@ -139,6 +139,52 @@ pub fn unregister_agency_cancel(run_id: &str) {
     flags.remove(run_id);
 }
 
+// ---- v0.86.0 A1: run 级生成链路 trace 注册表（观测闭合） ----
+// run 入口 start_trace 后登记 run_id → trace_id；AgencyLlm 每次调用查表
+// 记录 step 并透传 trace_id；RunTraceGuard 在 run 收尾自动摘除注册。
+
+static RUN_TRACES: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+
+pub fn register_run_trace(run_id: &str, trace_id: &str) {
+    if let Ok(mut registry) = RUN_TRACES.lock() {
+        registry.insert(run_id.to_string(), trace_id.to_string());
+    }
+}
+
+fn run_trace_for(run_id: &str) -> Option<String> {
+    RUN_TRACES
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(run_id)
+        .cloned()
+}
+
+fn unregister_run_trace(run_id: &str) {
+    if let Ok(mut registry) = RUN_TRACES.lock() {
+        registry.remove(run_id);
+    }
+}
+
+/// RAII：run 结束自动摘除 trace 注册（仿 RequestGuard，abort/drop
+/// 路径同样生效）。
+pub(crate) struct RunTraceGuard {
+    run_id: String,
+}
+
+impl RunTraceGuard {
+    fn active(run_id: &str) -> Self {
+        Self {
+            run_id: run_id.to_string(),
+        }
+    }
+}
+
+impl Drop for RunTraceGuard {
+    fn drop(&mut self) {
+        unregister_run_trace(&self.run_id);
+    }
+}
+
 // ---- analyzer in-flight 注册表已上移至
 // learning.rs（analyzer_try_mark/unmark， 手动 IPC 与自动触发互斥） ----
 
@@ -391,6 +437,16 @@ impl AgencyLlm {
             task,
             ..Default::default()
         };
+        // A1: run 有 trace 时记录角色 step 并透传 trace_id（生成链路页可见）
+        let run_trace = run_trace_for(&self.run_id);
+        let trace_store = run_trace.as_ref().and_then(|_| {
+            self.app_handle
+                .try_state::<crate::tracing::TraceStore>()
+                .map(|s| s.inner().clone())
+        });
+        if let (Some(tid), Some(store)) = (&run_trace, &trace_store) {
+            let _ = store.add_step(tid, &context_label, "agency");
+        }
         let (_rid, result) = self
             .llm
             .generate_for_request_with_request_id(
@@ -408,10 +464,20 @@ impl AgencyLlm {
                 None,
                 response_format,
                 Some(system_prompt.to_string()),
-                None,
+                run_trace.clone(),
                 tools,
             )
             .await;
+        if let (Some(tid), Some(store)) = (&run_trace, &trace_store) {
+            match &result {
+                Ok(_) => {
+                    let _ = store.finish_last_step(tid, "completed", None);
+                }
+                Err(e) => {
+                    let _ = store.finish_last_step(tid, "failed", Some(e.to_string()));
+                }
+            }
+        }
         // llm_call 观察埋点（best-effort，仅成功路径；story_id 未知时跳过——
         // 概念阶段故事尚未创建）。不记 prompt/content 正文，只记元数据。
         if let Ok(r) = &result {
@@ -1091,6 +1157,35 @@ impl AgencyCoordinator {
         }
     }
 
+    /// A1 观测闭合：为 run 开启生成链路 trace 并登记 run_id → trace_id。
+    /// 返回 RAII guard（drop 摘除注册）；TraceStore 未初始化/测试环境返回
+    /// None（行为不变，仅少了链路记录）。trace_id 直接复用 run_id，前端
+    /// 可从 run 详情跳转对应 trace。
+    fn start_run_trace(
+        &self,
+        run_id: &str,
+        story_id: Option<&str>,
+        user_input: Option<&str>,
+    ) -> Option<RunTraceGuard> {
+        let app = self.app_handle.as_ref()?;
+        let store = app
+            .try_state::<crate::tracing::TraceStore>()
+            .map(|s| s.inner().clone())?;
+        if let Err(e) = store.start_trace(
+            run_id,
+            None,
+            story_id.map(|s| s.to_string()),
+            user_input.map(|s| s.chars().take(200).collect::<String>()),
+        ) {
+            log::warn!("[Tracing] run trace 启动失败 run={run_id}: {e}");
+            return None;
+        }
+        register_run_trace(run_id, run_id);
+        let _ = store.add_step(run_id, "agency.run.start", "agency");
+        let _ = store.finish_last_step(run_id, "completed", None);
+        Some(RunTraceGuard::active(run_id))
+    }
+
     /// 同步 DB 调用一律经 spawn_blocking，避免阻塞 tokio 运行时线程。
     async fn db<T, F>(&self, f: F) -> Result<T, AppError>
     where
@@ -1410,6 +1505,8 @@ impl AgencyCoordinator {
         let cancel = register_agency_cancel(run_id);
         // run 级并发预算：外层创建，收尾 run_final 检查点可读取 tokens_used
         let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        // A1: 创世开启生成链路 trace（premise 作为 user_input 摘要）
+        let _run_trace = self.start_run_trace(run_id, None, Some(premise));
         let result = self
             .run_genesis_inner(run_id, premise, &repo, &cancel, &budget)
             .await;
@@ -3415,6 +3512,8 @@ impl AgencyCoordinator {
         // 每轮检查， 剩余 <30s 时熔断保产出。
         // app_handle=None（测试环境）时 no-op。
         self.setup_run_deadline();
+        // A1: 续写开启生成链路 trace
+        let _run_trace = self.start_run_trace(run_id, Some(story_id), Some(instruction));
         let result = self
             .run_continue_inner(
                 run_id,
@@ -3598,6 +3697,8 @@ impl AgencyCoordinator {
         let cancel = register_agency_cancel(run_id);
         let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
         self.setup_run_deadline();
+        // A1: 单角色任务开启生成链路 trace
+        let _run_trace = self.start_run_trace(run_id, Some(story_id), Some(task));
 
         let mut run = AgencyRun::new(run_id, premise);
         run.story_id = Some(story_id.to_string());
@@ -7302,6 +7403,8 @@ impl AgencyCoordinator {
         // v0.30.20: 批量续写也设 run 级 deadline（与创世一致），tool_loop 每轮
         // 检查，剩余 <30s 时熔断保产出。app_handle=None（测试环境）时 no-op。
         self.setup_run_deadline();
+        // A1: 批量/导演派发/修订共用本漏斗——在此统一开启生成链路 trace
+        let _run_trace = self.start_run_trace(run_id, Some(story_id), Some(instruction));
         let result = self
             .run_batch_inner(
                 run_id,
@@ -10757,5 +10860,28 @@ mod writer_context_tests {
         };
         assert_eq!(ty_of(&father_row.id), "父子", "父子不得被改写成夫妻");
         assert_eq!(ty_of(&peer_row.id), "同僚", "既有类型不得被推导覆盖");
+    }
+}
+
+#[cfg(test)]
+mod run_trace_tests {
+    use super::*;
+
+    /// v0.86.0 A1：run 级 trace 注册表 roundtrip + guard drop 摘除。
+    #[test]
+    fn run_trace_registry_roundtrip_and_guard_drop() {
+        register_run_trace("trace-run-1", "trace-run-1");
+        assert_eq!(run_trace_for("trace-run-1").as_deref(), Some("trace-run-1"));
+        unregister_run_trace("trace-run-1");
+        assert_eq!(run_trace_for("trace-run-1"), None);
+
+        register_run_trace("trace-run-2", "trace-run-2");
+        let guard = RunTraceGuard::active("trace-run-2");
+        drop(guard);
+        assert_eq!(
+            run_trace_for("trace-run-2"),
+            None,
+            "guard drop 必须摘除注册"
+        );
     }
 }

@@ -1,6 +1,6 @@
 # 幕后功能 × 主工作流集成清查（分析文档 + 实施方案）
 
-> 日期：2026-11-07 ｜ 状态：待批准 ｜ 实施目标版本：v0.86.0 起，分阶段发版
+> 日期：2026-11-07 ｜ 状态：待批准 ｜ 实施目标版本：v0.90.0 起，分阶段发版（原 v0.86–v0.89 版本号已被其他功能占用，基线重定）
 > 范围：幕后全部 23 个导航视图 × 导演/管理/编审/主创四角色主工作流（AgencyStudio）的读写耦合。
 > 不含：幕前界面重构、模型网关重写、UI 视觉重设计（v0.85.0 已完成）。
 > 调研方式：三路并行代码清查（工作流地图 / 逐视图矩阵 / 历史文档交叉核对），全部结论带 file:line 证据。
@@ -111,7 +111,7 @@
 
 ## 6. 实施方案（四阶段，每阶段独立发版可回滚）
 
-### P0 观测闭合（目标 v0.86.0）——「让主工作流被看见」
+### P0 观测闭合（目标 v0.90.0，已实施）——「让主工作流被看见」
 
 | # | 改动 | 关键文件 | 验收探针 |
 |---|---|---|---|
@@ -119,7 +119,7 @@
 | A2 | Dashboard「运行记录」改读 agency_runs（复用 crewStatus/`agency-run-progress` 事件），提供「发起创世」入口接 `agency_start_genesis`；`genesis_runs` 读路径与 GenesisPanel 退役（保留表） | GenesisPanel.tsx、Dashboard.tsx、agency/commands.rs | 仪表盘可见进行中/最近 agency run；点发起创世走四角色流程 |
 | A3 | usage-stats 增加按 context_label（agency_writer/producer/editor/director/frontstage）分组的用量卡 | UsageStats.tsx、llm/commands.rs 聚合 | 设置页模型角色分配后，四角色用量分列显示 |
 
-### P1 调度闭合（目标 v0.87.0）——「把孤岛变成导演的手」
+### P1 调度闭合（目标 v0.91.0）——「把孤岛变成导演的手」
 
 | # | 改动 | 关键文件 | 验收探针 |
 |---|---|---|---|
@@ -129,7 +129,7 @@
 | B4 | SceneEditor 生成大纲/草稿增加「派发」选项（走导演 dispatch OutlinePlanner 语义或主创），旧一键路径保留为「快速生成」 | SceneEditor.tsx、chat_commands.rs | 编辑器内派发 → 审批卡 → 产物写回大纲/草稿 |
 | B5 | ExecutionPanel ai_continue/ai_revise 接真实动作：续写当前章（`agency_continue_chapter`）/ 修订（预填导演聊天 target_scene） | ExecutionPanel.tsx | 场景页快捷操作产生真实 run/审批卡，无占位 toast |
 
-### P2 学习与设置闭合（目标 v0.88.0）——「学习回路闭环」
+### P2 学习与设置闭合（目标 v0.92.0）——「学习回路闭环」
 
 | # | 改动 | 关键文件 | 验收探针 |
 |---|---|---|---|
@@ -137,7 +137,7 @@
 | C2 | 工具面新增 `skill_execute`（白名单：仅 learned/approved、生成类技能、单次输出截断），先开放给主创/管理 | tools.rs、SkillManager 复用、roles 提示词工具说明 | 主创在 ToolLoop 中成功调用一次 learned 技能并产出可见文本 |
 | C3 | 写作策略接入 agency：AppConfig 策略字段读入 coordinator，覆盖 bundle 默认值（与旧管线同语义） | write_time_bundle.rs:361-365、coordinator.rs 装配点 | 设置改冲突等级 → 续写提示词策略块变化 |
 
-### P3 数据闭合（目标 v0.89.0）——「叙事数据回流」
+### P3 数据闭合（目标 v0.93.0）——「叙事数据回流」
 
 | # | 改动 | 关键文件 | 验收探针 |
 |---|---|---|---|

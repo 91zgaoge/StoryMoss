@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use crate::{
     agency::{
@@ -738,7 +738,21 @@ pub async fn run_director_turn(
 ) -> Result<(), AppError> {
     let snapshot = crate::agency::crew::CrewInspector::inspect(pool, story_id)?;
     let history = ChatRepository::new(pool.clone()).list_messages(session_id, 8)?;
-    let plan = DirectorPlanner::plan(
+    // A1: 导演单发回合也开短 trace（planner 阶段一步，生成链路页可见）
+    let trace_id = crate::tracing::new_trace_id();
+    let trace_store = app
+        .try_state::<crate::tracing::TraceStore>()
+        .map(|s| s.inner().clone());
+    if let Some(store) = &trace_store {
+        let _ = store.start_trace(
+            &trace_id,
+            Some(message_id.to_string()),
+            Some(story_id.to_string()),
+            Some(user_message.chars().take(200).collect::<String>()),
+        );
+        let _ = store.add_step(&trace_id, "director.plan", "agency");
+    }
+    let plan_result = DirectorPlanner::plan(
         pool,
         app,
         &snapshot,
@@ -747,7 +761,18 @@ pub async fn run_director_turn(
         corpus_brief,
         corpus_ids,
     )
-    .await?;
+    .await;
+    if let Some(store) = &trace_store {
+        match &plan_result {
+            Ok(_) => {
+                let _ = store.finish_last_step(&trace_id, "completed", None);
+            }
+            Err(e) => {
+                let _ = store.finish_last_step(&trace_id, "failed", Some(e.to_string()));
+            }
+        }
+    }
+    let plan = plan_result?;
 
     let chat = ChatRepository::new(pool.clone());
     if plan.needs_confirmation {

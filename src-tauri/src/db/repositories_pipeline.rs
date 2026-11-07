@@ -1387,6 +1387,37 @@ impl LlmCallRepository {
         Ok((count, total_tokens, total_cost))
     }
 
+    /// v0.86.0 A3：按角色标签（context_label 落在 purpose 列）聚合用量，
+    /// 供数据洞察的「角色用量」卡。story_id 为 None 时聚合全局。
+    pub fn get_usage_by_purpose(
+        &self,
+        story_id: Option<&str>,
+    ) -> Result<Vec<(String, i64, i64, f64)>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT COALESCE(purpose, 'unknown') AS label, COUNT(*), \
+             COALESCE(SUM(total_tokens), 0), COALESCE(SUM(cost), 0.0) \
+             FROM llm_calls WHERE (?1 IS NULL OR story_id = ?1) \
+             GROUP BY label ORDER BY SUM(total_tokens) DESC",
+        )?;
+        let rows = stmt.query_map(params![story_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, f64>(3)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
     pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
         let conn = self
             .pool

@@ -1,5 +1,7 @@
-# StoryMoss v0.89.9 架构文档
+# StoryMoss v0.90.0 架构文档
 
+> **v0.90.0**：**主工作流观测闭合**——`agency/coordinator.rs` 新增 run 级 trace 注册表（`RUN_TRACES` + `RunTraceGuard`），四个 run 入口（genesis/continue/role_task/batch_body）登记 trace，`AgencyLlm` 每调用记录角色 step 并透传 trace_id 至模型网关；导演回合开 `director.plan` 短 trace。仪表盘改用 `AgencyRunsPanel`（`agency_list_runs` + `agency_start_genesis`）；`get_llm_usage_by_role` 按 `llm_calls.purpose` 聚合角色用量。
+>
 > **v0.89.9**：**IPC 参数绑定契约**——前端统一以 snake_case 传参（`loggedInvoke`），命令层必须显式 `#[tauri::command(rename_all = "snake_case")]`；task_system（9）、`set_story_style_dna`、narrative（4）已补齐，与级联命令保持一致。E2E 的 mock-tauri 会拦截 invoke，无法暴露此类契约错配——以真机日志 `invalid args 'taskId' … missing required key taskId` 为准绳。
 >
 > **v0.89.0**：**日志上传与运维闭环**——桌面 `log_report.rs`：近 3 天日志收集（mtime 过滤、traces 限额 50、20MB 字节预算从大丢弃）+ `manifest.json`（版本/平台/文件清单）→ zip Deflated → SHA-256 命名/判重（本机 `log_upload_history.json`）；`ServerClient::upload_log_package`（reqwest multipart，409=幂等成功）。src-server：`log_packages` 表（sha256 UNIQUE）、`/api/logs/upload`（AuthClaims + actix-multipart + 服务端重算哈希）、`/api/logs/packages[/download]`（`LOG_OPS_TOKEN` bearer）、`retention_sweep` 每小时删 >72h 文件与行。前端日志页两步授权（打包不上传 → 确认才传），无静默上传。

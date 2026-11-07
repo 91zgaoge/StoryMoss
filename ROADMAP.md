@@ -1,5 +1,7 @@
 # StoryMoss (草苔) 开发路线图
 
+> 最后更新: 2026-11-08（v0.90.0：主工作流观测闭合——agency 角色 step 进生成链路、仪表盘代理运行+创世入口、角色用量卡；Playwright **130/5**，Vitest 696/3。**未关闭**：原生安装包真机复测。）
+>
 > 最后更新: 2026-11-08（v0.89.9：task_system/叙事/风格 DNA 三族 IPC 参数契约修复（真机 `get_task_logs missing required key taskId` 实证）；FALLBACK_VERSION 补正。Rust **2033/15**，前端基线全绿。**未关闭**：真机复验任务页日志/创建任务。）
 >
 > 最后更新: 2026-11-07（v0.89.0：日志压缩上传官网（两步显式授权、双 sha256 去重、服务端 3 天滚动保留）+ ZCode 每日下载分析修复自动化，Rust **2033/15**（+3）。**未关闭**：deploy-server 部署 + LOG_OPS_TOKEN secret；栗子读书真机接入实测；幕前路由误判率观察。）

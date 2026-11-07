@@ -18,7 +18,7 @@ import { useAppStore } from '@/stores/appStore';
 import { useStories, useCreateStory, useUpdateStory } from '@/hooks/useStories';
 import { createStoryWithWizard, loggedInvoke } from '@/services/tauri';
 import { NovelCreationWizard } from '@/components/NovelCreationWizard';
-import { GenesisPanel } from '@/components/GenesisPanel';
+import { AgencyRunsPanel } from '@/components/AgencyRunsPanel';
 import { CreationPathGuide } from '@/components/CreationPathGuide';
 import {
   StoryFormatFields,
@@ -383,12 +383,10 @@ export function Dashboard() {
               </Panel>
             </div>
 
-            {/* 运行记录 */}
+            {/* 代理运行（v0.86.0：读 agency_runs，替代废弃 genesis_runs 面板） */}
             <div className="min-w-0 xl:col-span-2">
-              <Panel title="运行记录" collapsible defaultOpen>
-                <div className="h-80">
-                  <GenesisPanel embedded />
-                </div>
+              <Panel title="代理运行" collapsible defaultOpen>
+                <AgencyRunsPanel />
               </Panel>
             </div>
           </div>

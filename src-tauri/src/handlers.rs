@@ -368,6 +368,7 @@ tauri::generate_handler! {
     commands::story_system::set_style_preference_status,
     llm::commands::get_recent_llm_calls,
     llm::commands::get_llm_call_stats,
+    llm::commands::get_llm_usage_by_role,
     scene_commands::update_character_state,
     scene_commands::trigger_cascade_rewrite,
     // Pipeline orchestrator commands

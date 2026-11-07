@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.90.0（2026-11-08）
+
+**主工作流观测闭合：agency 接入生成链路、仪表盘改读活跃运行、用量按四角色分列。**
+
+- **生成链路可见**：新增 run 级 trace 注册表（`RUN_TRACES` + RAII guard），`AgencyLlm` 每次调用记录 `agency_writer/producer/editor` 等角色 step 并透传 `trace_id` 给模型网关；导演单发回合亦开 `director.plan` 短 trace。生成链路页现在能看到主工作流，不再是旧编排器专属。
+- **仪表盘换血**：新增 `AgencyRunsPanel`，读 `agency_list_runs` 的活跃运行并提供「发起创世」入口（接 `agency_start_genesis`）；删除读取废弃 `genesis_runs` 表的 `GenesisPanel`。
+- **角色用量**：`get_llm_usage_by_role` 按 `llm_calls.purpose`（`agency_*` 标签）聚合次数/tokens/费用，数据洞察新增「角色用量」卡（主创/管理/编审/导演）。
+- **验证**：新增观测闭合 E2E 3 项（仪表盘运行+创世、生成链路 agency 步骤、角色用量）；Playwright **130 passed / 5 skipped**；Vitest **696 / 3**；tsc/Prettier/guard 全绿；Rust 全量测试见 AGENTS。
+- **未关闭**：原生安装包真机复测 agency 创世入口与 tracing 展示。
+
 ## v0.89.9（2026-11-08）
 
 **修复 task_system / 叙事 / 风格 DNA 三族 IPC 参数契约（真机日志实证）。**

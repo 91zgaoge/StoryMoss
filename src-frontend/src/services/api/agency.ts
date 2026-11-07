@@ -224,6 +224,11 @@ export function listRuns(storyId: string) {
   return loggedInvoke<AgencyRun[]>('agency_list_runs', { story_id: storyId });
 }
 
+/** v0.86.0 A2：发起四角色创世（后台运行，立即返回 run_id）。 */
+export function startGenesis(premise: string) {
+  return loggedInvoke<string>('agency_start_genesis', { premise });
+}
+
 export function listBoard(runId: string) {
   return loggedInvoke<BoardItem[]>('agency_list_board', { run_id: runId });
 }

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.89.9-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.90.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.90.0 · 主工作流第一次真正「被看见」
+
+代理工作室的导演/管理/编审/主创运行现在会出现在「生成链路」页：每次 run 一条 trace，能看到各个角色调用的步骤与耗时。仪表盘「代理运行」直接读活跃运行，可一键发起四角色创世；「数据洞察」新增角色用量卡，分别统计主创/管理/编审/导演的调用次数、tokens 与费用。
 
 ### v0.89.9 · 任务页与叙事功能在安装版上恢复正常
 

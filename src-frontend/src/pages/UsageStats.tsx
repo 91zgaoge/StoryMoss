@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { cn } from '@/utils/cn';
 import { useAppStore } from '@/stores/appStore';
-import { getLlmCallStats, getRecentLlmCalls } from '@/services/tauri';
+import { getLlmCallStats, getRecentLlmCalls, getLlmUsageByRole } from '@/services/tauri';
+import type { LlmUsageByRole } from '@/services/tauri';
 import { Card, CardContent } from '@/components/ui/Card';
 import { AiFilterChipsBar, AiFilterTable } from '@/components/ui/ai/AiFilterTable';
 import { AiInsightCards } from '@/components/ui/ai/AiInsightCards';
@@ -15,6 +16,7 @@ import {
   XCircle,
   Loader2,
   Info,
+  Users,
 } from 'lucide-react';
 import type { LlmCall } from '@/types';
 
@@ -78,6 +80,20 @@ const TAB_LABELS: Record<OperationTab, string> = {
   other: '其他',
 };
 
+/** v0.86.0 A3：llm_calls.purpose 里的角色标签 → 用户可读名。 */
+const ROLE_LABELS: Record<string, string> = {
+  agency_writer: '主创',
+  agency_producer: '管理',
+  agency_editor: '编审',
+  director: '导演',
+  frontstage: '幕前',
+  planner: '规划',
+};
+
+function roleUsageLabel(raw: string): string {
+  return ROLE_LABELS[raw] ?? raw.replace(/^agency_/, '');
+}
+
 export function UsageStats({ embedded = false }: { embedded?: boolean }) {
   const currentStory = useAppStore(s => s.currentStory);
   const [globalStats, setGlobalStats] = useState<{
@@ -91,6 +107,7 @@ export function UsageStats({ embedded = false }: { embedded?: boolean }) {
     total_cost: number;
   } | null>(null);
   const [recentCalls, setRecentCalls] = useState<LlmCall[]>([]);
+  const [roleUsage, setRoleUsage] = useState<LlmUsageByRole[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [operationTab, setOperationTab] = useState<OperationTab>('all');
 
@@ -98,12 +115,14 @@ export function UsageStats({ embedded = false }: { embedded?: boolean }) {
     const fetchStats = async () => {
       setIsLoading(true);
       try {
-        const [global, recent] = await Promise.all([
+        const [global, recent, roles] = await Promise.all([
           getLlmCallStats('global').catch(() => null),
           getRecentLlmCalls(50).catch(() => [] as LlmCall[]),
+          getLlmUsageByRole(currentStory?.id).catch(() => [] as LlmUsageByRole[]),
         ]);
         setGlobalStats(global);
         setRecentCalls(recent);
+        setRoleUsage(roles);
 
         if (currentStory?.id) {
           const story = await getLlmCallStats(currentStory.id).catch(() => null);
@@ -251,6 +270,36 @@ export function UsageStats({ embedded = false }: { embedded?: boolean }) {
           },
         ]}
       />
+
+      {/* v0.86.0 A3：角色用量（agency 四角色 + 幕前/规划） */}
+      {roleUsage.length > 0 && (
+        <Card>
+          <CardContent className="p-5">
+            <div className="mb-4 flex items-center gap-2">
+              <Users className="h-4 w-4 text-gray-400" />
+              <h2 className="font-display text-lg font-semibold text-white">角色用量</h2>
+              <span className="text-xs text-cinema-400">导演 / 管理 / 编审 / 主创</span>
+            </div>
+            <div
+              className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4"
+              data-testid="role-usage-table"
+            >
+              {roleUsage.slice(0, 8).map(row => (
+                <div
+                  key={row.label}
+                  className="rounded-lg border border-borderSubtle bg-cinema-800/40 p-3"
+                >
+                  <p className="text-sm font-medium text-ai-ink">{roleUsageLabel(row.label)}</p>
+                  <p className="mt-1 text-xs text-ai-ink-3">
+                    {row.count} 次 · {formatTokens(row.total_tokens)} tokens ·{' '}
+                    {formatCost(row.total_cost)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Recent Calls Table */}
       <Card>

@@ -74,8 +74,8 @@ vi.mock('@/utils/logger', () => ({
   createLogger: () => ({ error: vi.fn(), debug: vi.fn() }),
 }));
 
-vi.mock('@/components/GenesisPanel', () => ({
-  GenesisPanel: () => <div data-testid="genesis-panel" />,
+vi.mock('@/components/AgencyRunsPanel', () => ({
+  AgencyRunsPanel: () => <div data-testid="agency-runs-panel" />,
 }));
 
 vi.mock('@/components/NovelCreationWizard', () => ({

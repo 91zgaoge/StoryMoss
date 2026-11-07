@@ -245,6 +245,36 @@ export function getMockTauriInitScript() {
         ]
       : [];
 
+    const mockAgencyTrace = richBackstage
+      ? {
+          trace_id: 'agency-run-e2e-trace',
+          request_id: 'agency-run-e2e',
+          story_id: mockStory.id,
+          user_input: '九场景续写（E2E）',
+          created_at: '2026-11-07T10:00:00+08:00',
+          finished_at: '2026-11-07T10:05:00+08:00',
+          status: 'completed',
+          steps: [
+            { name: 'agency.run.start', phase: 'agency', start_ms: 1, end_ms: 2, status: 'completed' },
+            {
+              name: 'agency_producer',
+              phase: 'agency',
+              start_ms: 3,
+              end_ms: 120,
+              status: 'completed',
+            },
+            { name: 'agency_writer', phase: 'agency', start_ms: 121, end_ms: 900, status: 'completed' },
+            {
+              name: 'agency_editor',
+              phase: 'agency',
+              start_ms: 901,
+              end_ms: 1100,
+              status: 'completed',
+            },
+          ],
+        }
+      : null;
+
     const mockSettings = {
       version: '0.1.0',
       updated_at: new Date().toISOString(),
@@ -554,11 +584,43 @@ export function getMockTauriInitScript() {
           case 'list_style_preferences':
           case 'list_stale_materials':
           case 'get_recent_llm_calls':
-          case 'list_recent_generation_traces':
           case 'list_cascade_impacts':
           case 'agency_list_checkpoints':
           case 'get_archived_entities':
             return [];
+          case 'list_recent_generation_traces':
+            return mockAgencyTrace ? [mockAgencyTrace] : [];
+          case 'get_generation_trace':
+            return mockAgencyTrace;
+          case 'get_llm_usage_by_role':
+            return richBackstage
+              ? [
+                  {
+                    label: 'agency_writer',
+                    count: 12,
+                    total_tokens: 45230,
+                    total_cost: 0.09,
+                  },
+                  {
+                    label: 'agency_producer',
+                    count: 4,
+                    total_tokens: 12050,
+                    total_cost: 0.02,
+                  },
+                  {
+                    label: 'agency_editor',
+                    count: 6,
+                    total_tokens: 9080,
+                    total_cost: 0.01,
+                  },
+                  {
+                    label: 'director',
+                    count: 2,
+                    total_tokens: 3120,
+                    total_cost: 0.004,
+                  },
+                ]
+              : [];
           case 'get_llm_call_stats':
             return { count: 0, total_tokens: 0, total_cost: 0 };
           case 'get_story_cost_summary':
@@ -740,6 +802,8 @@ export function getMockTauriInitScript() {
                 updated_at: '2026-10-30T10:05:00+08:00',
               },
             ];
+          case 'agency_start_genesis':
+            return 'agency-run-genesis-e2e';
           case 'agency_get_run':
             return {
               id: 'run-1',

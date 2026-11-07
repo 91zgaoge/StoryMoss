@@ -267,6 +267,38 @@ pub async fn get_llm_call_stats(
     })
 }
 
+/// v0.86.0 A3：按角色标签聚合的 LLM 用量（agency_writer/producer/editor/
+/// director、frontstage 等，落在 llm_calls.purpose）。
+#[derive(Debug, Clone, Serialize)]
+pub struct LlmUsageByRole {
+    pub label: String,
+    pub count: i64,
+    pub total_tokens: i64,
+    pub total_cost: f64,
+}
+
+/// 按角色聚合 LLM 用量；story_id 为空/"global" 时聚合全局。
+#[command(rename_all = "snake_case")]
+pub async fn get_llm_usage_by_role(
+    story_id: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<LlmUsageByRole>, AppError> {
+    let repo = LlmCallRepository::new(pool.inner().clone());
+    let story = story_id
+        .as_deref()
+        .filter(|s| !s.is_empty() && *s != "global");
+    let rows = repo.get_usage_by_purpose(story).map_err(AppError::from)?;
+    Ok(rows
+        .into_iter()
+        .map(|(label, count, total_tokens, total_cost)| LlmUsageByRole {
+            label,
+            count,
+            total_tokens,
+            total_cost,
+        })
+        .collect())
+}
+
 /// v0.62.0 P2-D：单故事成本账本（调用次数 / token / 零记账次数 +
 /// 计费盲区告警）。
 #[command(rename_all = "snake_case")]

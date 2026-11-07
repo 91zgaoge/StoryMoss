@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.89.9)
+# 🧪 StoryMoss 自动化测试环境 (v0.90.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.90.0 变更说明
+
+- **观测闭合**：新增 `backstage-workflow-observability.spec.ts` 3 项——仪表盘代理运行列表 + 发起创世调用、生成链路页显示 agency_writer/editor 步骤、数据洞察四角色用量。
+- **Rust**：新增 run trace 注册表 roundtrip/guard drop 单测；全量结果见 AGENTS。
+- **结果**：Playwright **130 passed / 5 skipped**（+3）；Vitest **696 / 3**；tsc/Prettier/guard 全绿。
+- **未关闭**：原生安装包真机复测 agency 创世入口与 trace 展示。
 
 ### v0.89.9 变更说明
 
