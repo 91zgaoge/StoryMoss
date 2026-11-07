@@ -32,6 +32,9 @@ services:
     build:
       context: ./src-server
       dockerfile: Dockerfile
+    # v0.89.2: 镜像由 CI（Actions runner）构建后 docker load 注入，
+    # 服务器上 `up --no-build`（1GB 内存机无法容器内编译）
+    image: storymoss-server:latest
     container_name: storymoss-server
     restart: unless-stopped
     depends_on:
@@ -60,7 +63,8 @@ services:
       - ${LOG_STORAGE_DIR:-/data/logpackages}:/data/logpackages
     ports:
       # 仅绑定回环地址，由主机 nginx 反代 /api/ 访问，避免直接暴露
-      - "127.0.0.1:8080:8080"
+      # v0.89.2: 8080 已被同机 sub2api 占用，改绑 8081
+      - "127.0.0.1:8081:8080"
 
   web:
     build:

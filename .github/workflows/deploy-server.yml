@@ -4,19 +4,43 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # v0.89.2: 服务器是 1GB 内存机，容器内编译 Rust 必然 OOM/磁盘满——
+      # 改在 Actions runner 上构建镜像，save 成 tar 传到服务器 docker load。
+      - name: Build server image
+        run: docker build -t storymoss-server:latest src-server
+      - name: Export image
+        run: docker save storymoss-server:latest | gzip > /tmp/storymoss-server-image.tar.gz
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-image
+          path: /tmp/storymoss-server-image.tar.gz
+          retention-days: 1
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: server-image
+          path: dist
       - name: Copy server stack to host
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_SSH_HOST }}
           username: ${{ secrets.SERVER_SSH_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          source: "src-server,docker-compose.yml"
-          target: "/opt/storymoss/"
+          source: "dist/storymoss-server-image.tar.gz,docker-compose.yml"
+          target: /opt/storymoss/
           strip_components: 0
+          overwrite: true
       - name: Inject LOG_OPS_TOKEN into server .env
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -26,7 +50,6 @@ jobs:
           script: |
             cd /opt/storymoss
             if [ -n "${{ secrets.LOG_OPS_TOKEN }}" ]; then
-              # 幂等写入 .env（docker compose 自动读取同目录 .env）
               touch .env
               grep -q '^LOG_OPS_TOKEN=' .env || echo 'LOG_OPS_TOKEN=' >> .env
               sed -i "s|^LOG_OPS_TOKEN=.*|LOG_OPS_TOKEN=${{ secrets.LOG_OPS_TOKEN }}|" .env
@@ -34,14 +57,20 @@ jobs:
             else
               echo "LOG_OPS_TOKEN secret not set; ops download endpoints stay disabled"
             fi
-      - name: docker compose up
+      - name: Load image and start stack
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SERVER_SSH_HOST }}
           username: ${{ secrets.SERVER_SSH_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 10m
           script: |
             set -e
             cd /opt/storymoss
-            docker compose up -d --build server
+            gunzip -f dist/storymoss-server-image.tar.gz
+            docker load -i dist/storymoss-server-image.tar.gz
+            docker compose up -d --no-build postgres
+            docker compose up -d --no-build server
+            sleep 5
             docker compose ps
+            rm -rf dist

@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.89.2（2026-11-07）
+
+**部署架构改为 CI 构建镜像 + 服务器 load（1GB 内存机无法容器内编译）。**
+
+- v0.89.1 的容器内编译实测仍不可行：rust:1 镜像 + postgresql 安装 + 编译层把磁盘推到 99%（仅剩 314M）；且同机 8080 已被用户的 sub2api 服务占用。
+- **deploy-server.yml 重构**：Actions runner（7GB 内存）上 `docker build` → `docker save | gzip` → artifact → scp 到服务器 → `docker load` → `up -d --no-build`；workflow 脚本全程 `set -e`。
+- compose：server 服务显式 `image: storymoss-server:latest`；端口改绑 `127.0.0.1:8081`（8080 冲突），宝塔 nginx `/api/` 反代同步指向 8081。
+- VM 清理失败构建层；`postgres:16-alpine`（0 容器使用，41h 前用户试验残留）保留未动。
+
 ## v0.89.1（2026-11-07）
 
 **修复 server Docker 构建失败（首次云端部署阻塞）。**
