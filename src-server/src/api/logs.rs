@@ -95,7 +95,7 @@ async fn upload(
 
     use futures_util::TryStreamExt;
     loop {
-        let field = match payload.try_next().await {
+        let mut field = match payload.try_next().await {
             Ok(Some(f)) => f,
             Ok(None) => break,
             Err(e) => return HttpResponse::BadRequest().body(format!("multipart error: {e}")),

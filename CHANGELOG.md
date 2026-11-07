@@ -2,6 +2,10 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.89.5（2026-11-07）
+
+**`field` 缺 `mut`（multipart 流式读取）；v0.89.4 编译已通过全部 sqlx 宏校验，仅剩此一处借用检查。**
+
 ## v0.89.4（2026-11-07）
 
 **v0.89.3 漏网一处**：幂等分支 `existing.id`（Uuid→String）同款映射错误补 `.to_string()`；上一轮其余 5 类错误已全部通过编译。
