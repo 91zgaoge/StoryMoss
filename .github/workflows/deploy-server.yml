@@ -67,12 +67,13 @@ jobs:
           script: |
             set -e
             cd /opt/storymoss
-            # 清掉上次残留（旧 .tar/.tar.gz 混存会让 ls|head 取错文件）
-            rm -rf dist
-            IMAGE_FILE=$(ls /opt/storymoss/dist/storymoss-server-image.tar* | head -1)
+            # ls -t 取最新镜像（dist 里可能同时有旧 .tar 与新 .tar.gz）；
+            # 清理必须在 load 成功之后——rm 放前面会把刚传的镜像删掉（v0.89.7 教训）
+            IMAGE_FILE=$(ls -t /opt/storymoss/dist/storymoss-server-image.tar* | head -1)
             docker load -i "$IMAGE_FILE"
             docker compose up -d --no-build postgres
             docker compose up -d --no-build server
             sleep 5
             docker compose ps
+            rm -rf dist
             rm -rf dist

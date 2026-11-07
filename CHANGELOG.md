@@ -2,6 +2,10 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.89.8（2026-11-07）
+
+**v0.89.7 的 `rm -rf dist` 顺序颠倒——把 scp 刚传来的镜像删了。** 修正为 `ls -t` 取最新镜像文件，load 成功后再清理 dist。
+
 ## v0.89.7（2026-11-07）
 
 **docker load 通配符匹配到新旧两个镜像文件导致路径带换行**——load 前先 `rm -rf dist` 清残留，`ls | head -1` 保证单文件。
