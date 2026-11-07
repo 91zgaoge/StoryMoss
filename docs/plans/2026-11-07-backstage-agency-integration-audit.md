@@ -119,7 +119,7 @@
 | A2 | Dashboard「运行记录」改读 agency_runs（复用 crewStatus/`agency-run-progress` 事件），提供「发起创世」入口接 `agency_start_genesis`；`genesis_runs` 读路径与 GenesisPanel 退役（保留表） | GenesisPanel.tsx、Dashboard.tsx、agency/commands.rs | 仪表盘可见进行中/最近 agency run；点发起创世走四角色流程 |
 | A3 | usage-stats 增加按 context_label（agency_writer/producer/editor/director/frontstage）分组的用量卡 | UsageStats.tsx、llm/commands.rs 聚合 | 设置页模型角色分配后，四角色用量分列显示 |
 
-### P1 调度闭合（目标 v0.91.0）——「把孤岛变成导演的手」
+### P1 调度闭合（目标 v0.91.0，已实施）——「把孤岛变成导演的手」
 
 | # | 改动 | 关键文件 | 验收探针 |
 |---|---|---|---|

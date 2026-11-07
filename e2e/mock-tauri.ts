@@ -255,7 +255,13 @@ export function getMockTauriInitScript() {
           finished_at: '2026-11-07T10:05:00+08:00',
           status: 'completed',
           steps: [
-            { name: 'agency.run.start', phase: 'agency', start_ms: 1, end_ms: 2, status: 'completed' },
+            {
+              name: 'agency.run.start',
+              phase: 'agency',
+              start_ms: 1,
+              end_ms: 2,
+              status: 'completed',
+            },
             {
               name: 'agency_producer',
               phase: 'agency',
@@ -263,7 +269,13 @@ export function getMockTauriInitScript() {
               end_ms: 120,
               status: 'completed',
             },
-            { name: 'agency_writer', phase: 'agency', start_ms: 121, end_ms: 900, status: 'completed' },
+            {
+              name: 'agency_writer',
+              phase: 'agency',
+              start_ms: 121,
+              end_ms: 900,
+              status: 'completed',
+            },
             {
               name: 'agency_editor',
               phase: 'agency',
@@ -584,10 +596,50 @@ export function getMockTauriInitScript() {
           case 'list_style_preferences':
           case 'list_stale_materials':
           case 'get_recent_llm_calls':
-          case 'list_cascade_impacts':
           case 'agency_list_checkpoints':
           case 'get_archived_entities':
             return [];
+          case 'list_cascade_impacts':
+            return richBackstage
+              ? [
+                  {
+                    id: 'cascade-impact-1',
+                    story_id: mockStory.id,
+                    batch_id: 'cascade-batch-1',
+                    source_scene_id: 'rich-scene-1',
+                    source_chapter_number: 1,
+                    target_scene_id: 'rich-scene-2',
+                    target_chapter_number: 2,
+                    impact_score: 0.7,
+                    impact_kind: 'mention',
+                    severity: 'warning',
+                    entity_ids: ['陈砚'],
+                    detail: '旧宅封门线在第2章仍需成立',
+                    evidence: '第1章改稿新增门锁细节',
+                    decision: 'open',
+                    stale_flag: false,
+                    created_at: '2026-11-07T10:00:00+08:00',
+                  },
+                  {
+                    id: 'cascade-impact-2',
+                    story_id: mockStory.id,
+                    batch_id: 'cascade-batch-1',
+                    source_scene_id: 'rich-scene-1',
+                    source_chapter_number: 1,
+                    target_scene_id: 'rich-scene-3',
+                    target_chapter_number: 3,
+                    impact_score: 0.5,
+                    impact_kind: 'mention',
+                    severity: 'info',
+                    entity_ids: ['修表铺'],
+                    detail: '修表铺出场顺序可能受影响',
+                    evidence: '第1章改稿调整了时间线',
+                    decision: 'open',
+                    stale_flag: false,
+                    created_at: '2026-11-07T10:00:00+08:00',
+                  },
+                ]
+              : [];
           case 'list_recent_generation_traces':
             return mockAgencyTrace ? [mockAgencyTrace] : [];
           case 'get_generation_trace':
@@ -909,10 +961,53 @@ export function getMockTauriInitScript() {
               story_id: mockStory.id,
               story_title: mockStory.title,
               runs: [],
-              tasks: [],
+              tasks: richBackstage
+                ? [
+                    {
+                      id: 'agency-task-e2e-1',
+                      run_id: 'run-1',
+                      story_id: mockStory.id,
+                      role: 'LeadWriter',
+                      task: '续写第2章',
+                      status: 'failed',
+                      phase: 'drafting',
+                      turn_count: 3,
+                      tool_calls: 2,
+                      last_tool: 'asset_query',
+                      heartbeat_at: '2026-11-07T10:00:00+08:00',
+                      error: '首字节超时',
+                    },
+                    {
+                      id: 'agency-task-e2e-2',
+                      run_id: 'run-1',
+                      story_id: mockStory.id,
+                      role: 'EditorAuditor',
+                      task: '复核第1章',
+                      status: 'completed',
+                      phase: 'review',
+                      turn_count: 1,
+                      tool_calls: 0,
+                      last_tool: null,
+                      heartbeat_at: '2026-11-07T10:01:00+08:00',
+                      error: null,
+                    },
+                  ]
+                : [],
               leases: [],
               corpus_count: 1,
               alerts: [],
+              debts: richBackstage
+                ? [
+                    {
+                      id: 'debt-e2e-1',
+                      severity: 'critical',
+                      source: 'gate',
+                      detail: '第2章缺少具名阻力',
+                      chapter_number: 2,
+                      suggested_window: '第3章前（尽快）',
+                    },
+                  ]
+                : [],
             };
           case 'agency_chat_send':
             return {

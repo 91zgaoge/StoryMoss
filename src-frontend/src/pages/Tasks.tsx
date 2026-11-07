@@ -10,6 +10,7 @@ import { AiCodeBlock } from '@/components/ui/ai/AiCodeBlock';
 import { AiToolChips } from '@/components/ui/ai/AiToolChips';
 import { AiRecommendationCard } from '@/components/ui/ai/AiRecommendationCard';
 import { AiTaskRows, type AiTaskRowItem } from '@/components/ui/ai/AiTaskRows';
+import { AgencyTaskList } from '@/components/AgencyTaskList';
 import {
   useTasks,
   useCreateTask,
@@ -456,6 +457,7 @@ function TaskDetail({ task }: { task: Task }) {
 }
 
 export function Tasks() {
+  const [source, setSource] = useState<'automation' | 'agency'>('automation');
   const [filter, setFilter] = useState<StatusFilter>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const { data: tasks, isLoading } = useTasks(filter === 'all' ? undefined : filter);
@@ -533,15 +535,36 @@ export function Tasks() {
         }
         count={filteredTasks.length}
         actions={
-          <Button variant="secondary" onClick={() => setShowCreate(!showCreate)}>
-            <Plus className="w-4 h-4" />
-            新建任务
-          </Button>
+          source === 'agency' ? (
+            <Button variant="secondary" onClick={() => setSource('automation')}>
+              查看自动化任务
+            </Button>
+          ) : (
+            <Button variant="secondary" onClick={() => setShowCreate(!showCreate)}>
+              <Plus className="w-4 h-4" />
+              新建任务
+            </Button>
+          )
         }
       />
 
+      {/* v0.91.0 B3：任务来源切换（自动化 task_system / 代理四角色） */}
+      <div className="mb-3">
+        <AiToolChips
+          ariaLabel="任务来源"
+          activeKey={source}
+          onSelect={key => setSource(key as 'automation' | 'agency')}
+          items={[
+            { key: 'automation', label: '自动化任务' },
+            { key: 'agency', label: '代理任务' },
+          ]}
+        />
+      </div>
+
+      {source === 'agency' && <AgencyTaskList />}
+
       {/* Create form */}
-      {showCreate && (
+      {source === 'automation' && showCreate && (
         <div className="mb-6 p-4 bg-cinema-800/50 rounded-lg border border-cinema-700">
           <h3 className="text-sm font-medium text-white mb-3">新建任务</h3>
           <div className="grid grid-cols-2 gap-3">
@@ -609,118 +632,130 @@ export function Tasks() {
         </div>
       )}
 
-      {/* Filter tabs */}
-      <div className="mb-4">
-        <AiToolChips
-          ariaLabel="任务状态筛选"
-          activeKey={filter}
-          onSelect={key => setFilter(key as StatusFilter)}
-          items={[
-            { key: 'all', label: '全部' },
-            { key: 'running', label: '执行中' },
-            { key: 'pending', label: '等待中' },
-            { key: 'completed', label: '已完成' },
-            { key: 'failed', label: '失败' },
-          ]}
-        />
-      </div>
+      {source === 'automation' && (
+        <>
+          {/* Filter tabs */}
+          <div className="mb-4">
+            <AiToolChips
+              ariaLabel="任务状态筛选"
+              activeKey={filter}
+              onSelect={key => setFilter(key as StatusFilter)}
+              items={[
+                { key: 'all', label: '全部' },
+                { key: 'running', label: '执行中' },
+                { key: 'pending', label: '等待中' },
+                { key: 'completed', label: '已完成' },
+                { key: 'failed', label: '失败' },
+              ]}
+            />
+          </div>
 
-      {/* Loading */}
-      {isLoading && (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-6 h-6 text-gray-500 animate-spin" />
-          <span className="ml-2 text-sm text-gray-500">加载中...</span>
-        </div>
-      )}
-
-      {/* Empty state */}
-      {!isLoading && filteredTasks.length === 0 && (
-        <EmptyState
-          icon={ListChecks}
-          title="暂无任务"
-          action={{ label: '新建任务', onClick: () => setShowCreate(true) }}
-        />
-      )}
-
-      {/* Task list */}
-      {!isLoading && filteredTasks.length > 0 && (
-        <div>
-          {filter === 'all' ? (
-            // Grouped by status
-            <>
-              {groupedTasks.running.length > 0 && (
-                <>
-                  <div className="px-4 py-2 bg-cinema-800/30 text-xs font-medium text-blue-400">
-                    执行中 ({groupedTasks.running.length})
-                  </div>
-                  {groupedTasks.running.map(task => (
-                    <TaskRow
-                      key={task.id}
-                      task={task}
-                      isExpanded={expandedId === task.id}
-                      onToggleExpand={() => setExpandedId(expandedId === task.id ? null : task.id)}
-                    />
-                  ))}
-                </>
-              )}
-              {groupedTasks.pending.length > 0 && (
-                <>
-                  <div className="px-4 py-2 bg-cinema-800/30 text-xs font-medium text-gray-400">
-                    等待中 ({groupedTasks.pending.length})
-                  </div>
-                  {groupedTasks.pending.map(task => (
-                    <TaskRow
-                      key={task.id}
-                      task={task}
-                      isExpanded={expandedId === task.id}
-                      onToggleExpand={() => setExpandedId(expandedId === task.id ? null : task.id)}
-                    />
-                  ))}
-                </>
-              )}
-              {groupedTasks.completed.length > 0 && (
-                <>
-                  <div className="px-4 py-2 bg-cinema-800/30 text-xs font-medium text-green-400">
-                    已完成 ({groupedTasks.completed.length})
-                  </div>
-                  {groupedTasks.completed.map(task => (
-                    <TaskRow
-                      key={task.id}
-                      task={task}
-                      isExpanded={expandedId === task.id}
-                      onToggleExpand={() => setExpandedId(expandedId === task.id ? null : task.id)}
-                    />
-                  ))}
-                </>
-              )}
-              {groupedTasks.failed.length > 0 && (
-                <>
-                  <div className="px-4 py-2 bg-cinema-800/30 text-xs font-medium text-red-400">
-                    失败 ({groupedTasks.failed.length})
-                  </div>
-                  {groupedTasks.failed.map(task => (
-                    <TaskRow
-                      key={task.id}
-                      task={task}
-                      isExpanded={expandedId === task.id}
-                      onToggleExpand={() => setExpandedId(expandedId === task.id ? null : task.id)}
-                    />
-                  ))}
-                </>
-              )}
-            </>
-          ) : (
-            // Flat list for filtered view
-            filteredTasks.map(task => (
-              <TaskRow
-                key={task.id}
-                task={task}
-                isExpanded={expandedId === task.id}
-                onToggleExpand={() => setExpandedId(expandedId === task.id ? null : task.id)}
-              />
-            ))
+          {/* Loading */}
+          {isLoading && (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="w-6 h-6 text-gray-500 animate-spin" />
+              <span className="ml-2 text-sm text-gray-500">加载中...</span>
+            </div>
           )}
-        </div>
+
+          {/* Empty state */}
+          {!isLoading && filteredTasks.length === 0 && (
+            <EmptyState
+              icon={ListChecks}
+              title="暂无任务"
+              action={{ label: '新建任务', onClick: () => setShowCreate(true) }}
+            />
+          )}
+
+          {/* Task list */}
+          {!isLoading && filteredTasks.length > 0 && (
+            <div>
+              {filter === 'all' ? (
+                // Grouped by status
+                <>
+                  {groupedTasks.running.length > 0 && (
+                    <>
+                      <div className="px-4 py-2 bg-cinema-800/30 text-xs font-medium text-blue-400">
+                        执行中 ({groupedTasks.running.length})
+                      </div>
+                      {groupedTasks.running.map(task => (
+                        <TaskRow
+                          key={task.id}
+                          task={task}
+                          isExpanded={expandedId === task.id}
+                          onToggleExpand={() =>
+                            setExpandedId(expandedId === task.id ? null : task.id)
+                          }
+                        />
+                      ))}
+                    </>
+                  )}
+                  {groupedTasks.pending.length > 0 && (
+                    <>
+                      <div className="px-4 py-2 bg-cinema-800/30 text-xs font-medium text-gray-400">
+                        等待中 ({groupedTasks.pending.length})
+                      </div>
+                      {groupedTasks.pending.map(task => (
+                        <TaskRow
+                          key={task.id}
+                          task={task}
+                          isExpanded={expandedId === task.id}
+                          onToggleExpand={() =>
+                            setExpandedId(expandedId === task.id ? null : task.id)
+                          }
+                        />
+                      ))}
+                    </>
+                  )}
+                  {groupedTasks.completed.length > 0 && (
+                    <>
+                      <div className="px-4 py-2 bg-cinema-800/30 text-xs font-medium text-green-400">
+                        已完成 ({groupedTasks.completed.length})
+                      </div>
+                      {groupedTasks.completed.map(task => (
+                        <TaskRow
+                          key={task.id}
+                          task={task}
+                          isExpanded={expandedId === task.id}
+                          onToggleExpand={() =>
+                            setExpandedId(expandedId === task.id ? null : task.id)
+                          }
+                        />
+                      ))}
+                    </>
+                  )}
+                  {groupedTasks.failed.length > 0 && (
+                    <>
+                      <div className="px-4 py-2 bg-cinema-800/30 text-xs font-medium text-red-400">
+                        失败 ({groupedTasks.failed.length})
+                      </div>
+                      {groupedTasks.failed.map(task => (
+                        <TaskRow
+                          key={task.id}
+                          task={task}
+                          isExpanded={expandedId === task.id}
+                          onToggleExpand={() =>
+                            setExpandedId(expandedId === task.id ? null : task.id)
+                          }
+                        />
+                      ))}
+                    </>
+                  )}
+                </>
+              ) : (
+                // Flat list for filtered view
+                filteredTasks.map(task => (
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    isExpanded={expandedId === task.id}
+                    onToggleExpand={() => setExpandedId(expandedId === task.id ? null : task.id)}
+                  />
+                ))
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

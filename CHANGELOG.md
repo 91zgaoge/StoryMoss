@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.91.0（2026-11-08）
+
+**主工作流调度闭合：质量债进导演巡检、级联/编辑器/场景快捷动作全部接入导演派发。**
+
+- **导演看见质量债**：`CrewSnapshot` 新增 `debts`（critical/warning 优先 top5），导演 prompt 增 Debts 区块；`record_debt` 动作从 no-op 改为真实写 `quality_debts`（instruction 必填）。系统提示词明确「能对应章节先派发修订，修不了再 escalate」。
+- **级联交给导演**：级联中心每个改稿批次新增「交给导演」——预填导演聊天（源章 + 受影响章清单），不再只能走一次性 task_system 改写。
+- **任务页统一入口**：Tasks 页新增「自动化任务 / 代理任务」来源切换；代理任务列表读 `agency_crew_status`，支持失败/卡住任务「重试」与运行中任务「取消」，直接操作导演派发的子任务。
+- **编辑器与场景动作**：SceneEditor 新增「交给导演」（按当前阶段预填修订或补大纲指令）；ExecutionPanel 的 AI 续写/修改从占位 toast 改为真实导演预填。
+- **验证**：Rust **2035 / 15**（+1 导演质量债 prompt 测试）；Vitest **696 / 3**；Playwright **134 / 5**（+4 调度闭合探针）；fmt/clippy/check/guard 全绿。
+- **未关闭**：原生安装包真机复测导演巡检质量债与级联交给导演链路。
+
 ## v0.90.0（2026-11-08）
 
 **主工作流观测闭合：agency 接入生成链路、仪表盘改读活跃运行、用量按四角色分列。**

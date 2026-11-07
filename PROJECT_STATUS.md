@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.90.0 项目完成状态
+# StoryMoss (草苔) v0.91.0 项目完成状态
 
+> 最后更新: 2026-11-08（**v0.91.0：主工作流调度闭合**——质量债进导演巡检并真实落库；级联批次/编辑器/场景快捷动作全部预填导演；Tasks 页代理任务可重试/取消。Rust **2035/15**；Vitest **696/3**；Playwright **134/5**。）
+>
 > 最后更新: 2026-11-08（**v0.90.0：主工作流观测闭合**——agency run 级 trace（四角色 step + 导演 plan）、仪表盘 AgencyRunsPanel（读 agency_runs + 发起创世）、数据洞察角色用量卡。Playwright **130/5**；Vitest **696/3**；tsc/prettier/guard 全绿。）
 >
 > 最后更新: 2026-11-08（**v0.89.9：三族 IPC 参数契约修复**——task_system 9 命令 + `set_story_style_dna` + 叙事 4 命令统一 `rename_all = "snake_case"`，修掉真机 `get_task_logs missing required key taskId` 及同族的任务创建/过滤/风格绑定静默失效；顺带补正 v0.87–v0.89 遗漏的 `FALLBACK_VERSION` 同步。Rust **2033/15**；Vitest **696/3**；tsc/prettier/guard 全绿。**未关闭**：真机复验任务页日志与创建任务。）

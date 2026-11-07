@@ -126,12 +126,31 @@ export function ExecutionPanel({
   const handleQuickAction = (action: string) => {
     switch (action) {
       case 'ai_continue':
-        setCurrentView('scenes');
-        toast('AI 续写功能即将启动', { icon: '🤖' });
+        // v0.91.0 B5：真实动作——交给导演派发续写（预填聊天，需确认）
+        if (state.lastScene) {
+          sessionStorage.setItem(
+            'execution_handoff',
+            JSON.stringify({
+              action: 'continue',
+              scene: state.lastScene.sequence_number,
+              title: state.lastScene.title,
+            })
+          );
+        }
+        setCurrentView('agency-studio');
         break;
       case 'ai_revise':
-        setCurrentView('scenes');
-        toast('AI 修改功能即将启动', { icon: '✨' });
+        if (state.lastScene) {
+          sessionStorage.setItem(
+            'execution_handoff',
+            JSON.stringify({
+              action: 'revise',
+              scene: state.lastScene.sequence_number,
+              title: state.lastScene.title,
+            })
+          );
+        }
+        setCurrentView('agency-studio');
         break;
       case 'run_audit':
         if (state.lastScene) {

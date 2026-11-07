@@ -21,7 +21,9 @@ import {
   ChevronDown,
   ChevronUp,
   GitMerge,
+  Bot,
 } from 'lucide-react';
+import { useAppStore } from '@/stores/appStore';
 import { Button } from '@/components/ui/Button';
 import { extractMessage } from '@/utils/errorHandler';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -256,6 +258,19 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
       ? computeDiff(scene.content || '', formData.content || '')
       : null;
 
+  // v0.91.0 B4：把场景编辑交给导演派发（预填聊天；旧「快速生成」路径保留）。
+  const handleDispatchToDirector = () => {
+    useAppStore.getState().setCurrentView('agency-studio');
+    sessionStorage.setItem(
+      'scene_dispatch_handoff',
+      JSON.stringify({
+        sequence: scene.sequence_number,
+        title: formData.title || scene.title,
+        stage: activeTab,
+      })
+    );
+  };
+
   const toggleCharacter = (charId: string) => {
     const current = formData.characters_present || [];
     if (current.includes(charId)) {
@@ -298,6 +313,16 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
             </span>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
+            {/* v0.91.0 B4：交给导演派发（保留下方旧快速生成路径） */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleDispatchToDirector}
+              title="把当前场景交给导演派发"
+            >
+              <Bot className="w-4 h-4 mr-1" />
+              交给导演
+            </Button>
             {activeTab === 'final' && (
               <>
                 <Button

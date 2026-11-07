@@ -1,5 +1,7 @@
-# StoryMoss v0.90.0 架构文档
+# StoryMoss v0.91.0 架构文档
 
+> **v0.91.0**：**调度闭合**——`CrewSnapshot.debts`（open top5）+ 导演 prompt Debts 区块；`record_debt` 真实写台账；CascadeCenter/Tasks/SceneEditor/ExecutionPanel 通过 sessionStorage handoff 预填导演聊天（不自动发送），Tasks 代理任务直接复用 `agency_crew_retry_task`/`agency_crew_cancel_task`。
+>
 > **v0.90.0**：**主工作流观测闭合**——`agency/coordinator.rs` 新增 run 级 trace 注册表（`RUN_TRACES` + `RunTraceGuard`），四个 run 入口（genesis/continue/role_task/batch_body）登记 trace，`AgencyLlm` 每调用记录角色 step 并透传 trace_id 至模型网关；导演回合开 `director.plan` 短 trace。仪表盘改用 `AgencyRunsPanel`（`agency_list_runs` + `agency_start_genesis`）；`get_llm_usage_by_role` 按 `llm_calls.purpose` 聚合角色用量。
 >
 > **v0.89.9**：**IPC 参数绑定契约**——前端统一以 snake_case 传参（`loggedInvoke`），命令层必须显式 `#[tauri::command(rename_all = "snake_case")]`；task_system（9）、`set_story_style_dna`、narrative（4）已补齐，与级联命令保持一致。E2E 的 mock-tauri 会拦截 invoke，无法暴露此类契约错配——以真机日志 `invalid args 'taskId' … missing required key taskId` 为准绳。

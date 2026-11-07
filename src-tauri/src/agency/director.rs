@@ -211,7 +211,20 @@ fn validate_action(action: &DirectorActionSpec) -> Option<String> {
                 None
             }
         }
-        "ensure_assets" | "record_debt" | "escalate" => None,
+        "ensure_assets" | "escalate" => None,
+        "record_debt" => {
+            if action
+                .instruction
+                .as_deref()
+                .unwrap_or("")
+                .trim()
+                .is_empty()
+            {
+                Some("record_debt 缺少 instruction（债务描述）".to_string())
+            } else {
+                None
+            }
+        }
         other => Some(format!("未知动作类型 {other}")),
     }
 }
@@ -414,7 +427,41 @@ impl DirectorExecutor {
                     }
                     .await
                 }
-                "record_debt" => Ok(None),
+                "record_debt" => {
+                    let detail = action
+                        .instruction
+                        .as_deref()
+                        .or(action.reason.as_deref())
+                        .unwrap_or("")
+                        .trim();
+                    if detail.is_empty() {
+                        Err(AppError::validation_failed(
+                            "record_debt 缺少 instruction（债务描述）",
+                            Some("instruction"),
+                        ))
+                    } else {
+                        let pool_c = pool.clone();
+                        let sid = story_id.to_string();
+                        let detail_c = detail.chars().take(500).collect::<String>();
+                        let chapter = action.target_chapter;
+                        let scene = action.target_id.clone();
+                        let result = tokio::task::spawn_blocking(move || {
+                            crate::story_system::quality_debt::record_debt(
+                                &pool_c,
+                                &sid,
+                                scene.as_deref(),
+                                chapter,
+                                "director",
+                                "warning",
+                                &detail_c,
+                            )
+                            .map_err(AppError::from)
+                        })
+                        .await
+                        .map_err(|e| AppError::from(format!("record_debt join error: {e}")))?;
+                        result.map(|_| None)
+                    }
+                }
                 other => Err(AppError::validation_failed(
                     format!("导演动作未实现: {other}"),
                     Some("action_type"),
@@ -674,6 +721,25 @@ pub(crate) fn render_director_user_prompt(
             l.resource, l.owner_task_id, l.expires_at
         ));
     }
+    // v0.91.0 B1：未结清质量债进巡检（导演可派发修订并按需要登记新债）。
+    if !snapshot.debts.is_empty() {
+        out.push_str("Debts（未结清质量债，可据此派发修订或 escalate）：\n");
+        for d in snapshot.debts.iter().take(5) {
+            let chapter = d
+                .chapter_number
+                .map(|n| format!("第{n}章"))
+                .unwrap_or_else(|| "-".to_string());
+            out.push_str(&format!(
+                "- {} [{}] {} source={} window={} detail={}\n",
+                d.id,
+                d.severity,
+                chapter,
+                d.source,
+                d.suggested_window.as_deref().unwrap_or("-"),
+                d.detail.chars().take(80).collect::<String>()
+            ));
+        }
+    }
     out.push_str("Alerts：\n");
     for a in snapshot.alerts.iter().take(10) {
         out.push_str(&format!("- [{}] {} {}\n", a.severity, a.kind, a.message));
@@ -886,6 +952,7 @@ mod tests {
                 title: "雨夜观测台".into(),
                 word_count: 640,
             }],
+            debts: vec![],
             alerts: vec![CrewAlert {
                 severity: "high".into(),
                 kind: "StaleTask".into(),
@@ -1088,6 +1155,7 @@ mod tests {
             leases: vec![],
             corpus_count: 0,
             scenes: vec![],
+            debts: vec![],
             alerts: vec![],
         };
         let text = render_director_user_prompt(&snapshot, "续写", &[], "", &[]);
@@ -1095,6 +1163,38 @@ mod tests {
         assert!(
             text.contains(&task_id),
             "Tasks 区块应输出完整 task ID: {text}"
+        );
+    }
+
+    #[test]
+    fn test_render_prompt_includes_debts() {
+        let snapshot = CrewSnapshot {
+            story_id: "s".into(),
+            story_title: "长夜".into(),
+            runs: vec![],
+            tasks: vec![],
+            leases: vec![],
+            corpus_count: 0,
+            scenes: vec![],
+            debts: vec![crate::agency::crew::CrewDebt {
+                id: "debt-abc".into(),
+                severity: "critical".into(),
+                source: "gate".into(),
+                detail: "第三章缺少具名阻力".into(),
+                chapter_number: Some(3),
+                suggested_window: Some("第4章前（尽快）".into()),
+            }],
+            alerts: vec![],
+        };
+        let text = render_director_user_prompt(&snapshot, "年报", &[], "", &[]);
+        assert!(
+            text.contains("Debts"),
+            "快照 prompt 应含 Debts 区块: {text}"
+        );
+        assert!(text.contains("debt-abc"), "Debts 应输出完整债务 ID: {text}");
+        assert!(
+            text.contains("第三章缺少具名阻力"),
+            "Debts 应输出细节: {text}"
         );
     }
 }

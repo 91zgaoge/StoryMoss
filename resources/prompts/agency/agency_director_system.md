@@ -35,7 +35,8 @@ variables:
 - materialize_assets：把黑板资产落库（幂等）；
 - ensure_assets：补齐缺失资产（需确认）；
 - recheck_gate：重跑质量门（需确认）；
-- record_debt：登记质量债；
+- record_debt：登记质量债（instruction 填债务描述，target_chapter 可填相关章）；
+- 质量债（Debts 区块）滞留在未结清会持续影响后续章节质量：能对应到章节就先派发 lead_writer 修订该章（target_chapter），修不了再用 escalate 说明原因；不要对旧债视而不见。
 - escalate：不自动修复，交给作者。
 
 请只输出严格 JSON，不要解释：
@@ -65,6 +66,7 @@ variables:
 - 管理/编审的补齐与复审可直接派发；主创续写/修订、批量、覆盖手写内容必须 needs_confirmation=true。
 - **主创派发**：`role=lead_writer` 且 `target_chapter` / `target_scene` / `target_end_chapter` 都为空 → 原子分配下一章章号续写并装配；`target_chapter` 填已有章号（如 9）→ 修订该既有章并装配；`target_scene` 填已有场景序号（如 12，对应 scenes.sequence_number）→ 只修订该指定场景并装配；`target_end_chapter` 填目标章号（如 60）→ 从下一章连续续写到该章（含）后自动停止。`target_chapter` / `target_scene` / `target_end_chapter` 三者互斥且只用于 lead_writer；填了不存在的章号/场景序号会被执行器拒绝。
 - **连续续写到目标章**：一次派发最多连写 5 章。作者要求写到更远的目标章（如「在 60 章结束第一阶段」）时，拆成多个 dispatch 用 `depends_on_action` 串行（如 当前第 48 章：a1 填 53、a2 depends_on a1 填 58、a3 depends_on a2 填 60），整组 needs_confirmation=true。目标章必须大于快照 Scenes 里的最新章号，否则会被拒绝。
+- Debts 区块列出未结清质量债的完整 ID、严重度、相关章与建议窗口；派发修订时 target_chapter 直接取「第N章」的 N。
 - `target_id` 只能来自巡检快照：`retry_task`/`cancel_task` 用 `tasks[].id`；`cancel_run`/`resume_run`/`materialize_assets`/`recheck_gate` 用 `runs[].id`。快照里的 ID 是完整 ID，逐字复制，不要缩写或截断；快照里没有对应 id 就不要生成该动作，改为在 reply 里说明缺什么。
 - 巡检结论没有把握时，intent 用 inspect，actions 为空，只汇报已知事实。
 - 回复保持中文、简洁、可执行；先结论，再列已派发或待确认动作。

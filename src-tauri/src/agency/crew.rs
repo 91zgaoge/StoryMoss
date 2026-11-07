@@ -37,6 +37,17 @@ pub struct CrewScene {
     pub word_count: i32,
 }
 
+/// v0.91.0 B1：巡检快照中的未结清质量债（导演可据此派发修复/登记）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrewDebt {
+    pub id: String,
+    pub severity: String,
+    pub source: String,
+    pub detail: String,
+    pub chapter_number: Option<i32>,
+    pub suggested_window: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrewSnapshot {
     pub story_id: String,
@@ -48,6 +59,8 @@ pub struct CrewSnapshot {
     pub alerts: Vec<CrewAlert>,
     /// 最近 24 个场景（按 sequence_number 升序），供导演指定 target_scene。
     pub scenes: Vec<CrewScene>,
+    /// v0.91.0 B1：未结清质量债（severity 排序 top5），让导演能看见并修复。
+    pub debts: Vec<CrewDebt>,
 }
 
 /// 巡检：只读、确定性、不调 LLM。导演/现场面板共用。
@@ -107,6 +120,27 @@ impl CrewInspector {
             )
             .unwrap_or(0)
         };
+
+        // v0.91.0 B1：质量债进巡检快照（severity 优先，再按章号），最多 5 条。
+        let mut debts: Vec<CrewDebt> =
+            crate::story_system::quality_debt::list_debts(pool, story_id, Some("open"), 12)
+                .into_iter()
+                .map(|d| CrewDebt {
+                    id: d.id,
+                    severity: d.severity,
+                    source: d.source,
+                    detail: d.detail,
+                    chapter_number: d.chapter_number,
+                    suggested_window: d.suggested_window,
+                })
+                .collect();
+        debts.sort_by_key(|d| {
+            (
+                severity_rank(&d.severity),
+                d.chapter_number.unwrap_or(i32::MAX),
+            )
+        });
+        debts.truncate(5);
 
         let mut alerts = Vec::new();
         let terminal_runs: std::collections::HashSet<String> = runs
@@ -219,7 +253,16 @@ impl CrewInspector {
             corpus_count,
             alerts,
             scenes,
+            debts,
         })
+    }
+}
+
+fn severity_rank(severity: &str) -> u8 {
+    match severity {
+        "critical" => 0,
+        "warning" => 1,
+        _ => 2,
     }
 }
 

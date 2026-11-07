@@ -287,6 +287,70 @@ export default function AgencyStudio() {
     sessionStorage.removeItem('corpus_handoff');
   }, []);
 
+  // v0.91.0 B2：级联中心「交给导演」通过 sessionStorage 传过来
+  useEffect(() => {
+    const raw = sessionStorage.getItem('cascade_handoff');
+    if (!raw) return;
+    try {
+      const payload = JSON.parse(raw) as { sourceChapter: number | null; chapters: number[] };
+      const chapters = (payload.chapters ?? []).filter(n => Number.isFinite(n));
+      if (chapters.length > 0) {
+        const list = chapters.slice(0, 10).join('、');
+        setInput(
+          `@导演 第${payload.sourceChapter ?? '?'}章改稿产生了级联影响，涉及第${list}章。请先给处理方案，再派发主创逐章修订；不要覆盖我已手改的内容。`
+        );
+      } else {
+        setInput('@导演 请查看级联中心待处理的改稿影响，先给处理方案。');
+      }
+      setTargetRole('director');
+    } catch {
+      /* ignore */
+    }
+    sessionStorage.removeItem('cascade_handoff');
+  }, []);
+
+  // v0.91.0 B4：场景编辑器「交给导演」通过 sessionStorage 传过来
+  useEffect(() => {
+    const raw = sessionStorage.getItem('scene_dispatch_handoff');
+    if (!raw) return;
+    try {
+      const payload = JSON.parse(raw) as { sequence: number; title: string; stage: string };
+      const isProse =
+        payload.stage === 'drafting' || payload.stage === 'review' || payload.stage === 'final';
+      setInput(
+        isProse
+          ? `@导演 请派发主创修订场景 #${payload.sequence}《${payload.title}》（target_scene=${payload.sequence}），先给方案；不要覆盖我手改的内容。`
+          : `@导演 场景 #${payload.sequence}《${payload.title}》需要补充大纲并起草：请派发管理先补场景大纲，再派主创按大纲写草稿；先给方案。`
+      );
+      setTargetRole('director');
+    } catch {
+      /* ignore */
+    }
+    sessionStorage.removeItem('scene_dispatch_handoff');
+  }, []);
+
+  // v0.91.0 B5：场景执行面板的快捷动作通过 sessionStorage 传过来
+  useEffect(() => {
+    const raw = sessionStorage.getItem('execution_handoff');
+    if (!raw) return;
+    try {
+      const payload = JSON.parse(raw) as {
+        action: 'continue' | 'revise';
+        scene: number;
+        title: string;
+      };
+      setInput(
+        payload.action === 'continue'
+          ? `@导演 请派发主创续写下一章（当前最后场景 #${payload.scene}《${payload.title}》），先给方案。`
+          : `@导演 请派发主创修订场景 #${payload.scene}《${payload.title}》（target_scene=${payload.scene}），先给方案；不要覆盖我手改的内容。`
+      );
+      setTargetRole('director');
+    } catch {
+      /* ignore */
+    }
+    sessionStorage.removeItem('execution_handoff');
+  }, []);
+
   const queryError =
     runsQuery.error ??
     boardQuery.error ??

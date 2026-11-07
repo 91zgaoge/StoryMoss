@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.90.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.91.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.91.0 变更说明
+
+- **调度闭合**：新增 `backstage-agency-wiring.spec.ts` 4 项（级联交给导演、Tasks 代理任务重试、SceneEditor 派发、ExecutionPanel AI 续写预填）；导演 prompt 质量债单测。
+- **结果**：Rust **2035 / 15**（+1）；Vitest **696 / 3**；Playwright **134 / 5**（+4）；fmt/clippy/check/guard 全绿。
+- **未关闭**：原生安装包真机复测。
 
 ### v0.90.0 变更说明
 

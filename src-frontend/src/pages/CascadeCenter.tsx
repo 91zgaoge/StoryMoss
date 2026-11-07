@@ -92,6 +92,21 @@ export function CascadeCenter() {
     }
   };
 
+  // v0.91.0 B2：把整个改稿批次的级联影响交给导演（预填聊天，不自动发送）。
+  const handleHandoffToDirector = (batch: Batch) => {
+    const chapters = batch.items
+      .map(i => i.target_chapter_number)
+      .filter((n): n is number => n != null);
+    sessionStorage.setItem(
+      'cascade_handoff',
+      JSON.stringify({
+        sourceChapter: batch.sourceChapter,
+        chapters: [...new Set(chapters)],
+      })
+    );
+    setCurrentView('agency-studio');
+  };
+
   return (
     <div className="p-6 max-w-5xl mx-auto min-w-0">
       <PageHeader
@@ -132,13 +147,20 @@ export function CascadeCenter() {
         <div className="space-y-6" data-testid="cascade-batches">
           {batches.map(batch => (
             <div key={batch.batchId}>
-              <div className="flex items-center gap-2 mb-2 px-1">
+              <div className="mb-2 flex flex-wrap items-center gap-2 px-1">
                 <span className="text-sm font-medium text-ai-ink">
                   {batch.sourceChapter != null ? `第 ${batch.sourceChapter} 章改稿` : '改稿分析'}
                 </span>
                 <span className="text-xs text-ai-ink-3">
                   {formatTime(batch.createdAt)} · 影响 {batch.items.length} 章
                 </span>
+                <button
+                  type="button"
+                  onClick={() => handleHandoffToDirector(batch)}
+                  className="ml-auto rounded-lg border border-cinema-gold/30 bg-cinema-gold/10 px-2.5 py-1 text-xs text-cinema-gold transition-colors hover:bg-cinema-gold/20"
+                >
+                  交给导演
+                </button>
               </div>
               <div className="space-y-2">
                 {batch.items.map(impact => (
