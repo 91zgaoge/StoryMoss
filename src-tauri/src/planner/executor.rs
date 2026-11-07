@@ -2631,6 +2631,8 @@ impl PlanExecutor {
                 args: vec![],
                 env: std::collections::HashMap::new(),
                 timeout_seconds: 30,
+                url: None,
+                headers: Default::default(),
             };
             let server = crate::mcp::McpServer::new(config);
             server.start().await.map_err(AppError::from)?;

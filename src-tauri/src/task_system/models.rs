@@ -86,6 +86,7 @@ pub enum TaskType {
     Ingest,                // 知识图谱 Ingest
     AsyncAudit,            // 异步审计（分时架构时间线 2：Inspector → annotation 回流）
     DeepInsight,           // 深度洞察（分时架构时间线 3：追读力/KG/向量/漂移，跨章节）
+    ContinuationTraining,  // v0.88.0: 续写训练（取原书章节→沙盒续写→对比闭环）
     Custom,                // 自定义
 }
 
@@ -101,6 +102,7 @@ impl fmt::Display for TaskType {
             TaskType::Ingest => write!(f, "ingest"),
             TaskType::AsyncAudit => write!(f, "async_audit"),
             TaskType::DeepInsight => write!(f, "deep_insight"),
+            TaskType::ContinuationTraining => write!(f, "continuation_training"),
             TaskType::Custom => write!(f, "custom"),
         }
     }
@@ -118,6 +120,7 @@ impl TaskType {
             "ingest" => TaskType::Ingest,
             "async_audit" => TaskType::AsyncAudit,
             "deep_insight" => TaskType::DeepInsight,
+            "continuation_training" => TaskType::ContinuationTraining,
             _ => TaskType::Custom,
         }
     }

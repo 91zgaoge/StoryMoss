@@ -2,7 +2,7 @@
 use uuid::Uuid;
 
 use super::{
-    transport::{StdioTransport, Transport},
+    transport::{HttpTransport, StdioTransport, Transport},
     types::*,
 };
 
@@ -24,8 +24,21 @@ impl McpClient {
     }
 
     pub async fn connect(&mut self) -> Result<(), McpError> {
-        let mut transport =
-            StdioTransport::new(&self.config.command, &self.config.args, &self.config.env);
+        // v0.88.0: 配置 url 时走流式 HTTP（栗子读书等远程 MCP），否则 stdio
+        // 子进程
+        let mut transport: Box<dyn Transport + Send> = if self.config.is_http() {
+            Box::new(HttpTransport::new(
+                self.config.url.as_deref().unwrap_or_default(),
+                &self.config.headers,
+                self.config.timeout_seconds,
+            ))
+        } else {
+            Box::new(StdioTransport::new(
+                &self.config.command,
+                &self.config.args,
+                &self.config.env,
+            ))
+        };
 
         transport.connect().await?;
 
@@ -46,7 +59,19 @@ impl McpClient {
         transport.send(init_request).await?;
         let _response = transport.receive().await?;
 
-        self.transport = Some(Box::new(transport));
+        // 流式 HTTP：initialize 后必须补发 initialized 通知（无 id，
+        // 服务端回 202）；stdio 服务器也不要求读回执，统一发送即可。
+        if self.config.is_http() {
+            let initialized = JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: None,
+                method: "notifications/initialized".to_string(),
+                params: None,
+            };
+            transport.send(initialized).await?;
+        }
+
+        self.transport = Some(transport);
 
         self.refresh_tools().await?;
         self.refresh_resources().await?;
@@ -67,7 +92,10 @@ impl McpClient {
             let response = transport.receive().await?;
 
             if let Some(result) = response.result {
-                if let Ok(tools) = serde_json::from_value::<Vec<McpTool>>(result) {
+                // MCP 规范：tools/list 返回 { "tools": [...]
+                // }；兼容直接返回数组的服务器
+                let tools_value = result.get("tools").cloned().unwrap_or(result);
+                if let Ok(tools) = serde_json::from_value::<Vec<McpTool>>(tools_value) {
                     self.tools = tools;
                 }
             }
@@ -89,7 +117,10 @@ impl McpClient {
             let response = transport.receive().await?;
 
             if let Some(result) = response.result {
-                if let Ok(resources) = serde_json::from_value::<Vec<McpResource>>(result) {
+                // MCP 规范：resources/list 返回 { "resources": [...]
+                // }；兼容数组
+                let resources_value = result.get("resources").cloned().unwrap_or(result);
+                if let Ok(resources) = serde_json::from_value::<Vec<McpResource>>(resources_value) {
                     self.resources = resources;
                 }
             }

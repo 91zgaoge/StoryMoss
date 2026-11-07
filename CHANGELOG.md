@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.88.0（2026-11-07）
+
+**MCP 流式 HTTP 客户端（栗子读书）+ 续写训练定时闭环。**
+
+- **MCP HTTP 传输（F2）**：`McpServerConfig` 新增 `url`/`headers`（serde default，旧配置零迁移成本）；新增 `HttpTransport`（Streamable HTTP：POST JSON-RPC、`Accept: application/json, text/event-stream`、`Mcp-Session-Id` 会话保持、SSE `data:` 解析、通知 202、DELETE 会话）；`McpClient::connect` 按 `url` 分流 HTTP/stdio，HTTP 补发 `notifications/initialized`；修正 `tools/list`/`resources/list` 按 MCP 规范解析 `{tools:[...]}` 包裹（兼容裸数组）。
+- **配置持久化（F2）**：V156 建 `mcp_server_configs` 表 + repository；IPC `mcp_list_saved_servers/mcp_save_server/mcp_delete_server/mcp_set_server_enabled`；启动时自动连接 enabled 的 HTTP 型服务器（单台失败不阻塞，stdio 不自动拉起子进程）。MCP 页重做：HTTP/stdio 模式切换、端点 URL、Bearer 令牌、保存并连接、已保存列表启停/删除/直连。
+- **续写训练闭环（F3）**：`TaskType::ContinuationTraining` + 执行器（共享 12h 墙钟豁免）；payload 支持 `mcp`（显式 `chapter_tool`+`$book`/`$index` 参数模板，不猜测各服务器工具命名）与 `file`（复用 `parse_book` 解析 epub/txt/pdf）两类源；每轮：取 N 章 → 新建独立沙盒故事 `[训练]《书》·MMDD-HHMM` → 逐章灌 scene（12k/章截断）→ 真实章节 StyleAnalyzer 生成风格 DNA 并绑定 → 最近 2 轮 improvement 注入续写指令 → `run_continue_batch_with_cancel` 续写下一章（全量 gate/装配）→ 取真实后续章作基准 → LLM 五维对比（文笔/情节/人物口吻/节奏/钩子）→ 报告落 V157 `continuation_training_reports` → 同书保留最近 3 个沙盒自动级联清理。任务取消 5 秒内传播到续写管线。
+- **续写训练场页（F3）**：新增幕后「分析 → 续写训练」（ViewType `training-lab`）：源配置/取章策略/cron 计划创建、立即跑一轮、计划管理、报告列表 + 五维分数趋势柱、报告详情（含下一轮改进建议）。
+- **验证**：Rust **2030 passed / 15 ignored**（+5：HttpTransport SSE 解析·is_http 判定·旧 stdio 配置 JSON 兼容、V156 建表与幂等、V157 建表与索引）；Clippy/check/fmt/guard 全绿；tsc 0 错误；Vitest **696 / 3**（Sidebar IA 契约 23→24）；Playwright **127 / 5**。未本地打包。
+- **未关闭**：真机（栗子读书在线时）实测 legado 工具接入与随机取章；训练报告五维分数的判官一致性需多轮观察；stdio 型 MCP 服务器启动自动拉起（现在仅 HTTP 型）。
+
 ## v0.87.0（2026-11-07）
 
 **统一幕后/幕前人机对话（@agent 智能路由）+ 工作室 agent.md 人设显式编辑。**

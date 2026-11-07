@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
+  Dumbbell,
   LayoutDashboard,
   BookOpen,
   Users,
@@ -114,6 +115,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'usage-stats', label: '数据洞察', icon: BarChart3, impact: 'cold' },
       { id: 'narrative-analysis', label: '叙事分析', icon: GitBranch, impact: 'cold' },
       { id: 'agency-eval', label: '创作评估', icon: Gauge, impact: 'warm' },
+      { id: 'training-lab', label: '续写训练', icon: Dumbbell, impact: 'warm' },
       { id: 'agency-learning', label: '学习中心', icon: Brain, impact: 'warm' },
       { id: 'intention-graph', label: '意图诊断', icon: BrainCircuit, impact: 'cold' },
     ],

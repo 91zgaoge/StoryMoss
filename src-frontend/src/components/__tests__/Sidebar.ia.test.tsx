@@ -41,9 +41,9 @@ describe('Sidebar IA v0.81.1（设计文档 §3.1）', () => {
     expect(NAV_GROUPS.map(g => g.label)).toEqual(['创作', '故事资产', '运维', '分析', '系统']);
   });
 
-  it('条目总数 23 且 label 零改动；创作工具并入创作组', () => {
+  it('条目总数 24 且 label 零改动；创作工具并入创作组', () => {
     const items = NAV_GROUPS.flatMap(g => g.items);
-    expect(items).toHaveLength(23);
+    expect(items).toHaveLength(24);
     expect(items.map(i => i.label)).toEqual([
       '仪表盘',
       '故事',
@@ -65,6 +65,7 @@ describe('Sidebar IA v0.81.1（设计文档 §3.1）', () => {
       '数据洞察',
       '叙事分析',
       '创作评估',
+      '续写训练',
       '学习中心',
       '意图诊断',
       '设置',

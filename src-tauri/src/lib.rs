@@ -460,6 +460,14 @@ fn init_task_system_and_automation(
         workflow::executor::WorkflowNodeExecutor::new(app_handle.clone()),
     );
     task_service.register_executor(workflow_node_executor);
+    // v0.88.0: 续写训练（MCP/本地书取章 → 沙盒续写 → 对比闭环）
+    let training_executor = std::sync::Arc::new(
+        task_system::continuation_training::ContinuationTrainingExecutor::new(
+            pool.clone(),
+            app_handle.clone(),
+        ),
+    );
+    task_service.register_executor(training_executor);
     if let Err(e) = task_service.bootstrap() {
         log::error!("Failed to bootstrap task system: {}", e);
     } else {
@@ -1137,6 +1145,15 @@ pub fn run() {
                 crate::subscription::sync_remote_subscription(app.handle());
             }
 
+            // v0.88.0: 自动连接 enabled 的流式 HTTP MCP 服务器（栗子读书等），
+            // 让定时任务/续写训练在后端可直连；单台失败不影响启动。
+            if let Some(ref pool) = pool {
+                let pool_clone = pool.clone();
+                tauri::async_runtime::spawn(async move {
+                    commands::mcp::auto_connect_saved_servers(pool_clone).await;
+                });
+            }
+
             startup_trace::trace("setup() completed OK");
             Ok(())
         })
@@ -1178,6 +1195,8 @@ pub(crate) static BUILTIN_MCP_SERVER: Lazy<TokioMutex<mcp::McpServer>> = Lazy::n
         args: vec![],
         env: HashMap::new(),
         timeout_seconds: 30,
+        url: None,
+        headers: Default::default(),
     };
     TokioMutex::new(mcp::McpServer::new(config))
 });

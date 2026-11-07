@@ -173,3 +173,113 @@ pub async fn run_pipeline_task(
 
     service.create_task(req)
 }
+
+// ═══════════════ v0.88.0: 续写训练报告查询 ═══════════════
+
+#[derive(serde::Serialize)]
+pub struct TrainingReportSummary {
+    pub id: String,
+    pub book_title: String,
+    pub story_id: String,
+    pub start_chapter: i64,
+    pub context_chapters: i64,
+    pub generated_chapter: Option<i64>,
+    pub scores_json: Option<String>,
+    pub overall: Option<f64>,
+    pub created_at: String,
+}
+
+/// 训练报告列表（可按书名过滤；最多 50 条）
+#[tauri::command(rename_all = "snake_case")]
+pub async fn training_list_reports(
+    pool: tauri::State<'_, crate::db::DbPool>,
+    book_title: Option<String>,
+) -> Result<Vec<TrainingReportSummary>, crate::error::AppError> {
+    let conn = pool
+        .inner()
+        .get()
+        .map_err(|e| crate::error::AppError::internal(e.to_string()))?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, book_title, story_id, start_chapter, context_chapters, \
+             generated_chapter, scores_json, created_at \
+             FROM continuation_training_reports \
+             WHERE (?1 IS NULL OR book_title = ?1) \
+             ORDER BY created_at DESC LIMIT 50",
+        )
+        .map_err(|e| crate::error::AppError::internal(e.to_string()))?;
+    let rows = stmt
+        .query_map(rusqlite::params![book_title.as_deref()], |r| {
+            let scores_json: Option<String> = r.get(6)?;
+            let overall = scores_json.as_deref().and_then(|s| {
+                serde_json::from_str::<serde_json::Value>(s)
+                    .ok()
+                    .and_then(|v| v.get("overall").and_then(|o| o.as_f64()))
+            });
+            Ok(TrainingReportSummary {
+                id: r.get(0)?,
+                book_title: r.get(1)?,
+                story_id: r.get(2)?,
+                start_chapter: r.get(3)?,
+                context_chapters: r.get(4)?,
+                generated_chapter: r.get(5)?,
+                scores_json,
+                overall,
+                created_at: r.get(7)?,
+            })
+        })
+        .map_err(|e| crate::error::AppError::internal(e.to_string()))?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(|e| crate::error::AppError::internal(e.to_string()))?);
+    }
+    Ok(out)
+}
+
+#[derive(serde::Serialize)]
+pub struct TrainingReportDetail {
+    pub id: String,
+    pub book_title: String,
+    pub story_id: String,
+    pub run_id: Option<String>,
+    pub start_chapter: i64,
+    pub generated_chapter: Option<i64>,
+    pub truth_content: Option<String>,
+    pub scores_json: Option<String>,
+    pub report_md: String,
+    pub improvement_md: Option<String>,
+    pub created_at: String,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn training_get_report(
+    pool: tauri::State<'_, crate::db::DbPool>,
+    report_id: String,
+) -> Result<TrainingReportDetail, crate::error::AppError> {
+    let conn = pool
+        .inner()
+        .get()
+        .map_err(|e| crate::error::AppError::internal(e.to_string()))?;
+    conn.query_row(
+        "SELECT id, book_title, story_id, run_id, start_chapter, generated_chapter, \
+         truth_content, scores_json, report_md, improvement_md, created_at \
+         FROM continuation_training_reports WHERE id = ?1",
+        rusqlite::params![report_id],
+        |r| {
+            Ok(TrainingReportDetail {
+                id: r.get(0)?,
+                book_title: r.get(1)?,
+                story_id: r.get(2)?,
+                run_id: r.get(3)?,
+                start_chapter: r.get(4)?,
+                generated_chapter: r.get(5)?,
+                truth_content: r.get(6)?,
+                scores_json: r.get(7)?,
+                report_md: r.get(8)?,
+                improvement_md: r.get(9)?,
+                created_at: r.get(10)?,
+            })
+        },
+    )
+    .map_err(|e| crate::error::AppError::internal(format!("报告不存在: {e}")))
+}

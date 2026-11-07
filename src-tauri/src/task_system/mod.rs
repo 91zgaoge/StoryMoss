@@ -4,6 +4,7 @@
 //! 参考 memoh-X internal/schedule + internal/heartbeat 设计。
 
 pub mod commands;
+pub mod continuation_training;
 pub mod executor;
 pub mod heartbeat;
 pub mod models;

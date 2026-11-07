@@ -43,6 +43,33 @@ export const disconnectMcpServer = (serverId: string) =>
 export const getMcpConnections = () =>
   loggedInvoke<Array<{ id: string; tools: number; resources: number }>>('get_mcp_connections');
 
+// ═══════════════ v0.88.0: MCP 服务器配置持久化（V156） ═══════════════
+
+export interface SavedMcpServer {
+  id: string;
+  name: string;
+  enabled: boolean;
+  config: McpServer;
+  created_at: string;
+  updated_at: string;
+}
+
+export const mcpListSavedServers = () => loggedInvoke<SavedMcpServer[]>('mcp_list_saved_servers');
+
+/** 保存配置；connect=true 时同时建立连接并返回发现的工具。 */
+export const mcpSaveServer = (config: McpServer, enabled: boolean, connect?: boolean) =>
+  loggedInvoke<McpTool[] | null>('mcp_save_server', {
+    config,
+    enabled,
+    connect: connect ?? null,
+  });
+
+export const mcpDeleteServer = (serverId: string) =>
+  loggedInvoke<void>('mcp_delete_server', { server_id: serverId });
+
+export const mcpSetServerEnabled = (serverId: string, enabled: boolean) =>
+  loggedInvoke<void>('mcp_set_server_enabled', { server_id: serverId, enabled });
+
 export const listMcpTools = () => loggedInvoke<McpTool[]>('list_mcp_tools');
 
 export const executeMcpTool = (toolName: string, args: unknown) =>

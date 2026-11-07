@@ -332,6 +332,8 @@ impl SkillExecutor {
             args: runtime.server_config.args.clone(),
             env: runtime.server_config.env.clone(),
             timeout_seconds: 30,
+            url: None,
+            headers: Default::default(),
         };
         let mut client = crate::mcp::McpClient::new(mcp_config);
 

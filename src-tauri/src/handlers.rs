@@ -5,6 +5,7 @@ tauri::generate_handler! {
     commands::skill::get_skills, commands::skill::get_skill,
     commands::skill::import_skill, commands::skill::enable_skill, commands::skill::disable_skill, commands::skill::uninstall_skill, commands::skill::execute_skill, commands::skill::update_skill, commands::skill::format_text,
     commands::mcp::connect_mcp_server, commands::mcp::call_mcp_tool, commands::mcp::disconnect_mcp_server, commands::mcp::get_mcp_connections, commands::mcp::list_mcp_tools, commands::mcp::execute_mcp_tool, commands::mcp::register_mcp_tool, commands::mcp::unregister_mcp_tool,
+    commands::mcp::mcp_list_saved_servers, commands::mcp::mcp_save_server, commands::mcp::mcp_delete_server, commands::mcp::mcp_set_server_enabled,
     commands::vector::search_similar, commands::vector::text_search_vectors, commands::vector::hybrid_search_vectors,
     commands::export::export_story, commands::export::list_export_templates,
     commands::ai_op::list_ai_operations, commands::ai_op::rollback_ai_operation,
@@ -219,6 +220,8 @@ tauri::generate_handler! {
     guidebook_distillation::commands::delete_custom_methodology,
     guidebook_distillation::commands::export_methodology_skill,
     // Task system commands
+    task_system::commands::training_list_reports,
+    task_system::commands::training_get_report,
     task_system::commands::create_task,
     task_system::commands::update_task,
     task_system::commands::delete_task,

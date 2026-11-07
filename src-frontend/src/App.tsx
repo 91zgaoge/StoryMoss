@@ -23,6 +23,7 @@ import { StorySystem } from '@/pages/StorySystem';
 import { Insights } from '@/pages/Insights';
 import { IntentionGraphDiagnostics } from '@/pages/IntentionGraphDiagnostics';
 import AgencyEval from '@/pages/AgencyEval';
+import TrainingLab from '@/pages/TrainingLab';
 import AgencyLearning from '@/pages/AgencyLearning';
 import AgencyStudio from '@/pages/AgencyStudio';
 import { Logs } from '@/pages/Logs';
@@ -382,6 +383,8 @@ function App() {
         return <IntentionGraphDiagnostics />;
       case 'agency-eval':
         return <AgencyEval />;
+      case 'training-lab':
+        return <TrainingLab />;
       case 'agency-learning':
         return <AgencyLearning />;
       case 'agency-studio':

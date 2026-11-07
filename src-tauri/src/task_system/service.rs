@@ -410,9 +410,11 @@ pub(crate) const BOOK_DECONSTRUCTION_WALL_CLOCK_SECS: u64 = 12 * 60 * 60;
 pub(crate) fn wall_clock_timeout_secs(task: &Task) -> u64 {
     match task.task_type {
         // 拆书与指导书提炼同为多块 LLM 长任务，共享 12h 墙钟
-        TaskType::BookDeconstruction | TaskType::GuidebookDistillation => {
-            BOOK_DECONSTRUCTION_WALL_CLOCK_SECS
-        }
+        // v0.88.0: 续写训练 = 取章 + 创世式资产生成 + 续写 + gate + 对比评审，
+        // 单轮可达 30 分钟以上，同样豁免
+        TaskType::BookDeconstruction
+        | TaskType::GuidebookDistillation
+        | TaskType::ContinuationTraining => BOOK_DECONSTRUCTION_WALL_CLOCK_SECS,
         _ => task.heartbeat_timeout_seconds.max(60) as u64,
     }
 }

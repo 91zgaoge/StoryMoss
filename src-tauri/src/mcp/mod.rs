@@ -1,4 +1,5 @@
 pub mod client;
+pub mod repository;
 pub mod server;
 pub mod transport;
 pub mod types;

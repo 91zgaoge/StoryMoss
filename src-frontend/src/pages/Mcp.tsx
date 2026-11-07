@@ -1,9 +1,32 @@
 import { useEffect, useState } from 'react';
-import { Plug, Plus, TestTube, Play, Wrench, Server, Unplug, Globe } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  Plug,
+  Plus,
+  TestTube,
+  Play,
+  Wrench,
+  Server,
+  Unplug,
+  Globe,
+  Trash2,
+  Save,
+  Power,
+} from 'lucide-react';
+import toast from 'react-hot-toast';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { AiCodeBlock } from '@/components/ui/ai/AiCodeBlock';
 import { useMcpTools, type McpTool } from '@/hooks/useMcpTools';
+import {
+  mcpListSavedServers,
+  mcpSaveServer,
+  mcpDeleteServer,
+  mcpSetServerEnabled,
+  connectMcpServer,
+  disconnectMcpServer,
+  type SavedMcpServer,
+} from '@/services/api/skills';
 
 export function Mcp() {
   const {
@@ -29,20 +52,105 @@ export function Mcp() {
   const [serverCommand, setServerCommand] = useState('');
   const [serverArgs, setServerArgs] = useState('');
   const [serverEnv, setServerEnv] = useState('');
+  // v0.88.0: 传输模式与 HTTP 字段（栗子读书 legado 等）
+  const [transportMode, setTransportMode] = useState<'stdio' | 'http'>('http');
+  const [serverUrl, setServerUrl] = useState('');
+  const [authToken, setAuthToken] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const queryClient = useQueryClient();
+
+  // 持久化的服务器配置（重启后自动重连 HTTP 型）
+  const savedQuery = useQuery({
+    queryKey: ['mcp-saved-servers'],
+    queryFn: mcpListSavedServers,
+  });
+  const savedServers: SavedMcpServer[] = savedQuery.data ?? [];
 
   useEffect(() => {
     listTools();
   }, [listTools]);
 
+  const currentServerId = connectedServer?.id;
+
+  /** 断开当前连接并刷新外部工具列表 */
+  const refreshAfterConnect = async () => {
+    await listTools();
+  };
+
+  const buildConfig = (id?: string) => ({
+    id: id || crypto.randomUUID(),
+    name: serverName.trim(),
+    command: transportMode === 'stdio' ? serverCommand.trim() : '',
+    args: transportMode === 'stdio' ? serverArgs.trim().split(' ').filter(Boolean) : [],
+    env: transportMode === 'stdio' && serverEnv.trim() ? JSON.parse(serverEnv) : {},
+    url: transportMode === 'http' ? serverUrl.trim() : null,
+    headers:
+      transportMode === 'http' && authToken.trim()
+        ? { Authorization: `Bearer ${authToken.trim()}` }
+        : {},
+  });
+
   const handleConnect = async () => {
-    if (!serverName.trim() || !serverCommand.trim()) return;
-    await connectServer({
-      id: crypto.randomUUID(),
-      name: serverName.trim(),
-      command: serverCommand.trim(),
-      args: serverArgs.trim(),
-      env: serverEnv.trim() || undefined,
-    });
+    if (!serverName.trim()) return;
+    if (transportMode === 'stdio' && !serverCommand.trim()) return;
+    if (transportMode === 'http' && !serverUrl.trim()) return;
+    await connectServer(buildConfig() as never);
+  };
+
+  /** 保存到本机数据库并连接（HTTP 型服务器重启后自动重连） */
+  const handleSaveAndConnect = async () => {
+    if (!serverName.trim()) return;
+    if (transportMode === 'stdio' && !serverCommand.trim()) return;
+    if (transportMode === 'http' && !serverUrl.trim()) return;
+    setIsSaving(true);
+    try {
+      const config = buildConfig();
+      await mcpSaveServer(config as never, true, true);
+      await queryClient.invalidateQueries({ queryKey: ['mcp-saved-servers'] });
+      await refreshAfterConnect();
+      toast.success(`已保存并连接 ${config.name}`);
+    } catch (e) {
+      toast.error('保存失败: ' + (e as Error).message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleToggleSaved = async (srv: SavedMcpServer) => {
+    try {
+      if (srv.enabled) {
+        await mcpSetServerEnabled(srv.id, false);
+        await disconnectMcpServer(srv.id).catch(() => undefined);
+      } else {
+        await mcpSaveServer(srv.config, true, true);
+        await refreshAfterConnect();
+      }
+      await queryClient.invalidateQueries({ queryKey: ['mcp-saved-servers'] });
+      await listTools();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+
+  const handleDeleteSaved = async (srv: SavedMcpServer) => {
+    try {
+      await mcpDeleteServer(srv.id);
+      await queryClient.invalidateQueries({ queryKey: ['mcp-saved-servers'] });
+      await listTools();
+      toast.success(`已删除 ${srv.name}`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+
+  const handleConnectSaved = async (srv: SavedMcpServer) => {
+    try {
+      await connectMcpServer({ ...srv.config, enabled: true });
+      await refreshAfterConnect();
+      toast.success(`已连接 ${srv.name}`);
+    } catch (e) {
+      toast.error('连接失败: ' + (e as Error).message);
+    }
   };
 
   const handleExecute = async () => {
@@ -133,6 +241,24 @@ export function Mcp() {
             )}
           </div>
 
+          {/* v0.88.0: 传输模式——流式 HTTP（栗子读书 legado 等）或 stdio 子进程 */}
+          <div className="flex items-center gap-2">
+            {(['http', 'stdio'] as const).map(m => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setTransportMode(m)}
+                className={`px-3 py-1 rounded-lg text-xs border transition-colors ${
+                  transportMode === m
+                    ? 'border-cinema-gold text-cinema-gold bg-cinema-gold/10'
+                    : 'border-cinema-700 text-gray-400 hover:text-white'
+                }`}
+              >
+                {m === 'http' ? 'HTTP（远程服务）' : 'stdio（本地命令）'}
+              </button>
+            ))}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
               <label className="block text-xs text-gray-400 mb-1">服务器名称</label>
@@ -140,51 +266,93 @@ export function Mcp() {
                 type="text"
                 value={serverName}
                 onChange={e => setServerName(e.target.value)}
-                placeholder="例如: Filesystem MCP"
+                placeholder="例如: 栗子读书"
                 className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
               />
             </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">启动命令</label>
-              <input
-                type="text"
-                value={serverCommand}
-                onChange={e => setServerCommand(e.target.value)}
-                placeholder="例如: npx 或 /usr/local/bin/mcp-server"
-                className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">参数 (空格分隔)</label>
-              <input
-                type="text"
-                value={serverArgs}
-                onChange={e => setServerArgs(e.target.value)}
-                placeholder="例如: -y @modelcontextprotocol/server-filesystem"
-                className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">环境变量 JSON (可选)</label>
-              <input
-                type="text"
-                value={serverEnv}
-                onChange={e => setServerEnv(e.target.value)}
-                placeholder='{"API_KEY":"xxx"}'
-                className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
-              />
-            </div>
+            {transportMode === 'http' ? (
+              <>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">MCP 端点 URL</label>
+                  <input
+                    type="text"
+                    value={serverUrl}
+                    onChange={e => setServerUrl(e.target.value)}
+                    placeholder="http://127.0.0.1:1122/mcp"
+                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Bearer 令牌 (可选)</label>
+                  <input
+                    type="password"
+                    value={authToken}
+                    onChange={e => setAuthToken(e.target.value)}
+                    placeholder="你的令牌"
+                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">启动命令</label>
+                  <input
+                    type="text"
+                    value={serverCommand}
+                    onChange={e => setServerCommand(e.target.value)}
+                    placeholder="例如: npx 或 /usr/local/bin/mcp-server"
+                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">参数 (空格分隔)</label>
+                  <input
+                    type="text"
+                    value={serverArgs}
+                    onChange={e => setServerArgs(e.target.value)}
+                    placeholder="例如: -y @modelcontextprotocol/server-filesystem"
+                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">环境变量 JSON (可选)</label>
+                  <input
+                    type="text"
+                    value={serverEnv}
+                    onChange={e => setServerEnv(e.target.value)}
+                    placeholder='{"API_KEY":"xxx"}'
+                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           <div className="flex items-center gap-3">
             <Button
               variant="primary"
+              onClick={handleSaveAndConnect}
+              isLoading={isSaving || isConnecting}
+              disabled={
+                !serverName.trim() ||
+                (transportMode === 'http' ? !serverUrl.trim() : !serverCommand.trim())
+              }
+            >
+              <Save className="w-4 h-4" />
+              保存并连接
+            </Button>
+            <Button
+              variant="secondary"
               onClick={handleConnect}
               isLoading={isConnecting}
-              disabled={!serverName.trim() || !serverCommand.trim()}
+              disabled={
+                !serverName.trim() ||
+                (transportMode === 'http' ? !serverUrl.trim() : !serverCommand.trim())
+              }
             >
               <Plug className="w-4 h-4" />
-              连接服务器
+              仅连接（不保存）
             </Button>
             {connectedServer && (
               <Button variant="secondary" onClick={disconnectServer}>
@@ -193,6 +361,65 @@ export function Mcp() {
               </Button>
             )}
           </div>
+
+          {/* 已保存的服务器（V156 持久化；HTTP 型随应用启动自动重连） */}
+          {savedServers.length > 0 && (
+            <div className="space-y-2 pt-2 border-t border-cinema-800">
+              <h3 className="text-xs font-semibold text-gray-300">
+                已保存 ({savedServers.length}) — HTTP 型服务器随应用启动自动重连
+              </h3>
+              {savedServers.map(srv => (
+                <div
+                  key={srv.id}
+                  data-testid={`mcp-saved-${srv.id}`}
+                  className="flex items-center gap-3 rounded-lg border border-cinema-700 bg-cinema-800/60 px-3 py-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-white truncate">{srv.name}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-cinema-700 text-gray-300">
+                        {srv.config.url ? 'HTTP' : 'stdio'}
+                      </span>
+                      {currentServerId === srv.id && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-400">
+                          已连接
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-gray-500 truncate">
+                      {srv.config.url || srv.config.command}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    title={srv.enabled ? '停用（并断开）' : '启用并连接'}
+                    onClick={() => handleToggleSaved(srv)}
+                    className={`p-1.5 rounded ${srv.enabled ? 'text-green-400' : 'text-gray-500'} hover:bg-cinema-700`}
+                  >
+                    <Power className="w-4 h-4" />
+                  </button>
+                  {!currentServerId && (
+                    <button
+                      type="button"
+                      title="连接"
+                      onClick={() => handleConnectSaved(srv)}
+                      className="p-1.5 rounded text-cinema-gold hover:bg-cinema-700"
+                    >
+                      <Plug className="w-4 h-4" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    title="删除配置"
+                    onClick={() => handleDeleteSaved(srv)}
+                    className="p-1.5 rounded text-red-400 hover:bg-cinema-700"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 

@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "StoryMoss 功能实现流程",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1000, 560],
+    "views": [
+      {
+        "id": "continue-path",
+        "label": "续写主路径",
+        "focus": ["prompt", "router", "continue", "persist", "paper"],
+        "note": "日常写作：幕前指令进入 smart_execute，再走 Agency Append 落库上纸。"
+      },
+      {
+        "id": "route-forks",
+        "label": "咽喉分流",
+        "focus": ["router", "genesis", "continue", "sidecar"],
+        "note": "先创世，再资产刷新，再 Agency Append；有选区则改写走 PlanExecutor。"
+      },
+      {
+        "id": "background",
+        "label": "后台回流",
+        "focus": ["persist", "qc"],
+        "note": "正文落库后立即上纸；审查、观察与资产回流在后台跑。"
+      }
+    ]
+  },
+  "lanes": [
+    { "id": "ui", "label": "幕前" },
+    { "id": "agency", "label": "Agency 正文" },
+    { "id": "delivery", "label": "设定与落库", "variant": "exception" }
+  ],
+  "phases": [
+    { "id": "intake", "label": "接入", "fromCol": 0, "toCol": 1 },
+    { "id": "fork_phase", "label": "分流", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "commit", "label": "落库与回流", "fromCol": 4, "toCol": 5 }
+  ],
+  "groups": [
+    {
+      "id": "agency_jobs",
+      "label": "创世或续写",
+      "lane": "agency",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "bg_work",
+      "label": "不挡正文",
+      "lane": "delivery",
+      "fromCol": 5,
+      "toCol": 5,
+      "variant": "security"
+    }
+  ],
+  "mainPath": ["prompt", "router", "continue", "persist", "paper"],
+  "nodes": [
+    {
+      "id": "prompt",
+      "lane": "ui",
+      "col": 0,
+      "type": "frontend",
+      "label": "幕前指令栏",
+      "sublabel": "AiPromptBar"
+    },
+    {
+      "id": "router",
+      "lane": "ui",
+      "col": 1,
+      "type": "backend",
+      "label": "smart_execute",
+      "sublabel": "classify_intent",
+      "tag": "唯一咽喉"
+    },
+    {
+      "id": "genesis",
+      "lane": "agency",
+      "col": 2,
+      "type": "backend",
+      "label": "Agency 创世",
+      "sublabel": "run_genesis"
+    },
+    {
+      "id": "continue",
+      "lane": "agency",
+      "col": 3,
+      "type": "backend",
+      "label": "Agency 续写",
+      "sublabel": "write_beat_once",
+      "tag": "tools=None"
+    },
+    {
+      "id": "sidecar",
+      "lane": "delivery",
+      "col": 1,
+      "type": "backend",
+      "label": "刷新或改写",
+      "sublabel": "PlanExecutor"
+    },
+    {
+      "id": "persist",
+      "lane": "delivery",
+      "col": 4,
+      "type": "database",
+      "label": "SQLite 生产表",
+      "sublabel": "scenes.content"
+    },
+    {
+      "id": "paper",
+      "lane": "ui",
+      "col": 5,
+      "type": "frontend",
+      "label": "幕前纸面",
+      "sublabel": "appendAiContent"
+    },
+    {
+      "id": "qc",
+      "lane": "delivery",
+      "col": 5,
+      "type": "security",
+      "label": "审查与回流",
+      "sublabel": "后台审查"
+    }
+  ],
+  "edges": [
+    { "id": "prompt-router", "from": "prompt", "to": "router" },
+    {
+      "id": "router-continue",
+      "from": "router",
+      "to": "continue",
+      "label": "Append",
+      "variant": "emphasis",
+      "role": "main"
+    },
+    {
+      "id": "router-genesis",
+      "from": "router",
+      "to": "genesis",
+      "role": "branch"
+    },
+    {
+      "id": "router-sidecar",
+      "from": "router",
+      "to": "sidecar",
+      "variant": "dashed",
+      "role": "branch",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "straight"
+    },
+    { "id": "continue-persist", "from": "continue", "to": "persist" },
+    {
+      "id": "genesis-persist",
+      "from": "genesis",
+      "to": "persist",
+      "role": "branch"
+    },
+    {
+      "id": "persist-paper",
+      "from": "persist",
+      "to": "paper",
+      "variant": "emphasis",
+      "role": "return"
+    },
+    {
+      "id": "persist-qc",
+      "from": "persist",
+      "to": "qc",
+      "variant": "dashed",
+      "role": "async"
+    }
+  ]
+}

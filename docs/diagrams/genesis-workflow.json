@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "StoryMoss 创世流程",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1000, 560],
+    "views": [
+      {
+        "id": "intake",
+        "label": "接入与路由",
+        "focus": ["prompt", "route", "concept"],
+        "note": "幕前指令经 classify_intent，仅 is_new_novel 才进入 Agency 创世。"
+      },
+      {
+        "id": "assets-first",
+        "label": "先资产后正文",
+        "focus": ["concept", "depth", "write"],
+        "note": "Producer 先写世界观与大纲，LeadWriter 再写第一章，避免首章脱节。"
+      },
+      {
+        "id": "deliver",
+        "label": "落库与上纸",
+        "focus": ["write", "persist", "paper"],
+        "note": "assemble_only 立刻把 scenes.content 交给幕前；审查在后台跑。"
+      }
+    ]
+  },
+  "lanes": [
+    { "id": "ui", "label": "幕前" },
+    { "id": "agency", "label": "Agency" },
+    { "id": "delivery", "label": "落库与回退", "variant": "exception" }
+  ],
+  "phases": [
+    { "id": "intake", "label": "接入", "fromCol": 0, "toCol": 1 },
+    { "id": "plan", "label": "策划", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "deliver", "label": "写作与交付", "fromCol": 4, "toCol": 5 }
+  ],
+  "groups": [
+    {
+      "id": "producer_serial",
+      "label": "管理串行",
+      "lane": "agency",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "fallback_zone",
+      "label": "快速路径失败",
+      "lane": "delivery",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "security"
+    }
+  ],
+  "mainPath": [
+    "prompt",
+    "route",
+    "concept",
+    "depth",
+    "write",
+    "persist",
+    "paper"
+  ],
+  "nodes": [
+    {
+      "id": "prompt",
+      "lane": "ui",
+      "col": 0,
+      "type": "frontend",
+      "label": "幕前指令",
+      "sublabel": "自然语言创世"
+    },
+    {
+      "id": "route",
+      "lane": "ui",
+      "col": 1,
+      "type": "backend",
+      "label": "smart_execute",
+      "sublabel": "classify_intent",
+      "tag": "is_new_novel"
+    },
+    {
+      "id": "concept",
+      "lane": "agency",
+      "col": 2,
+      "type": "backend",
+      "label": "concept_pack",
+      "sublabel": "建故事 + 角色卡"
+    },
+    {
+      "id": "depth",
+      "lane": "agency",
+      "col": 3,
+      "type": "backend",
+      "label": "深度资产",
+      "sublabel": "世界观与大纲"
+    },
+    {
+      "id": "write",
+      "lane": "delivery",
+      "col": 4,
+      "type": "backend",
+      "label": "写第一章",
+      "sublabel": "writer_first_chapter"
+    },
+    {
+      "id": "persist",
+      "lane": "delivery",
+      "col": 5,
+      "type": "database",
+      "label": "装配落库",
+      "sublabel": "assemble_only",
+      "tag": "后台审查"
+    },
+    {
+      "id": "paper",
+      "lane": "ui",
+      "col": 5,
+      "type": "frontend",
+      "label": "第一章上纸面",
+      "sublabel": "idle → delivered"
+    },
+    {
+      "id": "legacy",
+      "lane": "delivery",
+      "col": 2,
+      "type": "messagebus",
+      "label": "串行六阶段",
+      "sublabel": "legacy 回退一次"
+    }
+  ],
+  "edges": [
+    { "id": "prompt-route", "from": "prompt", "to": "route" },
+    {
+      "id": "route-concept",
+      "from": "route",
+      "to": "concept",
+      "label": "is_new_novel",
+      "variant": "emphasis"
+    },
+    { "id": "concept-depth", "from": "concept", "to": "depth" },
+    {
+      "id": "depth-write",
+      "from": "depth",
+      "to": "write",
+      "label": "先资产后正文",
+      "variant": "emphasis"
+    },
+    { "id": "write-persist", "from": "write", "to": "persist" },
+    {
+      "id": "persist-paper",
+      "from": "persist",
+      "to": "paper",
+      "label": "立即返回",
+      "variant": "emphasis"
+    },
+    {
+      "id": "concept-legacy",
+      "from": "concept",
+      "to": "legacy",
+      "label": "快速路径失败",
+      "role": "error",
+      "variant": "security"
+    }
+  ]
+}
+

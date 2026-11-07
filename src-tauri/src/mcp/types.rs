@@ -21,12 +21,32 @@ pub struct McpResource {
 pub struct McpServerConfig {
     pub id: String,
     pub name: String,
+    /// stdio 模式的可执行文件；HTTP 模式（url 存在）时为空串。
     pub command: String,
     pub args: Vec<String>,
     #[serde(default)]
     pub env: HashMap<String, String>,
     #[serde(default)]
     pub timeout_seconds: u64,
+    /// v0.88.0: 流式 HTTP 传输端点（如栗子读书 legado `http://127.0.0.1:1122/mcp`）。
+    /// 存在时优先于 stdio。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// v0.88.0: 随请求发送的自定义 HTTP 头（如 `Authorization: Bearer
+    /// <token>`）。
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub headers: HashMap<String, String>,
+}
+
+impl McpServerConfig {
+    /// HTTP（流式）模式判定：配置了 url 即走 HttpTransport。
+    pub fn is_http(&self) -> bool {
+        self.url
+            .as_deref()
+            .map(str::trim)
+            .map(|u| !u.is_empty())
+            .unwrap_or(false)
+    }
 }
 
 #[derive(Debug, Clone)]

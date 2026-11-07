@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.87.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.88.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.88.0 变更说明
+
+- Rust **2030 passed / 15 ignored**（+5）：`mcp::transport::tests` ×3（SSE `data:` 解析、`is_http` 判定含空白 URL、v0.86 旧 stdio 配置 JSON 兼容反序列化）、`V156__mcp_server_configs::tests`（建表 + enabled 默认 + 主键幂等）、`V157__continuation_training_reports::tests`（建表 + 索引）。
+- Vitest **696 passed / 3 skipped**：Sidebar IA 契约 23→24（分析组新增「续写训练」）；无新增用例。
+- Playwright **127 passed / 5 skipped** 基线不变。
 
 ### v0.87.0 变更说明
 

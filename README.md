@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.87.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.88.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.88.0 · 接入栗子读书 MCP，定时续写训练自动闭环
+
+MCP 工具页现在支持流式 HTTP 服务器：填入栗子读书的端点（`http://127.0.0.1:1122/mcp`）和 Bearer 令牌即可连接，配置会保存到本机、应用启动自动重连。新增「分析 → 续写训练」页：配置原书来源（栗子读书或本地 epub/txt），定时任务会自动取若干章灌进独立沙盒故事、按原文风格续写下一章、再和真实后续章做五维对比（文笔/情节/人物口吻/节奏/钩子），把改进建议自动注入下一轮——续写能力随训练轮次持续校准。
 
 ### v0.87.0 · 幕前幕后统一剧组对话，工作室可编辑每个 agent 的人设
 

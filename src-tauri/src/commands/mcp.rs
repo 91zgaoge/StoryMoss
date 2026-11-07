@@ -9,11 +9,8 @@ use crate::{
     BUILTIN_MCP_SERVER, MCP_CONNECTIONS,
 };
 
-#[tauri::command(rename_all = "snake_case")]
-pub async fn connect_mcp_server(
-    config: McpServerConfig,
-    _pool: State<'_, DbPool>,
-) -> Result<Vec<crate::mcp::McpTool>, AppError> {
+/// 连接一台 MCP 服务器并注册能力（命令与启动自动连接共用）。
+pub async fn connect_server(config: McpServerConfig) -> Result<Vec<crate::mcp::McpTool>, AppError> {
     let mut client = McpClient::new(config.clone());
     client.connect().await.map_err(AppError::from)?;
     let tools = client.get_tools().clone();
@@ -44,6 +41,33 @@ pub async fn connect_mcp_server(
 }
 
 #[tauri::command(rename_all = "snake_case")]
+pub async fn connect_mcp_server(
+    config: McpServerConfig,
+    _pool: State<'_, DbPool>,
+) -> Result<Vec<crate::mcp::McpTool>, AppError> {
+    connect_server(config).await
+}
+
+/// 断开一台 MCP 服务器并注销能力（命令与删除配置共用）。
+pub async fn disconnect_server(server_id: &str) {
+    {
+        let mut connections = MCP_CONNECTIONS.lock().await;
+        if let Some(mut client) = connections.remove(server_id) {
+            client.disconnect().await;
+            log::info!("[MCP] Disconnected from server {server_id}");
+        }
+    }
+    let mut registry = crate::capabilities::get_capability_registry();
+    let prefix = format!("mcp.{server_id}.");
+    let removed = registry.unregister_by_prefix(&prefix);
+    if removed > 0 {
+        log::info!(
+            "[CapabilityRegistry] Unregistered {removed} MCP capabilities from server {server_id}"
+        );
+    }
+}
+
+#[tauri::command(rename_all = "snake_case")]
 pub async fn call_mcp_tool(
     server_id: String,
     tool_name: String,
@@ -65,28 +89,7 @@ pub async fn disconnect_mcp_server(
     server_id: String,
     _pool: State<'_, DbPool>,
 ) -> Result<(), AppError> {
-    {
-        let mut connections = MCP_CONNECTIONS.lock().await;
-        if let Some(mut client) = connections.remove(&server_id) {
-            client.disconnect().await;
-            log::info!("[MCP] Disconnected from server {}", server_id);
-        }
-    }
-
-    // W4-B2: 从 CapabilityRegistry 注销该服务器的所有能力
-    {
-        let mut registry = crate::capabilities::get_capability_registry();
-        let prefix = format!("mcp.{server_id}.");
-        let removed = registry.unregister_by_prefix(&prefix);
-        if removed > 0 {
-            log::info!(
-                "[CapabilityRegistry] Unregistered {} MCP capabilities from server {}",
-                removed,
-                server_id
-            );
-        }
-    }
-
+    disconnect_server(&server_id).await;
     Ok(())
 }
 
@@ -203,4 +206,86 @@ pub async fn unregister_mcp_tool(
         tool_name
     );
     Ok(())
+}
+
+// ═══════════════ v0.88.0: MCP 服务器配置持久化 + 启动自动连接 ═══════════════
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn mcp_list_saved_servers(
+    pool: State<'_, DbPool>,
+) -> Result<Vec<crate::mcp::repository::SavedMcpServer>, AppError> {
+    crate::mcp::repository::list_servers(pool.inner())
+}
+
+/// 保存（或更新）服务器配置；`connect=true` 时同时建立连接并注册能力。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn mcp_save_server(
+    pool: State<'_, DbPool>,
+    config: McpServerConfig,
+    enabled: bool,
+    connect: Option<bool>,
+) -> Result<Option<Vec<crate::mcp::McpTool>>, AppError> {
+    crate::mcp::repository::save_server(pool.inner(), &config, enabled)?;
+    if connect.unwrap_or(false) {
+        let tools = connect_mcp_server(config, pool).await?;
+        Ok(Some(tools))
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn mcp_delete_server(pool: State<'_, DbPool>, server_id: String) -> Result<(), AppError> {
+    // 先断开内存连接（幂等），再删配置
+    disconnect_server(&server_id).await;
+    crate::mcp::repository::delete_server(pool.inner(), &server_id)?;
+    Ok(())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn mcp_set_server_enabled(
+    pool: State<'_, DbPool>,
+    server_id: String,
+    enabled: bool,
+) -> Result<(), AppError> {
+    if !enabled {
+        disconnect_server(&server_id).await;
+    }
+    crate::mcp::repository::set_enabled(pool.inner(), &server_id, enabled)
+}
+
+/// 启动时自动连接所有 enabled 的 MCP 服务器（lib.rs setup 末尾调用）。
+/// 单台失败只记日志，不阻塞其余连接——MCP 服务器（如栗子读书手机端）
+/// 可能暂时不在线，前端可手动重连。
+pub async fn auto_connect_saved_servers(pool: crate::db::DbPool) {
+    let configs = match crate::mcp::repository::list_enabled_configs(&pool) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("[MCP] 启动自动连接读取配置失败: {e}");
+            return;
+        }
+    };
+    for config in configs {
+        if !config.is_http() {
+            // stdio 服务器需要拉起子进程，启动期不自动拉起（保留手动触发）
+            continue;
+        }
+        match connect_server(config.clone()).await {
+            Ok(tools) => {
+                log::info!(
+                    "[MCP] 自动连接 {}（{}）成功，{} 个工具",
+                    config.name,
+                    config.id,
+                    tools.len()
+                );
+            }
+            Err(e) => {
+                log::warn!(
+                    "[MCP] 自动连接 {}（{}）失败（服务器可能未开机）：{e}",
+                    config.name,
+                    config.id
+                );
+            }
+        }
+    }
 }

@@ -171,6 +171,10 @@ export interface McpServer {
   env?: Record<string, string>;
   enabled: boolean;
   tools?: McpTool[];
+  /** v0.88.0: 流式 HTTP 端点（存在时优先于 stdio），如栗子读书 http://127.0.0.1:1122/mcp */
+  url?: string | null;
+  /** v0.88.0: 随请求发送的自定义 HTTP 头（如 Authorization: Bearer <token>） */
+  headers?: Record<string, string>;
 }
 
 export interface McpTool {
@@ -323,6 +327,7 @@ export type ViewType =
   | 'usage-stats'
   /** Agency 创作评估（质量门/检查点/human 信号） */
   | 'agency-eval'
+  | 'training-lab'
   /** Agency 学习中心（instinct 列表/晋升提案/观察流） */
   | 'agency-learning'
   /** Agency 代理工作室（角色状态卡/黑板视图/活动时间线） */
