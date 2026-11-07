@@ -2,6 +2,10 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.89.4（2026-11-07）
+
+**v0.89.3 漏网一处**：幂等分支 `existing.id`（Uuid→String）同款映射错误补 `.to_string()`；上一轮其余 5 类错误已全部通过编译。
+
 ## v0.89.3（2026-11-07）
 
 **修复 server 首次 CI 编译暴露的 6 处错误（本地无 PG 编译不了的债，sqlx 宏在 CI 上真实展开才暴露）。**

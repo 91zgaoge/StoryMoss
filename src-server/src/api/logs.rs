@@ -142,7 +142,7 @@ async fn upload(
     .await
     {
         return HttpResponse::Conflict().json(UploadResponse {
-            id: existing.id,
+            id: existing.id.to_string(),
             sha256: sha,
             duplicate: true,
             size_bytes: existing.size_bytes,
