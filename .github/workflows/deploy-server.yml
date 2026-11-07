@@ -17,6 +17,23 @@ jobs:
           source: "src-server,docker-compose.yml"
           target: "/opt/storymoss/"
           strip_components: 0
+      - name: Inject LOG_OPS_TOKEN into server .env
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_SSH_HOST }}
+          username: ${{ secrets.SERVER_SSH_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/storymoss
+            if [ -n "${{ secrets.LOG_OPS_TOKEN }}" ]; then
+              # 幂等写入 .env（docker compose 自动读取同目录 .env）
+              touch .env
+              grep -q '^LOG_OPS_TOKEN=' .env || echo 'LOG_OPS_TOKEN=' >> .env
+              sed -i "s|^LOG_OPS_TOKEN=.*|LOG_OPS_TOKEN=${{ secrets.LOG_OPS_TOKEN }}|" .env
+              echo "LOG_OPS_TOKEN injected"
+            else
+              echo "LOG_OPS_TOKEN secret not set; ops download endpoints stay disabled"
+            fi
       - name: docker compose up
         uses: appleboy/ssh-action@v1.2.0
         with:

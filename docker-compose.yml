@@ -53,6 +53,11 @@ services:
       WECHAT_CLIENT_SECRET: ${WECHAT_CLIENT_SECRET:-}
       QQ_CLIENT_ID: ${QQ_CLIENT_ID:-}
       QQ_CLIENT_SECRET: ${QQ_CLIENT_SECRET:-}
+      # v0.89.0: 日志包上传（3 天滚动保留；LOG_OPS_TOKEN 供运维下载鉴权）
+      LOG_STORAGE_DIR: ${LOG_STORAGE_DIR:-/data/logpackages}
+      LOG_OPS_TOKEN: ${LOG_OPS_TOKEN:-}
+    volumes:
+      - ${LOG_STORAGE_DIR:-/data/logpackages}:/data/logpackages
     ports:
       # 仅绑定回环地址，由主机 nginx 反代 /api/ 访问，避免直接暴露
       - "127.0.0.1:8080:8080"

@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.88.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.89.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.89.0 变更说明
+
+- Rust **2033 passed / 15 ignored**（+3）：`log_report::tests`（sha256 确定性+64hex、上传历史 JSON 读写与 sha256 判重、manifest 序列化字段）。
+- src-server：纯函数单测（sha256_hex 已知向量、zip 内 manifest 字段提取、缺失返回 None）——本地无 PG 不编译（sqlx 宏），CI/Docker 构建负责端到端。
+- Vitest **696 / 3**、Playwright **127 / 5** 基线不变。
 
 ### v0.88.0 变更说明
 

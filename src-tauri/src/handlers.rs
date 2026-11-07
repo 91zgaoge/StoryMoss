@@ -220,6 +220,9 @@ tauri::generate_handler! {
     guidebook_distillation::commands::delete_custom_methodology,
     guidebook_distillation::commands::export_methodology_skill,
     // Task system commands
+    log_report::package_log_report,
+    log_report::upload_log_report,
+    log_report::get_log_upload_history,
     task_system::commands::training_list_reports,
     task_system::commands::training_get_report,
     task_system::commands::create_task,

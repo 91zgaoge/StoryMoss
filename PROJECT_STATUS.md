@@ -1,6 +1,8 @@
-# StoryMoss (草苔) v0.88.0 项目完成状态
+# StoryMoss (草苔) v0.89.0 项目完成状态
 
-> 最后更新: 2026-11-07（**v0.88.0：MCP 流式 HTTP 客户端 + 续写训练定时闭环**——`McpServerConfig` 增 url/headers，新增 `HttpTransport`（Streamable HTTP/SSE/会话保持），V156 配置持久化 + 启动自动重连，MCP 页 HTTP/stdio 模式；`TaskType::ContinuationTraining` 执行器：栗子读书/本地书取章 → 独立沙盒 → 风格 DNA → 上轮建议注入 → 续写 → 真实后续章五维对比（V157 报告表）→ 沙盒自动清理；新增「续写训练」页。Rust **2030/15**（+5）；Vitest **696/3**；Playwright **127/5**。**未关闭**：栗子读书真机接入实测。）
+> 最后更新: 2026-11-07（**v0.89.0：日志压缩上传官网 + ZCode 每日分析修复**——`log_report.rs` 打包近 3 天日志（20MB 预算、SHA-256 命名、不含正文），日志页两步显式授权上传（无静默上传），本机+服务端双 sha256 去重；src-server `/api/logs/*`（005 迁移、运维令牌下载、每小时 72h 清理、docker volume + deploy 注入 secret）；ZCode 每天 10:00 下载日志包分析修复（每轮 ≤3 个，全门禁，无问题只写报告）。Rust **2033/15**（+3）。**未关闭**：deploy-server 部署 + LOG_OPS_TOKEN secret 需用户操作。）
+>
+> 历史摘要（v0.88.0：MCP 流式 HTTP 客户端 + 续写训练定时闭环**——`McpServerConfig` 增 url/headers，新增 `HttpTransport`（Streamable HTTP/SSE/会话保持），V156 配置持久化 + 启动自动重连，MCP 页 HTTP/stdio 模式；`TaskType::ContinuationTraining` 执行器：栗子读书/本地书取章 → 独立沙盒 → 风格 DNA → 上轮建议注入 → 续写 → 真实后续章五维对比（V157 报告表）→ 沙盒自动清理；新增「续写训练」页。Rust **2030/15**（+5）；Vitest **696/3**；Playwright **127/5**。**未关闭**：栗子读书真机接入实测。）
 >
 > 历史摘要（v0.87.0：统一幕后/幕前人机对话**——`@导演/@管理/@编审/@主创` 统一解析（含全角 ＠），幕前底部输入栏智能路由：@提及快路直发、意图分类 `is_chat` 转入幕前对话浮层（默认 @导演，预填双保险），共享 ChatPanel 令两窗口会话实时同步；工作室角色卡新增「人设」入口编辑四 agent 的 agent.md（PersonaEditModal，覆盖经 prompt_overrides 即时生效），主创/管理/编审默认人设专业化精修。Rust **2025/15**（+4）；Vitest **696/3**（+10）；Playwright **127/5**。**未关闭**：幕前智能路由误判率真机观察。）
 >

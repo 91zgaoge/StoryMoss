@@ -46,6 +46,14 @@ async fn main() -> std::io::Result<()> {
 
     log::info!("✅ Database migrations applied");
 
+    // v0.89.0: 日志包 3 天保留清理（每小时）
+    {
+        let sweep_pool = db_pool.clone();
+        tokio::spawn(async move {
+            api::logs::retention_sweep(sweep_pool).await;
+        });
+    }
+
     let db_pool = web::Data::new(db_pool);
 
     HttpServer::new(move || {

@@ -20,6 +20,12 @@ pub struct ServerConfig {
     // Dev
     pub dev_upgrade_enabled: bool,
 
+    // v0.89.0: 日志包上传
+    /// 日志包落盘目录（docker volume 挂载，如 /data/logpackages）
+    pub log_storage_dir: String,
+    /// 运维下载令牌（GET /api/logs/packages* 的 Bearer；未配置则下载端点 503）
+    pub log_ops_token: Option<String>,
+
     // OAuth
     pub google_client_id: Option<String>,
     pub google_client_secret: Option<String>,
@@ -64,6 +70,9 @@ impl ServerConfig {
 
             // v0.59.0：缺省改为 false——自助升级权益只应在显式开启的
             // 开发环境生效，裸跑二进制不应是升级后门。
+            log_storage_dir: env::var("LOG_STORAGE_DIR")
+                .unwrap_or_else(|_| "/data/logpackages".to_string()),
+            log_ops_token: env::var("LOG_OPS_TOKEN").ok().filter(|t| !t.trim().is_empty()),
             dev_upgrade_enabled: env::var("DEV_UPGRADE_ENABLED")
                 .map(|v| v == "true" || v == "1")
                 .unwrap_or(false),

@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.89.0（2026-11-07）
+
+**日志压缩上传官网（显式授权）+ ZCode 每日日志分析修复自动化。**
+
+- **桌面端打包（F5）**：新模块 `log_report.rs`——打包 `app_data/logs/` 近 3 天内容（tracing 轮转日志 + `creative_workflow.log` + `traces/*.json` 最多 50 个 + panic 快照 + startup trace）+ `manifest.json`（版本/平台/文件清单，**不含小说正文**）；zip Deflated，20MB 字节预算（超限从大到小丢弃）；SHA-256 命名落 `log_reports/`（本机保留最近 5 个）。IPC：`package_log_report` / `upload_log_report` / `get_log_upload_history`。
+- **防重复**：双保险——本机 `log_upload_history.json` 按 sha256 判重（打包阶段即拦截）；服务端 `log_packages.sha256` UNIQUE，同哈希 72h 内幂等返回 409（客户端视为已上传成功，不算错误）。
+- **显式授权**：日志页新增「上传日志包」→ 两步授权弹窗（先打包不上传 → 展示文件数/体积/SHA-256 → 用户点确认才上传）；每次上传都需显式确认，无静默自动上传（比全局开关更强的授权语义，故未设总开关）；上传需登录（设备身份给明确提示）。上传记录本机可见。
+- **服务端（src-server）**：`005_log_packages.sql`（sha256 UNIQUE + 时间索引）；`/api/logs/upload`（AuthClaims + actix-multipart，服务端独立重算 sha256 校验、21MB 硬上限、上传后顺带清理）；`GET /api/logs/packages` 与 `/packages/{id}/download`（Bearer `LOG_OPS_TOKEN` 运维鉴权）；`retention_sweep` 每小时删除 >72h 的文件与行（磁盘配额靠 3 天滚动兜底）。`LOG_STORAGE_DIR`（默认 /data/logpackages，docker volume 挂载）；`deploy-server.yml` 注入 GitHub secret `LOG_OPS_TOKEN` 到服务器 `.env`。
+- **ZCode 每日自动化**：每天 10:00 定时任务——用 ops 令牌下载官网日志包（已处理包 ID 记状态文件防重复分析），按 panic/error 聚类对照代码库定位根因，仅修确凿可验证的问题（每轮 ≤3 个），走完整验证门禁 + 版本 bump + 文档 + tag 后推送；无可修问题只写分析报告不推送。
+- **验证**：Rust **2033 passed / 15 ignored**（+3：sha256 确定性/上传历史读写去重/manifest 序列化）；tsc 0 错误；Vitest **696 / 3**；Playwright **127 / 5**；Clippy/check/fmt/guard 全绿。src-server 本地无 PG 不能编译（sqlx 宏），按 TESTING.md 惯例以纯函数单测（sha256 已知向量/manifest 字段提取）+ CI/Docker 构建验证。未本地打包。
+- **未关闭**：`deploy-server.yml` 部署与 `LOG_OPS_TOKEN` secret 创建需用户操作；端到端上传→下载→3 天清理需部署后实测；ZCode 定时任务首轮运行需观察其推送判断的保守度。
+
 ## v0.88.0（2026-11-07）
 
 **MCP 流式 HTTP 客户端（栗子读书）+ 续写训练定时闭环。**

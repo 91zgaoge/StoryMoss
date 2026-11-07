@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.88.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.89.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.89.0 · 日志一键上传官网，错误修复快一天拍
+
+日志页新增「上传日志包」：两步确认（先本地打包看清楚包了什么、多大，再点确认上传），只含运行日志与性能统计、不含小说正文，服务端只保留 3 天且按内容指纹去重。配合官网运维通道，每天自动下载用户日志、定位崩溃与生成失败的根因并修复发版——你遇到的 bug 从上报到修复的路径大大缩短。
 
 ### v0.88.0 · 接入栗子读书 MCP，定时续写训练自动闭环
 

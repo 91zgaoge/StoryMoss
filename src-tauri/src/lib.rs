@@ -38,6 +38,7 @@ mod intent;
 mod intention_graph;
 mod knowledge_base;
 mod llm;
+mod log_report;
 mod logging;
 mod mcp;
 mod memory;

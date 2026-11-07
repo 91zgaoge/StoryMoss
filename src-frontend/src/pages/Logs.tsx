@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -21,11 +22,14 @@ import {
   Play,
   Pause,
   Copy,
+  UploadCloud,
 } from 'lucide-react';
 import { AiCodeBlock } from '@/components/ui/ai/AiCodeBlock';
 import { AiFilterChipsBar } from '@/components/ui/ai/AiFilterTable';
-import { toast } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import { useAppStore } from '@/stores/appStore';
+import { Modal } from '@/components/ui/Modal';
+import { loggedInvoke } from '@/services/tauri';
 
 type LogLevel = 'ALL' | 'INFO' | 'WARN' | 'ERROR';
 type LogSource = 'workflow' | 'system';
@@ -101,6 +105,70 @@ export function Logs() {
   const currentPath = source === 'workflow' ? logPath.data : logDir.data;
   const isFetching = source === 'workflow' ? workflowLogs.isFetching : systemLogs.isFetching;
 
+  // ── v0.89.0: 日志包上传（显式授权 → 打包 → 确认 → 上传）─────────
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [packaging, setPackaging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [packaged, setPackaged] = useState<{
+    path: string;
+    sha256: string;
+    size_bytes: number;
+    file_count: number;
+    skipped_duplicates: boolean;
+  } | null>(null);
+  const uploadHistoryQuery = useQuery({
+    queryKey: ['log-upload-history'],
+    queryFn: () =>
+      loggedInvoke<Array<{ sha256: string; filename: string; uploaded_at: string }>>(
+        'get_log_upload_history'
+      ),
+  });
+
+  const handlePackage = async () => {
+    setPackaging(true);
+    setPackaged(null);
+    try {
+      const info = await loggedInvoke<{
+        path: string;
+        sha256: string;
+        size_bytes: number;
+        file_count: number;
+        skipped_duplicates: boolean;
+      }>('package_log_report');
+      if (info.skipped_duplicates) {
+        toast.success('该日志内容与上次上传完全一致，无需重复上传');
+      }
+      setPackaged(info);
+    } catch (e) {
+      toast.error('打包失败：' + (e as Error).message);
+    } finally {
+      setPackaging(false);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!packaged) return;
+    setUploading(true);
+    try {
+      const res = await loggedInvoke<{ accepted: boolean; duplicate: boolean; sha256: string }>(
+        'upload_log_report',
+        { file_path: packaged.path, sha256: packaged.sha256 }
+      );
+      if (res.duplicate) {
+        toast.success('服务端已有同内容日志包，无需重复上传');
+      } else {
+        toast.success('日志包已上传，感谢反馈');
+      }
+      setUploadModalOpen(false);
+      setPackaged(null);
+      void uploadHistoryQuery.refetch();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <div className="flex h-full flex-col gap-4 p-6 max-w-[1600px] mx-auto min-w-0">
       {/* Header */}
@@ -132,6 +200,15 @@ export function Logs() {
             <Button variant="ghost" size="sm" onClick={handleCopy} className="gap-1.5">
               <Copy className="w-4 h-4" />
               复制
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setUploadModalOpen(true)}
+              className="gap-1.5"
+            >
+              <UploadCloud className="w-4 h-4" />
+              上传日志包
             </Button>
           </>
         }
@@ -267,6 +344,83 @@ export function Logs() {
           )}
         </div>
       </Card>
+
+      {/* v0.89.0: 显式授权上传弹窗——列明内容/用途/保留期，确认后才打包上传 */}
+      <Modal
+        open={uploadModalOpen}
+        onClose={() => {
+          setUploadModalOpen(false);
+          setPackaged(null);
+        }}
+        title="上传日志包到官网"
+        size="md"
+        testId="log-upload-modal"
+      >
+        <div className="space-y-3 text-sm text-ai-ink-2">
+          <p className="text-xs leading-5 text-ai-ink-3">
+            将压缩打包以下<b>近 3 天</b>的诊断日志（总量上限约 20MB）：
+          </p>
+          <ul className="list-disc space-y-1 pl-5 text-xs leading-5 text-ai-ink-3">
+            <li>系统运行日志（storymoss.log.*，含错误与告警）</li>
+            <li>创作工作流日志（creative_workflow.log，各阶段耗时/失败）</li>
+            <li>生成链路 traces（模型/耗时/Token 统计）与崩溃快照</li>
+            <li>
+              manifest.json（应用版本/操作系统/文件清单）——<b>不含小说正文、角色与世界观内容</b>
+            </li>
+          </ul>
+          <p className="text-xs leading-5 text-ai-ink-3">
+            用途：定位崩溃与生成失败、改进稳定性。上传到 storymoss.top 后<b>仅保留 3 天</b>， 按内容
+            SHA-256 去重，不会重复占用空间。上传需要登录账号。
+          </p>
+
+          {!packaged ? (
+            <Button
+              variant="primary"
+              onClick={handlePackage}
+              isLoading={packaging}
+              className="w-full"
+            >
+              <UploadCloud className="mr-1.5 h-4 w-4" />
+              第一步：打包日志（不上传）
+            </Button>
+          ) : packaged.skipped_duplicates ? (
+            <div className="rounded border border-ai-line bg-ai-inset p-3 text-xs text-ai-ink-3">
+              打包完成：内容与上次上传一致（SHA-256 去重命中），无需再传。
+            </div>
+          ) : (
+            <div className="rounded border border-ai-line bg-ai-inset p-3 text-xs">
+              <div className="text-ai-ink-2">
+                已打包 {packaged.file_count} 个文件，
+                {(packaged.size_bytes / 1024 / 1024).toFixed(1)} MB
+              </div>
+              <div className="mt-1 font-mono text-[10px] text-ai-ink-3 break-all">
+                SHA-256: {packaged.sha256.slice(0, 24)}…
+              </div>
+              <Button
+                variant="primary"
+                onClick={handleUpload}
+                isLoading={uploading}
+                className="mt-2 w-full"
+              >
+                确认上传（需已登录）
+              </Button>
+            </div>
+          )}
+
+          {(uploadHistoryQuery.data?.length ?? 0) > 0 && (
+            <div className="pt-2 border-t border-ai-line">
+              <div className="mb-1 text-[11px] text-ai-ink-3">
+                本机上传记录（{uploadHistoryQuery.data!.length}）
+              </div>
+              {uploadHistoryQuery.data!.slice(0, 5).map(r => (
+                <div key={r.sha256} className="truncate text-[10px] text-ai-ink-3">
+                  {r.uploaded_at} · {r.filename}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -144,6 +144,47 @@ impl ServerClient {
             .map_err(|e| format!("bad upgrade body: {}", e).into())
     }
 
+    /// v0.89.0: 上传日志压缩包（multipart）。返回 (accepted, duplicate)——
+    /// 服务端对同 sha256 幂等返回 409，视为 duplicate=true 不算错误。
+    pub async fn upload_log_package(
+        &self,
+        token: &str,
+        bytes: Vec<u8>,
+        filename: &str,
+        sha256: &str,
+    ) -> Result<(bool, bool), AppError> {
+        let part = reqwest::multipart::Part::bytes(bytes)
+            .file_name(filename.to_string())
+            .mime_str("application/zip")
+            .map_err(|e| AppError::internal(format!("mime: {e}")))?;
+        let form = reqwest::multipart::Form::new()
+            .text("sha256", sha256.to_string())
+            .part("file", part);
+        let resp = self
+            .client
+            .post(format!("{}/api/logs/upload", self.base_url))
+            .bearer_auth(token)
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| AppError::internal(format!("上传日志包失败: {e}")))?;
+        match resp.status().as_u16() {
+            200 | 201 => Ok((true, false)),
+            409 => Ok((false, true)),
+            401 => Err(AppError::validation_failed(
+                "登录已过期，请重新登录后再上传日志",
+                None::<String>,
+            )),
+            s => {
+                let body = resp.text().await.unwrap_or_default();
+                Err(AppError::internal(format!(
+                    "日志上传失败（HTTP {s}）: {}",
+                    &body[..body.floor_char_boundary(body.len().min(200))]
+                )))
+            }
+        }
+    }
+
     pub async fn logout(&self, token: &str) -> Result<(), AppError> {
         let _ = self
             .client
