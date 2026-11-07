@@ -2,6 +2,14 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.89.6（2026-11-07）
+
+**日志上传链路端到端实测通过，部署流程收尾。**
+
+- 真实上传实测（临时测试用户 + 服务器签发 JWT）：multipart 上传 201、同 sha256 重复上传返回 duplicate、sha256 篡改 400、ops 令牌列表/下载 200——全部符合设计；测试数据（用户/会话/记录/文件）已清理。
+- deploy-server.yml：`docker load` 改为通配符匹配 scp 后的镜像文件名（scp 保留了 .tar.gz 内容但后缀不定）。
+- 已知限制：manifest 的 app_version/platform 在 zip 压缩后无法字节级提取（字段留空，仅分析参考，非关键路径）。
+
 ## v0.89.5（2026-11-07）
 
 **`field` 缺 `mut`（multipart 流式读取）；v0.89.4 编译已通过全部 sqlx 宏校验，仅剩此一处借用检查。**

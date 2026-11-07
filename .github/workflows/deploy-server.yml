@@ -67,8 +67,9 @@ jobs:
           script: |
             set -e
             cd /opt/storymoss
-            gunzip -f dist/storymoss-server-image.tar.gz
-            docker load -i dist/storymoss-server-image.tar.gz
+            # scp 后文件名可能带/不带 .gz 后缀，docker load 两种都能读
+            IMAGE_FILE=$(ls /opt/storymoss/dist/storymoss-server-image.tar*)
+            docker load -i "$IMAGE_FILE"
             docker compose up -d --no-build postgres
             docker compose up -d --no-build server
             sleep 5
