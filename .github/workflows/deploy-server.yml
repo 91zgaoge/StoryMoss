@@ -41,6 +41,7 @@ jobs:
           username: ${{ secrets.SERVER_SSH_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
+            set -e
             cd /opt/storymoss
             docker compose up -d --build server
             docker compose ps

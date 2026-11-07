@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.89.1（2026-11-07）
+
+**修复 server Docker 构建失败（首次云端部署阻塞）。**
+
+- **Cargo.lock v4 vs rust:1.75**：`Cargo.lock` 已是 v4 格式，Dockerfile 固定的 `rust:1.75-slim` 的 cargo 不认识 → 换 `rust:1-slim-bookworm`（滚动最新 stable）。
+- **sqlx 宏编译期需要数据库**：`sqlx::query!` 展开时连接 `DATABASE_URL` 校验表结构，builder 里没有 Postgres 必然失败 → 构建镜像内嵌临时 PostgreSQL（起库 → 建用户/库 → 按序应用 migrations/*.sql → `cargo build --release`），自包含、不改业务代码、不牺牲编译期 SQL 校验。
+- **部署脚本退出码掩盖**：`docker compose up … ; docker compose ps` 的分号让构建失败被 ps 的 0 退出码掩盖（workflow 显示 ✓ 但容器没起）→ 脚本加 `set -e`。
+- 服务器准备：磁盘清理（journal/npm/apt ≈1.4G）+ 1.5G swapfile（1GB 内存机编译 Rust）；宝塔 nginx `ai.91z.net.conf`（storymoss.top 同 vhost）加 `/api/` → `127.0.0.1:8080` 反代（client_max_body_size 25m）。
+- 未关闭：构建在 1GB 内存机上的时长与稳定性待观察；`/api/logs/*` 端到端验证随本次部署进行。
+
 ## v0.89.0（2026-11-07）
 
 **日志压缩上传官网（显式授权）+ ZCode 每日日志分析修复自动化。**
