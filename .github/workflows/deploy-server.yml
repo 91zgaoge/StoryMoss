@@ -67,8 +67,9 @@ jobs:
           script: |
             set -e
             cd /opt/storymoss
-            # scp 后文件名可能带/不带 .gz 后缀，docker load 两种都能读
-            IMAGE_FILE=$(ls /opt/storymoss/dist/storymoss-server-image.tar*)
+            # 清掉上次残留（旧 .tar/.tar.gz 混存会让 ls|head 取错文件）
+            rm -rf dist
+            IMAGE_FILE=$(ls /opt/storymoss/dist/storymoss-server-image.tar* | head -1)
             docker load -i "$IMAGE_FILE"
             docker compose up -d --no-build postgres
             docker compose up -d --no-build server

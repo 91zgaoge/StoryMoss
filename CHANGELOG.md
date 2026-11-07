@@ -2,6 +2,10 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.89.7（2026-11-07）
+
+**docker load 通配符匹配到新旧两个镜像文件导致路径带换行**——load 前先 `rm -rf dist` 清残留，`ls | head -1` 保证单文件。
+
 ## v0.89.6（2026-11-07）
 
 **日志上传链路端到端实测通过，部署流程收尾。**
