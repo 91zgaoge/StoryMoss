@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.1-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.2-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.93.2 · 训练任务融入任务系统，不再重复占资源
+
+续写训练的计划与运行历史现在统一在幕后「运维 → 任务」页管理：同一本书的训练任务只保留一行，「立即跑一轮」会先把当前配置同步进计划再触发，不再反复堆积一次性任务行。任务页能给训练任务显示中文类型标签，跑完后可一键跳转查看训练报告。后台同时修掉了每轮训练泄漏一个轮询协程的问题，并把手动/定时触发的互斥锁真正接通——同一训练任务不会被并发跑两轮。
 
 ### v0.93.0 · MCP 自动连接，工具不再逐个填
 

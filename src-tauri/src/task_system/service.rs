@@ -121,8 +121,10 @@ impl<R: Runtime> TaskService<R> {
             let pool = self.pool.clone();
             let app_handle = self.app_handle.clone();
             let executors = self.executors.clone();
+            let scheduler = self.scheduler.clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = Self::run_task_internal(&task_id, pool, app_handle, executors).await
+                if let Err(e) =
+                    Self::run_task_internal(&task_id, pool, app_handle, executors, scheduler).await
                 {
                     log::error!("[TaskService] Failed to run once task {}: {}", task_id, e);
                 }
@@ -211,9 +213,12 @@ impl<R: Runtime> TaskService<R> {
         let pool = self.pool.clone();
         let app_handle = self.app_handle.clone();
         let executors = self.executors.clone();
+        let scheduler = self.scheduler.clone();
 
         tauri::async_runtime::spawn(async move {
-            if let Err(e) = Self::run_task_internal(&task_id, pool, app_handle, executors).await {
+            if let Err(e) =
+                Self::run_task_internal(&task_id, pool, app_handle, executors, scheduler).await
+            {
                 log::error!("[TaskService] Manual trigger failed for {}: {}", task_id, e);
             }
         });
@@ -265,14 +270,16 @@ impl<R: Runtime> TaskService<R> {
         let pool = self.pool.clone();
         let app_handle = self.app_handle.clone();
         let executors = self.executors.clone();
+        let scheduler = self.scheduler.clone();
 
         self.scheduler.register(task, move || {
             let tid = task_id.clone();
             let p = pool.clone();
             let ah = app_handle.clone();
             let ex = executors.clone();
+            let sch = scheduler.clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = Self::run_task_internal(&tid, p, ah, ex).await {
+                if let Err(e) = Self::run_task_internal(&tid, p, ah, ex, sch).await {
                     log::error!(
                         "[TaskService] Scheduled task execution failed for {}: {}",
                         tid,
@@ -286,11 +293,16 @@ impl<R: Runtime> TaskService<R> {
     }
 
     /// 内部执行任务
+    ///
+    /// `scheduler` 必须传服务实例持有的同一个 `TaskScheduler`：执行锁统一
+    /// 存它的共享锁表，手动触发 / cron 触发 / once 触发才真正互斥
+    /// （v0.93.2 修复：旧实现每次 new 一个实例，跨路径互斥形同虚设）。
     async fn run_task_internal(
         task_id: &str,
         pool: DbPool,
         app_handle: AppHandle<R>,
         executors: Arc<std::sync::Mutex<ExecutorRegistry>>,
+        scheduler: Arc<TaskScheduler>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let repo = TaskRepository::new(pool.clone());
 
@@ -323,10 +335,18 @@ impl<R: Runtime> TaskService<R> {
             }
         };
 
-        // 获取执行锁（防止重叠执行）
-        let scheduler = TaskScheduler::new();
+        // 获取执行锁（共享锁表防止重叠执行）。try_lock 失败 = 已有实例在跑
+        // （如 cron 到点时上一轮手动触发还在执行），跳过本次触发而不是排队。
         let lock = scheduler.ensure_lock(task_id);
-        let _guard = lock.lock().await;
+        let _guard = match lock.try_lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                let msg = "已有实例在执行，跳过本次重叠触发";
+                log::warn!("[TaskService] Task {} {}", task_id, msg);
+                repo.create_log(task_id, "warn", msg)?;
+                return Ok(());
+            }
+        };
 
         // 创建执行上下文
         let ctx = TaskExecutionContext::new(task_id.to_string(), pool.clone(), app_handle.clone());

@@ -174,6 +174,8 @@ pub struct UpdateTaskRequest {
     pub cron_pattern: Option<String>,
     pub max_retries: Option<i32>,
     pub heartbeat_timeout_seconds: Option<i32>,
+    /// v0.93.2: 任务载荷（续写训练「保存计划即更新配置」需要同步 payload）
+    pub payload: Option<String>,
 }
 
 /// 任务日志

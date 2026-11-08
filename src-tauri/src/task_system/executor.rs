@@ -180,3 +180,46 @@ impl<R: Runtime> TaskExecutionContext<R> {
         let _ = self.app_handle.emit("task-status-changed", &event);
     }
 }
+
+/// 取消监听句柄：Drop 时自动 abort 监听协程。
+///
+/// 执行器把返回值绑定在 `execute` 作用域内即可——无论正常返回、`?` 提前
+/// 返回还是墙钟超时 future 被 drop，监听都会随之停止，不会泄漏轮询协程
+/// （v0.93.2 修复：续写训练旧实现从不 abort，每轮训练泄漏一个 5s 轮询）。
+pub struct CancelMonitor {
+    handle: tauri::async_runtime::JoinHandle<()>,
+}
+
+impl Drop for CancelMonitor {
+    fn drop(&mut self) {
+        self.handle.abort();
+    }
+}
+
+/// 桥接任务系统取消到执行器内部取消机制。
+///
+/// 每 500ms 轮询任务状态（与 [`TaskExecutionContext::is_cancelled`] 同一
+/// 查询口径），发现 cancelled 时调用一次 `on_cancelled` 并退出轮询。三个
+/// 执行器（续写训练/拆书/指导书提炼）共用此实现，替代各自独立 spawn 的
+/// 轮询循环。
+pub fn spawn_cancel_monitor<F>(task_id: String, pool: DbPool, on_cancelled: F) -> CancelMonitor
+where
+    F: Fn() + Send + 'static,
+{
+    let handle = tauri::async_runtime::spawn(async move {
+        let repo = TaskRepository::new(pool);
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            let cancelled = repo
+                .get_by_id(&task_id)
+                .ok()
+                .flatten()
+                .is_some_and(|t| t.status == TaskStatus::Cancelled);
+            if cancelled {
+                on_cancelled();
+                break;
+            }
+        }
+    });
+    CancelMonitor { handle }
+}

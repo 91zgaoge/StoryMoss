@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.93.2（2026-11-09）
+
+**续写训练任务与任务系统融合收敛：修协程泄漏、统一取消监听、执行锁全路径互斥，训练计划管理归任务页。**
+
+- **取消监听协程泄漏修复（本版最关键）**：续写训练执行器每轮训练 spawn 一个每 5s 轮询 `tasks` 表的协程，任务结束后从不 abort——跑 N 轮泄漏 N 个协程直到退出应用。新增 `task_system::executor::spawn_cancel_monitor`（500ms 轮询，`CancelMonitor` Drop 自动停止，覆盖提前返回与墙钟超时路径），三个执行器（续写训练/拆书/指导书提炼）的同型轮询循环全部收敛到这一个实现；训练取消感知 5s→500ms。
+- **执行锁跨路径互斥**：`run_task_internal` 旧实现每次 `TaskScheduler::new()` 新建锁表，手动触发与 cron 触发互斥形同虚设（同一训练任务可并发跑两轮）。现统一传入服务实例持有的共享 scheduler，cron/daily/weekly 触发路径的前置 try_lock 移除，互斥单点收敛到 `run_task_internal`（try_lock 失败写任务日志 warn 并跳过，不排队）。
+- **「立即跑」不再堆积任务行**：训练页「立即跑一轮」改为 upsert 语义——同书名已有定时计划则先同步当前表单配置（`UpdateTaskRequest` 新增 `payload` 支持）再 `trigger_task` 触发，无计划才建一次性任务；「创建定时训练」同书名计划自动更新而非再建一行，同书任务始终只有一行、历史日志聚合。
+- **训练计划管理归任务页**：删除训练页私有「训练计划」卡片（与任务页重复展示且只有删除按钮），训练页不再常驻 5s 轮询任务列表；任务页新增 `TASK_TYPE_LABELS` 中文类型标签（8 类），续写训练任务详情显示训练配置摘要并在跑完后提供「查看训练报告」跳转。
+- **验证**：Rust **2058 passed / 17 ignored**（+3：取消监听器置位/共享锁互斥语义/payload 更新）；tsc 0 错误；Vitest **699 / 3**；Playwright **135 / 5** 基线不变；fmt/clippy/check/guard 全绿；detect_changes 13 文件 22 符号全部落在预期范围。未本地打包。
+- **未关闭**：原生安装包真机复测「创建计划→任务页触发→取消传播→报告跳转」全路径。
+
 ## v0.93.1（2026-11-08）
 
 **CI 稳定修复：分章自动切换用例显式 20s 超时。**

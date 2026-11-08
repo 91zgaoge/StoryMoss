@@ -256,6 +256,8 @@ impl TaskRepository {
         let heartbeat_timeout = req
             .heartbeat_timeout_seconds
             .unwrap_or(existing.heartbeat_timeout_seconds);
+        // v0.93.2: 支持 payload 更新（续写训练「保存计划即更新配置」）
+        let payload = req.payload.as_ref().or(existing.payload.as_ref());
 
         // 如果启用了定时任务且 schedule_type 不是 once，重新计算 next_run_at
         let next_run_at = if enabled && existing.schedule_type != ScheduleType::Once {
@@ -276,9 +278,10 @@ impl TaskRepository {
                 cron_pattern = ?4,
                 max_retries = ?5,
                 heartbeat_timeout_seconds = ?6,
-                next_run_at = ?7,
-                updated_at = ?8
-             WHERE id = ?9",
+                payload = ?7,
+                next_run_at = ?8,
+                updated_at = ?9
+             WHERE id = ?10",
             params![
                 name,
                 description,
@@ -286,6 +289,7 @@ impl TaskRepository {
                 cron_pattern,
                 max_retries,
                 heartbeat_timeout,
+                payload,
                 &next_run_at,
                 &now,
                 id,

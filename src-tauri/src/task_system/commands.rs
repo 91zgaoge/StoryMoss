@@ -39,6 +39,7 @@ pub async fn update_task(
     cron_pattern: Option<String>,
     max_retries: Option<i32>,
     heartbeat_timeout_seconds: Option<i32>,
+    payload: Option<String>,
     service: tauri::State<'_, TaskService>,
 ) -> Result<Task, AppError> {
     let req = UpdateTaskRequest {
@@ -48,6 +49,7 @@ pub async fn update_task(
         cron_pattern,
         max_retries,
         heartbeat_timeout_seconds,
+        payload,
     };
     service.update_task(&id, req)
 }

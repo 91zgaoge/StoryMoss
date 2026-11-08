@@ -87,29 +87,22 @@ impl TaskExecutor for BookDeconstructionExecutor {
         let file_path = std::path::Path::new(file_path_str);
 
         // 注册 Pipeline 取消标志，并桥接任务系统取消到 Pipeline 取消
+        // （统一取消监听器；Drop 随 execute 结束自动停止轮询）
         let cancel_flag = crate::narrative::pipeline::register_pipeline_cancel(book_id);
-        let loop_book_id = book_id.to_string();
-        let loop_task_id = task.id.clone();
-        let loop_pool = self.pool.clone();
-        let loop_app_handle = self.app_handle.clone();
-        let cancel_monitor = tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                let check_ctx = TaskExecutionContext::new(
-                    loop_task_id.clone(),
-                    loop_pool.clone(),
-                    loop_app_handle.clone(),
-                );
-                if check_ctx.is_cancelled() {
+        let cancel_monitor = crate::task_system::executor::spawn_cancel_monitor(
+            task.id.clone(),
+            self.pool.clone(),
+            {
+                let book_id = book_id.to_string();
+                move || {
                     log::info!(
                         "[BookDeconstructionExecutor] Task cancelled, cancelling pipeline {}",
-                        loop_book_id
+                        book_id
                     );
-                    crate::narrative::pipeline::cancel_pipeline(&loop_book_id);
-                    break;
+                    crate::narrative::pipeline::cancel_pipeline(&book_id);
                 }
-            }
-        });
+            },
+        );
 
         ctx.update_progress("parsing", 0, "正在解析文件...");
         ctx.heartbeat();
@@ -227,9 +220,8 @@ impl TaskExecutor for BookDeconstructionExecutor {
             .execute(&mut analysis_ctx, &llm, progress_callback)
             .await;
 
-        // 清理 Pipeline 取消监控
-        cancel_monitor.abort();
-        let _ = cancel_monitor.await;
+        // 清理 Pipeline 取消标志（取消监控由 CancelMonitor Drop 自动停止）
+        drop(cancel_monitor);
         crate::narrative::pipeline::unregister_pipeline_cancel(book_id);
 
         // ========== LitSeg 后处理阶段 ==========

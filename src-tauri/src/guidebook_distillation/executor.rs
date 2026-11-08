@@ -79,27 +79,17 @@ impl TaskExecutor for GuidebookDistillationExecutor {
         };
 
         // 取消监控：任务系统取消 → 共享标志 → distiller 的 cancel_check
+        // （统一取消监听器；Drop 随 execute 结束自动停止轮询，含解析失败
+        // 等提前返回路径）
         let cancel_flag = Arc::new(AtomicBool::new(false));
-        let cancel_monitor = {
-            let flag = cancel_flag.clone();
-            let loop_task_id = task.id.clone();
-            let loop_pool = self.pool.clone();
-            let loop_app = self.app_handle.clone();
-            tokio::spawn(async move {
-                loop {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                    let check_ctx = TaskExecutionContext::new(
-                        loop_task_id.clone(),
-                        loop_pool.clone(),
-                        loop_app.clone(),
-                    );
-                    if check_ctx.is_cancelled() {
-                        flag.store(true, Ordering::Relaxed);
-                        break;
-                    }
-                }
-            })
-        };
+        let cancel_monitor = crate::task_system::executor::spawn_cancel_monitor(
+            task.id.clone(),
+            self.pool.clone(),
+            {
+                let flag = cancel_flag.clone();
+                move || flag.store(true, Ordering::Relaxed)
+            },
+        );
 
         ctx.update_progress("parsing", 0, "正在解析文件...");
         ctx.heartbeat();
@@ -109,7 +99,6 @@ impl TaskExecutor for GuidebookDistillationExecutor {
         let parsed = match tokio::task::spawn_blocking(move || parse_book(&path, None)).await {
             Ok(Ok(p)) => p,
             Ok(Err(e)) => {
-                cancel_monitor.abort();
                 let _ = GuidebookRepository::new(self.pool.clone())
                     .update_error(&guidebook_id, &format!("文件解析失败: {}", e));
                 return Ok(TaskResult {
@@ -119,7 +108,6 @@ impl TaskExecutor for GuidebookDistillationExecutor {
                 });
             }
             Err(e) => {
-                cancel_monitor.abort();
                 return Ok(TaskResult {
                     success: false,
                     result_json: None,
@@ -155,8 +143,8 @@ impl TaskExecutor for GuidebookDistillationExecutor {
             )
             .await;
 
-        cancel_monitor.abort();
-        let _ = cancel_monitor.await;
+        // 取消监控由 CancelMonitor Drop 自动停止
+        drop(cancel_monitor);
 
         // 终态事件：前端卡片的 liveStatus 只认 guidebook-distillation-progress
         // 事件流且优先于轮询结果，终态（completed/failed/cancelled）若只写 DB

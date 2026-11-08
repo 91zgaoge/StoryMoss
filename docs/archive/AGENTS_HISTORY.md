@@ -1,3 +1,13 @@
+<!-- 2026-11-09（v0.93.2）：自 AGENTS.md 归档 v0.91.0 摘要。 -->
+
+### v0.91.0 - 主工作流调度闭合
+
+**为什么**：清查发现质量债导演看不见（`record_debt` 是 no-op）、级联改写绕开导演走一次性任务、Tasks 页看不到 agency 子任务、编辑器与场景快捷动作是占位/绕行旧管线。
+
+**改动**：①`CrewSnapshot.debts`（severity 排序 top5）+ 导演 prompt Debts 区块 + `record_debt` 真实落库（instruction 必填）。②级联批次「交给导演」handoff（源章+受影响章预填）。③Tasks「代理任务」页签（crewStatus 数据 + 重试/取消）。④SceneEditor「交给导演」按阶段预填；ExecutionPanel AI 续写/修改预填导演。
+
+**验证**：Rust **2035 / 15**（+1）；Vitest **696 / 3**；Playwright **134 / 5**（+4）；fmt/clippy/check/guard 全绿。**未关闭**：原生安装包真机复测。
+
 <!-- 2026-11-07（v0.89.0）：自 AGENTS.md 归档 v0.85.1 摘要。 -->
 
 ### v0.85.1 - GitHub 优先的双源自动更新

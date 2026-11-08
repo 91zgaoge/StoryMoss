@@ -26,7 +26,7 @@ use chrono::Local;
 use serde::Deserialize;
 
 use super::{
-    executor::{TaskExecutionContext, TaskExecutor},
+    executor::{spawn_cancel_monitor, TaskExecutionContext, TaskExecutor},
     models::{Task, TaskResult, TaskType},
 };
 use crate::db::{repositories::story_repository::StoryRepository, DbPool};
@@ -185,35 +185,15 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             self.pool.clone(),
         );
         let cancel = Arc::new(AtomicBool::new(false));
-        // 取消传播：任务被取消时同步中断续写管线（直接查 tasks 表状态）
-        {
+        // 取消传播：任务被取消时同步中断续写管线（统一取消监听器，500ms）。
+        // 监听句柄 Drop 随 execute 结束自动停止轮询，不再泄漏协程。
+        let _cancel_monitor = spawn_cancel_monitor(task.id.clone(), self.pool.clone(), {
             let cancel = cancel.clone();
-            let pool = self.pool.clone();
-            let task_id = task.id.clone();
-            tauri::async_runtime::spawn(async move {
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    let cancelled = pool
-                        .get()
-                        .ok()
-                        .and_then(|conn| {
-                            conn.query_row(
-                                "SELECT status FROM tasks WHERE id = ?1",
-                                rusqlite::params![task_id],
-                                |r| r.get::<_, String>(0),
-                            )
-                            .ok()
-                        })
-                        .map(|status| status == "cancelled")
-                        .unwrap_or(false);
-                    if cancelled {
-                        cancel.store(true, Ordering::Relaxed);
-                        log::info!("[ContinuationTraining] 任务取消，已传播到续写管线");
-                        break;
-                    }
-                }
-            });
-        }
+            move || {
+                cancel.store(true, Ordering::Relaxed);
+                log::info!("[ContinuationTraining] 任务取消，已传播到续写管线");
+            }
+        });
         let next_chapter = (chapters.len() - 1 + 1) as i32; // 上下文章节数 + 1
         let batch = coordinator
             .run_continue_batch_with_cancel(

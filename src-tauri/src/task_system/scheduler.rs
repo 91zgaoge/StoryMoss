@@ -56,12 +56,8 @@ impl TaskScheduler {
                 log::info!("[TaskScheduler] Registered once task: {}", task_id);
             }
             ScheduleType::Daily => {
-                let handle = self.spawn_interval(
-                    task_id.clone(),
-                    Duration::from_secs(86400),
-                    lock,
-                    callback,
-                );
+                let handle =
+                    self.spawn_interval(task_id.clone(), Duration::from_secs(86400), callback);
                 {
                     let mut handles = self.handles.lock().unwrap();
                     handles.insert(task_id.clone(), handle);
@@ -69,12 +65,8 @@ impl TaskScheduler {
                 log::info!("[TaskScheduler] Registered daily task: {}", task_id);
             }
             ScheduleType::Weekly => {
-                let handle = self.spawn_interval(
-                    task_id.clone(),
-                    Duration::from_secs(604800),
-                    lock,
-                    callback,
-                );
+                let handle =
+                    self.spawn_interval(task_id.clone(), Duration::from_secs(604800), callback);
                 {
                     let mut handles = self.handles.lock().unwrap();
                     handles.insert(task_id.clone(), handle);
@@ -85,7 +77,7 @@ impl TaskScheduler {
                 // P1-13 修复: 使用 cron crate 解析标准 Cron
                 // 表达式，精确计算下次执行时间
                 let schedule = Self::parse_cron_schedule(task.cron_pattern.as_deref())?;
-                let handle = self.spawn_cron(task_id.clone(), schedule, lock, callback);
+                let handle = self.spawn_cron(task_id.clone(), schedule, callback);
                 {
                     let mut handles = self.handles.lock().unwrap();
                     handles.insert(task_id.clone(), handle);
@@ -143,13 +135,7 @@ impl TaskScheduler {
 
     // ==================== Internal ====================
 
-    fn spawn_interval<F>(
-        &self,
-        task_id: String,
-        duration: Duration,
-        lock: Arc<tokio::sync::Mutex<()>>,
-        callback: F,
-    ) -> JoinHandle<()>
+    fn spawn_interval<F>(&self, task_id: String, duration: Duration, callback: F) -> JoinHandle<()>
     where
         F: Fn() + Send + 'static,
     {
@@ -161,16 +147,10 @@ impl TaskScheduler {
             loop {
                 ticker.tick().await;
 
-                // 尝试获取锁，如果任务还在执行则跳过本次触发
-                if let Ok(_guard) = lock.try_lock() {
-                    log::info!("[TaskScheduler] Triggering scheduled task: {}", task_id);
-                    callback();
-                } else {
-                    log::warn!(
-                        "[TaskScheduler] Skipping overlapping trigger for task: {}",
-                        task_id
-                    );
-                }
+                // 重叠互斥统一由 run_task_internal 的共享执行锁处理
+                // （手动/定时/once 全路径互斥；此处不再前置 try_lock）
+                log::info!("[TaskScheduler] Triggering scheduled task: {}", task_id);
+                callback();
             }
         })
     }
@@ -191,7 +171,6 @@ impl TaskScheduler {
         &self,
         task_id: String,
         schedule: cron::Schedule,
-        lock: Arc<tokio::sync::Mutex<()>>,
         callback: F,
     ) -> JoinHandle<()>
     where
@@ -206,16 +185,9 @@ impl TaskScheduler {
                     let sleep_duration = (next - now).to_std().unwrap_or(Duration::from_secs(60));
                     sleep(sleep_duration).await;
 
-                    // 尝试获取锁，如果任务还在执行则跳过本次触发
-                    if let Ok(_guard) = lock.try_lock() {
-                        log::info!("[TaskScheduler] Triggering cron task: {}", task_id);
-                        callback();
-                    } else {
-                        log::warn!(
-                            "[TaskScheduler] Skipping overlapping trigger for task: {}",
-                            task_id
-                        );
-                    }
+                    // 重叠互斥统一由 run_task_internal 的共享执行锁处理
+                    log::info!("[TaskScheduler] Triggering cron task: {}", task_id);
+                    callback();
                 }
             }
             log::warn!("[TaskScheduler] Cron task {} schedule exhausted", task_id);

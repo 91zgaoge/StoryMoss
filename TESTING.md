@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.93.1)
+# 🧪 StoryMoss 自动化测试环境 (v0.93.2)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.93.2 变更说明
+
+- **任务融合收敛**：新增 3 项 Rust 测试（`spawn_cancel_monitor` 未取消不触发/取消置位共享标志、共享 TaskScheduler 锁表互斥语义（同实例 ensure_lock 命中同一把锁、持锁期间其他路径拿不到）、`UpdateTaskRequest.payload` 更新 roundtrip）；三执行器（续写训练/拆书/指导书）同型取消轮询收敛到统一实现，Drop 自动停止。
+- **结果**：Rust **2058 passed / 17 ignored**（+3）；Vitest **699 / 3**；Playwright **135 / 5** 基线不变；tsc/fmt/clippy/guard 全绿。
+- **未关闭**：原生安装包真机复测「创建计划→任务页触发→取消传播→报告跳转」全路径。
 
 ### v0.93.1 变更说明
 

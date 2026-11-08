@@ -7,8 +7,8 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Dumbbell, Play, RefreshCw, Trash2 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { Dumbbell, Play } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -21,7 +21,7 @@ import { AiInsightCards } from '@/components/ui/ai/AiInsightCards';
 import { loggedInvoke } from '@/services/tauri';
 import { mcpListSavedServers, type SavedMcpServer } from '@/services/api/skills';
 import { useMcpTools } from '@/hooks/useMcpTools';
-import { useCreateTask, useTasks } from '@/hooks/useTasks';
+import { useCreateTask, useTriggerTask, useUpdateTask, type Task } from '@/hooks/useTasks';
 import { useAppStore } from '@/stores/appStore';
 import {
   bareMcpToolName,
@@ -57,9 +57,9 @@ const DEFAULT_CRON = '0 9 * * *';
 
 export default function TrainingLab() {
   const currentStory = useAppStore(s => s.currentStory);
-  const queryClient = useQueryClient();
   const createTask = useCreateTask();
-  const tasksQuery = useTasks();
+  const updateTask = useUpdateTask();
+  const triggerTask = useTriggerTask();
 
   // ── 配置表单 ──────────────────────────────────────────────
   const [bookTitle, setBookTitle] = useState('');
@@ -119,10 +119,20 @@ export default function TrainingLab() {
   });
   const reports = reportsQuery.data ?? [];
 
-  // 训练任务列表（task_type 过滤）
-  const trainingTasks = (tasksQuery.data ?? []).filter(
-    t => t.task_type === 'continuation_training'
-  );
+  // 现查任务列表找同书名的既有定时计划（v0.93.2 融合：计划管理统一在任务页，
+  // 训练页不再常驻轮询任务列表）。只认 cron 计划——once 行无法改为定时语义。
+  const findPlanByBook = async (title: string): Promise<Task | null> => {
+    const all = await loggedInvoke<Task[]>('list_tasks', { status_filter: null });
+    const hit = all.find(t => {
+      if (t.task_type !== 'continuation_training' || t.schedule_type !== 'cron') return false;
+      try {
+        return (JSON.parse(t.payload ?? '{}') as { book_title?: string }).book_title === title;
+      } catch {
+        return false;
+      }
+    });
+    return hit ?? null;
+  };
 
   const books = useMemo(() => [...new Set(reports.map(r => r.book_title))], [reports]);
 
@@ -179,52 +189,63 @@ export default function TrainingLab() {
     };
   };
 
+  // v0.93.2 融合：创建/更新定时训练（同书名计划 upsert，任务表每书一行）
   const handleCreateSchedule = async () => {
     try {
-      const payload = buildPayload();
-      await createTask.mutateAsync({
-        name: `续写训练 · ${bookTitle.trim()}`,
-        description: `定时取《${bookTitle.trim()}》章节续写并与真实后续章对比`,
-        task_type: 'continuation_training',
-        schedule_type: 'cron',
-        cron_pattern: cron.trim() || DEFAULT_CRON,
-        payload: JSON.stringify(payload),
-        enabled: true,
-        max_retries: 1,
-        heartbeat_timeout_seconds: 3600,
-      });
-      toast.success('训练计划已创建，到点自动执行');
+      const payload = JSON.stringify(buildPayload());
+      const cronPattern = cron.trim() || DEFAULT_CRON;
+      const existing = await findPlanByBook(bookTitle.trim());
+      if (existing) {
+        await updateTask.mutateAsync({
+          id: existing.id,
+          input: { cron_pattern: cronPattern, payload, enabled: true },
+        });
+        toast.success('已更新该书名下的既有训练计划');
+      } else {
+        await createTask.mutateAsync({
+          name: `续写训练 · ${bookTitle.trim()}`,
+          description: `定时取《${bookTitle.trim()}》章节续写并与真实后续章对比`,
+          task_type: 'continuation_training',
+          schedule_type: 'cron',
+          cron_pattern: cronPattern,
+          payload,
+          enabled: true,
+          max_retries: 1,
+          heartbeat_timeout_seconds: 3600,
+        });
+        toast.success('训练计划已创建，到点自动执行');
+      }
     } catch (e) {
       toast.error((e as Error).message);
     }
   };
 
+  // v0.93.2 融合：立即跑 = 同步当前配置到既有计划后触发；无计划则建一次性任务
   const handleRunNow = async () => {
     try {
-      const payload = buildPayload();
-      await loggedInvoke('create_task', {
-        name: `续写训练 · ${bookTitle.trim()}（手动）`,
-        description: '手动触发一轮训练',
-        task_type: 'continuation_training',
-        schedule_type: 'once',
-        cron_pattern: null,
-        payload: JSON.stringify(payload),
-        enabled: true,
-        max_retries: 0,
-        heartbeat_timeout_seconds: 3600,
-      });
-      await queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      toast.success('训练任务已排队（取章→灌沙盒→续写→对比，约需几分钟）');
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
-  };
-
-  const handleDeleteTask = async (id: string) => {
-    try {
-      await loggedInvoke('delete_task', { id });
-      await queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      toast.success('已删除训练计划');
+      const payload = JSON.stringify(buildPayload());
+      const cronPattern = cron.trim() || DEFAULT_CRON;
+      const existing = await findPlanByBook(bookTitle.trim());
+      if (existing) {
+        await updateTask.mutateAsync({
+          id: existing.id,
+          input: { cron_pattern: cronPattern, payload, enabled: true },
+        });
+        await triggerTask.mutateAsync(existing.id);
+        toast.success('已按当前配置触发训练（计划与运行历史见「任务」页）');
+      } else {
+        await createTask.mutateAsync({
+          name: `续写训练 · ${bookTitle.trim()}（手动）`,
+          description: '手动触发一轮训练',
+          task_type: 'continuation_training',
+          schedule_type: 'once',
+          payload,
+          enabled: true,
+          max_retries: 0,
+          heartbeat_timeout_seconds: 3600,
+        });
+        toast.success('训练任务已排队（取章→灌沙盒→续写→对比，约需几分钟）');
+      }
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -383,58 +404,22 @@ export default function TrainingLab() {
                 >
                   创建定时训练
                 </Button>
-                <Button variant="secondary" onClick={handleRunNow}>
+                <Button
+                  variant="secondary"
+                  onClick={handleRunNow}
+                  isLoading={triggerTask.isPending || updateTask.isPending}
+                >
                   <Play className="mr-1 h-3.5 w-3.5" />
                   立即跑一轮
                 </Button>
               </div>
+              <p className="text-[11px] text-ai-ink-3">
+                训练计划与运行历史在「任务」页统一管理（同书名计划只保留一份）。
+              </p>
               {sourceKind === 'mcp' && currentStory && (
                 <p className="text-[11px] text-ai-ink-3">
                   训练使用独立沙盒故事，不影响当前故事《{currentStory.title}》。
                 </p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="mb-2 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-ai-ink">
-                  训练计划（{trainingTasks.length}）
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => queryClient.invalidateQueries({ queryKey: ['tasks'] })}
-                  className="text-ai-ink-3 hover:text-ai-ink-2"
-                  title="刷新"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              {trainingTasks.length === 0 ? (
-                <p className="text-xs text-ai-ink-3">暂无定时训练计划。</p>
-              ) : (
-                <div className="flex flex-col gap-1">
-                  {trainingTasks.map(t => (
-                    <div
-                      key={t.id}
-                      className="flex items-center gap-2 rounded border border-ai-line px-2 py-1.5 text-xs"
-                    >
-                      <span className="min-w-0 flex-1 truncate text-ai-ink">{t.name}</span>
-                      <span className="text-[10px] text-ai-ink-3">
-                        {t.schedule_type === 'cron' ? t.cron_pattern : '单次'} · {t.status}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteTask(t.id)}
-                        className="text-ai-red/70 hover:text-ai-red"
-                        title="删除计划"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
               )}
             </CardContent>
           </Card>

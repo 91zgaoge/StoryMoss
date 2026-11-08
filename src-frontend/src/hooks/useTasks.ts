@@ -51,6 +51,8 @@ export interface UpdateTaskInput {
   cron_pattern?: string;
   max_retries?: number;
   heartbeat_timeout_seconds?: number;
+  /** v0.93.2: 训练计划同步配置用 */
+  payload?: string;
 }
 
 const TASKS_KEY = 'tasks';
@@ -99,6 +101,7 @@ export function useUpdateTask() {
         cron_pattern: input.cron_pattern,
         max_retries: input.max_retries,
         heartbeat_timeout_seconds: input.heartbeat_timeout_seconds,
+        payload: input.payload,
       });
     },
     onSuccess: () => {

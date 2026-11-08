@@ -1,4 +1,6 @@
-# StoryMoss v0.93.1 架构文档
+# StoryMoss v0.93.2 架构文档
+
+> **v0.93.2**：**任务系统融合收敛**——`task_system::executor` 新增 `spawn_cancel_monitor`（500ms 轮询 + `CancelMonitor` Drop 自动停止），续写训练/拆书/指导书三执行器的同型取消轮询循环收敛为一个实现（修复训练执行器监听协程从不 abort 的逐轮泄漏）；`TaskService::run_task_internal` 改为接收服务实例共享的 `TaskScheduler`，执行锁在手动/cron/once 全路径互斥，`spawn_interval`/`spawn_cron` 的前置 try_lock 移除；`UpdateTaskRequest` 与 `update_task` IPC 新增 `payload` 字段；训练页删除私有「训练计划」列表，「立即跑」改 upsert+trigger，任务页新增 `TASK_TYPE_LABELS` 与训练报告跳转。
 
 > **v0.93.1**：CI 稳定性补丁——`FrontstageApp.split-auto-switch.test.tsx` 分章用例显式 20s 测试超时（内部 waitFor 上界 10s，Vitest 默认 5s 在 CI 负载下提前超时）；功能架构同 v0.93.0。
 >

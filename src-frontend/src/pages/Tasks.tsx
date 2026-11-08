@@ -24,6 +24,7 @@ import {
   type Task,
 } from '@/hooks/useTasks';
 import toast from 'react-hot-toast';
+import { useAppStore } from '@/stores/appStore';
 
 type StatusFilter = 'all' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 
@@ -40,6 +41,19 @@ const scheduleTypeLabels: Record<string, string> = {
   daily: '每天',
   weekly: '每周',
   cron: '定时',
+};
+
+// v0.93.2: task_system 类型中文标签（训练等由专属页面创建的任务在详情里可辨识；
+// 泛用创建表单不提供 continuation_training——配置复杂，必须走续写训练页）
+const TASK_TYPE_LABELS: Record<string, string> = {
+  custom: '自定义',
+  cascade_rewrite: '级联改写',
+  book_deconstruction: '拆书分析',
+  guidebook_distillation: '指导书提炼',
+  ai_generation: 'AI 生成',
+  pipeline_review: 'Pipeline 审校',
+  ingest: '知识图谱采摘',
+  continuation_training: '续写训练',
 };
 
 function formatDuration(seconds: number): string {
@@ -352,6 +366,46 @@ function CascadeRewriteDetail({ task }: { task: Task }) {
   );
 }
 
+/// v0.93.2: 续写训练任务详情补充——展示训练配置摘要；跑完后 result 带
+/// report_id，提供跳转续写训练页查看完整报告的入口
+function TrainingTaskDetail({ task }: { task: Task }) {
+  const setCurrentView = useAppStore(s => s.setCurrentView);
+  let config: { book_title?: string; chapter_count?: number } = {};
+  let reportId: string | null = null;
+  try {
+    config = JSON.parse(task.payload ?? '{}') as { book_title?: string; chapter_count?: number };
+  } catch {
+    // 旧任务 payload 缺失时保持空
+  }
+  try {
+    if (task.result) {
+      reportId = (JSON.parse(task.result) as { report_id?: string }).report_id ?? null;
+    }
+  } catch {
+    // result 非 JSON
+  }
+  if (!config.book_title && !reportId) return null;
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+      {config.book_title && (
+        <span>
+          训练配置：《{config.book_title}》· 上下文 {config.chapter_count ?? 10} 章
+        </span>
+      )}
+      {reportId && (
+        <button
+          type="button"
+          onClick={() => setCurrentView('training-lab')}
+          className="rounded border border-gray-700 px-2 py-0.5 text-[11px] text-gray-300 hover:bg-gray-800"
+        >
+          查看训练报告
+        </button>
+      )}
+    </div>
+  );
+}
+
 function TaskDetail({ task }: { task: Task }) {
   const { data: logs } = useTaskLogs(task.id);
 
@@ -360,7 +414,7 @@ function TaskDetail({ task }: { task: Task }) {
       {task.description && <p className="text-xs text-gray-400 mt-2">{task.description}</p>}
 
       <div className="grid grid-cols-2 gap-2 mt-2 text-xs text-gray-500">
-        <div>类型: {task.task_type}</div>
+        <div>类型: {TASK_TYPE_LABELS[task.task_type] || task.task_type}</div>
         <div>调度: {scheduleTypeLabels[task.schedule_type] || task.schedule_type}</div>
         {task.last_run_at && <div>上次运行: {new Date(task.last_run_at).toLocaleString()}</div>}
         {task.next_run_at && <div>下次运行: {new Date(task.next_run_at).toLocaleString()}</div>}
@@ -369,6 +423,9 @@ function TaskDetail({ task }: { task: Task }) {
         )}
         <div>超时阈值: {formatDuration(task.heartbeat_timeout_seconds)}</div>
       </div>
+
+      {/* v0.93.2: 续写训练任务——配置摘要 + 报告入口 */}
+      {task.task_type === 'continuation_training' && <TrainingTaskDetail task={task} />}
 
       {task.error_message && (
         <div className="mt-2 p-2 bg-red-500/10 border border-red-500/20 rounded text-xs text-red-400">

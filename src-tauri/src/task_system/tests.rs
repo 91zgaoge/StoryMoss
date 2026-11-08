@@ -2,6 +2,8 @@
 //!
 //! 覆盖模型状态机、Repository CRUD、心跳超时检测。
 
+use std::sync::Arc;
+
 use super::{models::*, repository::TaskRepository};
 use crate::db::connection::create_test_pool;
 
@@ -265,4 +267,90 @@ fn test_heartbeat_timeout_detection() {
 
         assert!(is_timeout, "应该检测到心跳超时");
     });
+}
+
+// ==================== v0.93.2 任务融合 ====================
+
+/// 统一取消监听器：任务未取消时不动，翻转 cancelled 后置位共享标志
+#[test]
+fn test_cancel_monitor_sets_flag_on_cancel() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let pool = create_test_pool().unwrap();
+    let repo = TaskRepository::new(pool.clone());
+    let task = repo
+        .create(&create_test_task_req("取消监听", "custom", "once"))
+        .unwrap();
+
+    let flag = Arc::new(AtomicBool::new(false));
+    let monitor = super::executor::spawn_cancel_monitor(task.id.clone(), pool.clone(), {
+        let flag = flag.clone();
+        move || flag.store(true, Ordering::SeqCst)
+    });
+
+    // 未取消：监听周期内 flag 保持 false
+    repo.update_status(&task.id, &TaskStatus::Running, None, None, None)
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    assert!(!flag.load(Ordering::SeqCst), "未取消时不应触发回调");
+
+    // 翻转 cancelled：监听应在 ~500ms 轮询周期内感知并置位
+    repo.update_status(&task.id, &TaskStatus::Cancelled, None, None, None)
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while !flag.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(flag.load(Ordering::SeqCst), "取消后监听应置位共享标志");
+    drop(monitor); // Drop 自动 abort 轮询协程
+}
+
+/// 执行锁共享语义：run_task_internal 依赖「同一 TaskScheduler 实例的
+/// ensure_lock 命中同一把锁」实现手动/定时/once 全路径互斥
+#[test]
+fn test_shared_scheduler_lock_table_mutual_exclusion() {
+    use super::scheduler::TaskScheduler;
+
+    let scheduler = Arc::new(TaskScheduler::new());
+    let lock_a = scheduler.ensure_lock("t-lock-1");
+    let lock_b = scheduler.clone().ensure_lock("t-lock-1");
+    assert!(
+        Arc::ptr_eq(&lock_a, &lock_b),
+        "同一实例的 ensure_lock 必须命中同一把共享锁"
+    );
+
+    let guard = lock_a.try_lock().unwrap();
+    assert!(
+        lock_b.try_lock().is_err(),
+        "持锁期间其他触发路径必须拿不到锁"
+    );
+    drop(guard);
+    assert!(lock_b.try_lock().is_ok(), "释放后应可再次获取");
+}
+
+/// UpdateTaskRequest.payload 更新（续写训练「保存计划即同步配置」依赖）
+#[test]
+fn test_repository_update_payload() {
+    let pool = create_test_pool().unwrap();
+    let repo = TaskRepository::new(pool);
+
+    let mut req = create_test_task_req("payload 更新", "continuation_training", "cron");
+    req.cron_pattern = Some("0 9 * * *".into());
+    req.payload = Some(r#"{"book_title":"旧书"}"#.into());
+    let task = repo.create(&req).unwrap();
+    assert_eq!(task.task_type, TaskType::ContinuationTraining);
+
+    let upd = UpdateTaskRequest {
+        name: None,
+        description: None,
+        enabled: None,
+        cron_pattern: None,
+        max_retries: None,
+        heartbeat_timeout_seconds: None,
+        payload: Some(r#"{"book_title":"新书"}"#.into()),
+    };
+    repo.update(&task.id, &upd).unwrap();
+
+    let fetched = repo.get_by_id(&task.id).unwrap().unwrap();
+    assert_eq!(fetched.payload.as_deref(), Some(r#"{"book_title":"新书"}"#));
 }
