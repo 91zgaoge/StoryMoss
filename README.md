@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.2-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.3-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.93.3 · 导出不再乱码，幕后切书即点即达
+
+修好了小说导出的老大难：EPUB 现在严格按幕前阅读排版（衬线、两端对齐、首行缩进 2em），PDF 内嵌思源宋体（Noto Serif SC）并只打包用到的字形——中文清晰、体积可控，段落/对话不再出现字面 `</p><p>` 和 ``` 残留；MD/HTML/TXT 同步走统一的段落规范化。同时修掉「幕后点另一本书，幕前停在旧书旧章」的死端：切书前的保存等待有 5s 上限、保存失败不再卡死切换、切换未落地自动重试——点了哪本，幕前就是哪本的最新章。
 
 ### v0.93.2 · 训练任务融入任务系统，不再重复占资源
 

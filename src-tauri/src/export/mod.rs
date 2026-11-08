@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod assemble;
 pub mod builtin_templates;
+pub mod content;
 pub mod templates;
 
 pub use assemble::{assemble_export_chapters, chapter_display_title, ExportChapter};
@@ -248,7 +249,7 @@ fn generate_markdown(
         // Description
         if let Some(ref desc) = story.description {
             content.push_str("## 简介\n\n");
-            content.push_str(desc);
+            content.push_str(&content::content_to_plain_text(desc));
             content.push_str("\n\n");
         }
     }
@@ -259,14 +260,20 @@ fn generate_markdown(
         for character in characters {
             content.push_str(&format!("### {}\n\n", character.name));
             if let Some(ref bg) = character.background {
-                content.push_str(bg);
+                content.push_str(&content::content_to_plain_text(bg));
                 content.push('\n');
             }
             if let Some(ref personality) = character.personality {
-                content.push_str(&format!("\n**性格**: {}\n", personality));
+                content.push_str(&format!(
+                    "\n**性格**: {}\n",
+                    content::content_to_plain_text(personality)
+                ));
             }
             if let Some(ref goals) = character.goals {
-                content.push_str(&format!("\n**目标**: {}\n", goals));
+                content.push_str(&format!(
+                    "\n**目标**: {}\n",
+                    content::content_to_plain_text(goals)
+                ));
             }
             content.push('\n');
         }
@@ -282,16 +289,21 @@ fn generate_markdown(
 
         if config.include_outline {
             if let Some(ref outline) = chapter.outline {
-                content.push_str(&format!("**大纲**: {}\n\n", outline));
+                // v0.93.2: 大纲也可能含 HTML/围栏残留，统一规范化
+                content.push_str(&format!(
+                    "**大纲**: {}\n\n",
+                    content::content_to_plain_text(outline)
+                ));
             }
         }
 
         if let Some(ref text) = chapter.content {
-            content.push_str(text);
-            content.push('\n');
+            // v0.93.2: scenes.content 为 tiptap HTML 存量，导出前统一转纯段落
+            content.push_str(&content::content_to_plain_text(text));
+            content.push_str("\n\n");
         }
 
-        content.push_str("\n---\n\n");
+        content.push_str("---\n\n");
     }
 
     content
@@ -401,10 +413,9 @@ fn generate_html(
         }
 
         if let Some(ref text) = chapter.content {
-            for para in text.split("\n\n") {
-                if !para.trim().is_empty() {
-                    html.push_str(&format!("<p>{}</p>\n", html_escape(para)));
-                }
+            // v0.93.2: 统一规范化（tiptap HTML → 段落）再转义，修复字面 </p><p>
+            for para in content::content_to_paragraphs(text) {
+                html.push_str(&format!("<p>{}</p>\n", html_escape(&para)));
             }
         }
 
@@ -445,7 +456,7 @@ fn generate_plaintext(
             text.push_str("简介\n");
             text.push_str(&"-".repeat(20));
             text.push('\n');
-            text.push_str(desc);
+            text.push_str(&content::content_to_plain_text(desc));
             text.push_str("\n\n");
         }
     }
@@ -458,7 +469,7 @@ fn generate_plaintext(
         for character in characters {
             text.push_str(&format!("\n{}\n", character.name));
             if let Some(ref bg) = character.background {
-                text.push_str(bg);
+                text.push_str(&content::content_to_plain_text(bg));
                 text.push('\n');
             }
         }
@@ -485,9 +496,10 @@ fn generate_plaintext(
         }
 
         if let Some(ref content) = chapter.content {
+            // v0.93.2: 统一规范化（tiptap HTML → 段落），修复字面 </p><p>
             text.push('\n');
-            text.push_str(content);
-            text.push('\n');
+            text.push_str(&content::content_to_plain_text(content));
+            text.push_str("\n\n");
         }
     }
 

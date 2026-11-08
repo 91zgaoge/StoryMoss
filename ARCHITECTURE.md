@@ -1,6 +1,6 @@
-# StoryMoss v0.93.2 架构文档
+# StoryMoss v0.93.3 架构文档
 
-> **v0.93.2**：**任务系统融合收敛**——`task_system::executor` 新增 `spawn_cancel_monitor`（500ms 轮询 + `CancelMonitor` Drop 自动停止），续写训练/拆书/指导书三执行器的同型取消轮询循环收敛为一个实现（修复训练执行器监听协程从不 abort 的逐轮泄漏）；`TaskService::run_task_internal` 改为接收服务实例共享的 `TaskScheduler`，执行锁在手动/cron/once 全路径互斥，`spawn_interval`/`spawn_cron` 的前置 try_lock 移除；`UpdateTaskRequest` 与 `update_task` IPC 新增 `payload` 字段；训练页删除私有「训练计划」列表，「立即跑」改 upsert+trigger，任务页新增 `TASK_TYPE_LABELS` 与训练报告跳转。
+> **v0.93.3**：**导出格式修复与切书加固**——`export` 模块新增 `content.rs` 作为唯一正文清洗入口（tiptap HTML 块级切段、行内剥壳、实体解码、markdown 围栏清理），MD/HTML/TXT/EPUB/PDF/模板上下文统一走规范化段落；PDF 改为内嵌 Noto Serif SC（`src-tauri/assets/fonts/`，printpdf `font_subsetting` 子集化）并按显示宽度折行；EPUB 样式对齐幕前 `.ProseMirror` 阅读排版。幕后切书：flush 旧章保存 5s 超时、失败降级继续、`selectStory` 返回落地结果（未落地同 seq 重试一次）、`selectChapter` 懒加载两跳皆败按空正文应用元数据。上一版（v0.93.2）：`task_system::executor::spawn_cancel_monitor` 统一取消监听（修协程泄漏）、执行锁全路径互斥、训练「立即跑」upsert+trigger。
 
 > **v0.93.1**：CI 稳定性补丁——`FrontstageApp.split-auto-switch.test.tsx` 分章用例显式 20s 测试超时（内部 waitFor 上界 10s，Vitest 默认 5s 在 CI 负载下提前超时）；功能架构同 v0.93.0。
 >

@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.93.3（2026-11-09）
+
+**导出格式修复（中文字体/段落规范化）与幕后切书死端加固。**
+
+- **导出乱码根因**：`scenes.content` 是幕前编辑器 tiptap `getHTML()` 存量（`<p>段落</p>` 无换行连写），旧导出按 `\n\n` 分段把整章 HTML 当一个段落——EPUB/HTML 整段转义成字面 `</p><p>`；TXT/PDF 直接倾倒原始标签与 AI 残留 ``` 围栏；PDF 还叠加内置 TimesRoman 无中文字形 + 空白切分折行（中文整段一行），真机 48 章导出 839 页乱码。MD 只是查看器忽略游离标签才"看似正确"。
+- **导出正文规范化**：新增 `export/content.rs` 作为唯一清洗入口（块级标签切段、行内标签剥壳、实体解码、去 ``` 围栏、`&nbsp;` 转空格），MD/HTML/TXT/自定义模板上下文统一走规范化段落。
+- **EPUB 对齐幕前阅读样式**：衬线字体链、两端对齐、首行缩进 2em、行高 1.8、段距 0.75em（对应 `frontstage.css` `.ProseMirror`）；标题页/大纲/目录补 `html_escape`。
+- **PDF 重写**：内嵌 Noto Serif SC（OFL 许可，`src-tauri/assets/fonts/`，printpdf `font_subsetting` 只嵌实际用到的字形——探针 13 字形子集仅 5.9KB，整书导出不再膨胀 14.8MB）；按显示宽度折行（CJK 2 单位/ASCII 1）；标题/章名居中、段首全角缩进、人物/大纲/正文全走规范化；QuickLook 渲染探针确认中文清晰可读。
+- **幕后切书死端加固**：此前三轮修复（v0.73.9/v0.79.0/v0.80.0）只覆盖事件丢失，真机仍会停在旧章。①切书前的旧章 flush 等待加 5s 超时——`update_scene` IPC 挂起曾把整个切换永久卡死（「重启才恢复」）；②flush 失败降级提示后继续切换（中止只会把用户永远卡在旧故事，在途保存链自行尽力落库）；③`selectStory` 返回落地结果，未落地同 seq 重试一次并给可见报错；④`selectChapter` 懒加载两跳皆败按空正文继续应用元数据（不再留「标题已换、正文悬空」的半切换态）。
+- **回归 E2E**：mock 补真机语义（`get_chapter_aggregated_content` 按章聚合 extra 场景对齐 `ChapterRepository::get_content` 无分隔符拼接；`hangNextInvoke` 故障注入）；新增 3 用例——真机懒加载路径切书落最新章 / `update_scene` 挂起 5s 超时后切换继续 / 快速连点两本书停最后点击。
+- **验证**：Rust **2074 passed / 17 ignored**（+16）；tsc 0 错误；Vitest **699 / 3**；Playwright **138**（+3）；fmt/clippy/check/guard 全绿；PDF 内嵌字体端到端测试 + QuickLook 视觉探针通过。**未关闭**：真机复测 EPUB/PDF 导出效果（WPS 阅读）与幕后切书全路径。
+
 ## v0.93.2（2026-11-09）
 
 **续写训练任务与任务系统融合收敛：修协程泄漏、统一取消监听、执行锁全路径互斥，训练计划管理归任务页。**

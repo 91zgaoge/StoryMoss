@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.93.2)
+# 🧪 StoryMoss 自动化测试环境 (v0.93.3)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.93.3 变更说明
+
+- Rust **2074 passed / 17 ignored**（+16）：`export/content.rs` 12 项（tiptap `<p>` 连写分段、行内标签剥壳+实体解码、被转义 `&lt;p&gt;` 存活、未知实体保留、``` 围栏清理留内文、纯文本回退、br/h2 边界、script/注释丢弃、nbsp 转空格、空内容、plain_text 拼接、CRLF 归一）+ `export/pdf.rs` 4 项（CJK 宽度分类、无空白中文折行、换行尊重、内嵌字体端到端出 `%PDF-`）。
+- Playwright **138**（+3）：`e2e/frontstage-story-switch-realpath.spec.ts`——①extra 故事章节不带 content（真机 `get_story_chapters` 形态）走懒加载切书落最新章；②`hangNextInvoke('update_scene')` 注入 IPC 挂起，切书 5s 超时后继续；③快速连点两本书停最后点击。mock 补 `get_chapter_aggregated_content` 按章聚合 extra 场景（对齐 `ChapterRepository::get_content`）与 `hangNextInvoke`。
+- Vitest **699 / 3**、tsc、fmt、clippy、guard 不变全绿。
 
 ### v0.93.2 变更说明
 

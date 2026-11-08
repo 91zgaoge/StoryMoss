@@ -1,6 +1,6 @@
 [package]
 name = "storymoss"
-version = "0.93.2"
+version = "0.93.3"
 edition = "2021"
 
 [build-dependencies]
@@ -32,8 +32,8 @@ notify = "8.0"
 # MCP (Model Context Protocol)
 rmcp = { version = "0.8", features = ["server", "client"] }
 
-# PDF generation
-printpdf = "0.7"
+# PDF generation（font_subsetting: v0.93.2 内嵌 Noto Serif SC 时只嵌入用到字形）
+printpdf = { version = "0.7", features = ["font_subsetting"] }
 
 # EPUB generation
 epub-builder = "0.7"

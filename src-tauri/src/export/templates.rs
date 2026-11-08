@@ -104,8 +104,15 @@ impl From<&ExportChapter> for ChapterContext {
             id: c.id.clone(),
             chapter_number: c.chapter_number,
             title: c.title.clone(),
-            outline: c.outline.clone(),
-            content: c.content.clone(),
+            outline: c
+                .outline
+                .as_deref()
+                .map(super::content::content_to_plain_text),
+            // v0.93.2: 模板上下文的正文统一规范化（tiptap HTML → 纯段落文本）
+            content: c
+                .content
+                .as_deref()
+                .map(super::content::content_to_plain_text),
             word_count: c.word_count,
         }
     }

@@ -175,6 +175,9 @@ type WensiMode = 'off' | 'passive' | 'active';
 // B2: 分页初始窗口——章节加载当前章及前后各 1 章，场景加载当前及附近共 5 个
 const CHAPTERS_PAGE_SIZE = 3;
 const SCENES_PAGE_SIZE = 5;
+// v0.93.2: 切书前 flush 旧章保存的等待上限。update_scene IPC 挂起曾把整个
+// 切换永久卡死（真机表现为"幕后点书幕前不动，重启才恢复"）。
+const STORY_SWITCH_FLUSH_TIMEOUT_MS = 5000;
 
 // A4-1.7: 智能创作精确阶段映射（组件外常量，避免 hook deps 警告）
 const PRECISE_PHASE_PATTERNS: { phase: string; patterns: string[] }[] = [
@@ -2857,10 +2860,20 @@ const FrontstageApp: React.FC = () => {
         // 下次点击重新拉取（正文可能已被幕后/自动分章改写，重取比缓存旧正文更正确）。
         if (opts?.lazyLoadRetried) {
           // 递归重入仍无正文（get_chapter / get_chapter_aggregated_content 都失败）：
-          // 放弃本次切换，避免死循环。锁已在 finally 中释放，用户再点会重新拉取。
+          // 放弃懒加载，避免死循环。锁已在 finally 中释放，用户再点会重新拉取。
+          // v0.93.2: 此前直接 return——跨故事切换时 resetStoryScopedUiState 已把
+          // 编辑器清空，这里再退出会留下「标题已换、正文悬空」的半切换态（真机
+          // 表现为"停在旧章/以为数据丢了"）。改为按空正文继续应用章节元数据，
+          // 保证切换至少落到目标章；正文缺失有可见日志可追。
           frontstageLogger.warn('[selectChapter] Lazy-loaded chapter still has no content', {
             chapter_id: chapter.id,
           });
+          logToBackend(
+            'frontstage:select_chapter_lazy_load_failed',
+            'chapter content unavailable after lazy load; applying metadata with empty content',
+            { chapterId: chapter.id }
+          );
+          selectChapter({ ...chapter, content: '' }, opts);
           return;
         }
         if (lazyLoadingChapterIdsRef.current.has(chapter.id)) {
@@ -3163,7 +3176,13 @@ const FrontstageApp: React.FC = () => {
   }, [setGeneratedText]);
 
   const selectStory = useCallback(
-    async (story: Story, opts?: { switchSeq?: number; clearEditor?: boolean }) => {
+    async (
+      story: Story,
+      opts?: { switchSeq?: number; clearEditor?: boolean }
+    ): Promise<boolean> => {
+      // v0.93.2: 返回是否真正落地（到达 selectChapter）。此前多个静默死端
+      // （seq 丢弃/结果非数组/异常）无任何可见反馈，幕后切书后幕前看起来
+      // "还停在旧故事"，用户无从判断发生了什么。
       const switchSeq = opts?.switchSeq;
       const clearEditor = opts?.clearEditor !== false;
       try {
@@ -3187,7 +3206,7 @@ const FrontstageApp: React.FC = () => {
             switchSeq,
             currentSeq: switchSeqRef.current,
           });
-          return;
+          return false;
         }
         if (!Array.isArray(result) || !Array.isArray(scenesResult)) {
           frontstageLogger.warn('selectStory received non-array result, aborting', {
@@ -3195,7 +3214,7 @@ const FrontstageApp: React.FC = () => {
             result,
             scenesResult,
           });
-          return;
+          return false;
         }
         if (clearEditor) {
           resetStoryScopedUiState();
@@ -3216,7 +3235,7 @@ const FrontstageApp: React.FC = () => {
                 chapter_id: latestChapter.id,
               });
               if (switchSeq !== undefined && switchSeq !== switchSeqRef.current) {
-                return;
+                return false;
               }
               if (Array.isArray(chapterScenes) && chapterScenes.length > 0) {
                 const map = new Map(scenesResult.map(s => [s.id, s]));
@@ -3230,19 +3249,22 @@ const FrontstageApp: React.FC = () => {
               frontstageLogger.error('Failed to load latest chapter scenes', { error: e });
             }
           }
-          if (switchSeq !== undefined && switchSeq !== switchSeqRef.current) return;
+          if (switchSeq !== undefined && switchSeq !== switchSeqRef.current) return false;
           // v0.33.x fix: 传入刚 fetch 的 scenes，避免 selectChapter 读到
           // setScenes 之前的 stale scenes（冷启动 scenes=[] 时 sceneId 错误回落 chapter.id）
           selectChapter(latestChapter, { scenes: scenesForSelect });
+          return true;
         } else {
           setCurrentChapter(null);
           setCurrentScene(null);
           setContent('');
           // v0.30.43: 同步清空 latestContentRef，避免 flushSceneSave 保存已清空的旧内容
           latestContentRef.current = '';
+          return true;
         }
       } catch (e) {
         console.error('Failed to load chapters:', e);
+        return false;
       }
     },
     [
@@ -3287,13 +3309,39 @@ const FrontstageApp: React.FC = () => {
       if (previousStoryId) ignoredStoryEventsRef.current.add(previousStoryId);
       const previousTitle = current?.title;
 
-      // 1) 先保存旧故事。flush 失败则中止切换，不能丢稿。
+      // 1) 先保存旧故事。v0.93.2: flush 只等待 5s——update_scene IPC 挂起
+      //    （后端线程池阻塞/窗口关闭中）曾把整个切换永久卡死；flush 失败
+      //    也不再中止：persistSceneContent 在 hook 内部已带退避重试，且重试
+      //    在切走后因 sceneId 变化自动 no-op，继续等待只会把用户卡死在旧故事。
+      //    改为降级提示后继续切换（在途保存链自行尽力落库）。
       try {
-        await flushSceneSaveRef.current();
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            reject(new Error('flush_scene_save_timeout'));
+          }, STORY_SWITCH_FLUSH_TIMEOUT_MS);
+          Promise.resolve(flushSceneSaveRef.current())
+            .then(resolve, reject)
+            .finally(() => clearTimeout(timer));
+        });
       } catch (e) {
-        frontstageLogger.error('[storySwitch] flush failed', { error: e });
-        toast.error('当前章节保存失败，已取消切换');
-        return;
+        const timedOut = e instanceof Error && e.message === 'flush_scene_save_timeout';
+        frontstageLogger.error('[storySwitch] flush did not complete cleanly', {
+          error: e,
+          timedOut,
+        });
+        logToBackend(
+          'frontstage:story_switch_flush_degraded',
+          'flush failed or timed out; proceeding with switch',
+          {
+            timedOut,
+            error: String(e),
+          }
+        );
+        toast(
+          timedOut
+            ? '旧章节保存耗时过长，已继续切换'
+            : '旧章节保存失败，已继续切换（可切回旧章重试保存）'
+        );
       }
 
       // 2) 处置在途生成：前台单拍/流式取消；后台/创世分离后由 epoch 过滤。
@@ -3325,7 +3373,9 @@ const FrontstageApp: React.FC = () => {
         );
       }
 
-      // 3) 加载目标故事并原子应用。
+      // 3) 加载目标故事并原子应用。v0.93.2: selectStory 返回是否落地，
+      //    未落地（seq 丢弃除外）同 seq 重试一次——静默死端不再留下
+      //    "点了没反应"的假象。
       try {
         const list = await loggedInvoke<Story[]>('list_stories');
         if (!Array.isArray(list)) return;
@@ -3335,7 +3385,22 @@ const FrontstageApp: React.FC = () => {
           toast.error('目标作品不存在，已保留当前作品');
           return;
         }
-        await selectStory(story, { switchSeq, clearEditor: true });
+        const landed = await selectStory(story, { switchSeq, clearEditor: true });
+        if (!landed) {
+          if (switchSeq !== switchSeqRef.current) {
+            // 已被更新的切换取代：不得用旧切换补救
+            return;
+          }
+          frontstageLogger.warn('[storySwitch] selectStory did not land, retrying once', {
+            storyId,
+            switchSeq,
+          });
+          const retried = await selectStory(story, { switchSeq, clearEditor: true });
+          if (!retried) {
+            toast.error(`切换到《${story.title}》失败，请重试`);
+            return;
+          }
+        }
         ignoredStoryEventsRef.current.delete(storyId);
         toast.success(`已切换到《${story.title}》`);
       } catch (e) {
