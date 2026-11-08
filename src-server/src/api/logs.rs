@@ -92,11 +92,12 @@ async fn upload(
 ) -> impl Responder {
     // v0.93.4: 免登录上传——claims 为 None 时匿名（user_id 空）。轻量全局限流
     // 防匿名滥用：最近 1 小时入库包数超阈值直接 429。
-    // 注意：sqlx 宏对聚合标量可能推断为可空，必须用 COALESCE + "n: i64"
-    // 覆盖为非空 i64（v0.93.4 首版缺此覆盖，CI Docker 内真实编译才暴露）。
-    let recent: i64 = sqlx::query_scalar!(
-        "SELECT COALESCE(COUNT(*), 0) AS \"n: i64\" FROM log_packages \
-         WHERE uploaded_at >= NOW() - INTERVAL '1 hour'"
+    // 注意：sqlx 宏（query_scalar!）对聚合标量的可空推断在 0.8.6 无法用
+    // "n: i64" 覆盖，本地无 PostgreSQL 又编译不到——改用非宏 query_scalar
+    // 显式类型，COALESCE 保证运行时非空（v0.93.5 首版仍 E0308，v0.93.6 根修）。
+    let recent: i64 = sqlx::query_scalar::<_, i64>(
+        "SELECT COALESCE(COUNT(*), 0) FROM log_packages \
+         WHERE uploaded_at >= NOW() - INTERVAL '1 hour'",
     )
     .fetch_one(pool.get_ref())
     .await

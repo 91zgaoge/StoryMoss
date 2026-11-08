@@ -1,4 +1,4 @@
-# StoryMoss v0.93.5 架构文档
+# StoryMoss v0.93.6 架构文档
 
 > **v0.93.5**：**续写承接与风格锚点**——`coordinator.rs::CONTINUITY_HARD_RULE` 注入三处续写 writer 指令（紧接【前文】末尾现场/未完结事件先落地/禁止跳切）；`continuation_training.rs::build_style_anchor` 在风格 DNA 失败时取真实章节末尾节选做 few-shot 锚点；src-server 日志上传限流 SQL `COALESCE(...) AS "n: i64"` 修 sqlx 可空推断（本地无 PG 编译不到，CI Docker 暴露）。
 

@@ -2,6 +2,13 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.93.6（2026-11-09）
+
+**deploy-server 编译根修：日志上传限流 SQL 改非宏 query_scalar。**
+
+- v0.93.5 的 `COALESCE(...) AS "n: i64"` 覆盖在 sqlx 0.8.6 的 `query_scalar!` 宏上不生效（聚合标量仍被推断为可空 `Option<i64>`，CI Docker 二次 E0308）。根修：改用非宏 `sqlx::query_scalar::<_, i64>` 显式类型 + COALESCE 保证运行时非空——非宏路径不做编译期 DB 校验，彻底绕开「本地无 PostgreSQL 编译不到」的限制。
+- 桌面端功能零变化（仅版本号随动）。Rust **2081 / 17** 不变。
+
 ## v0.93.5（2026-11-09）
 
 **续写质量评估落地（硬承接约束 + 风格锚点降级）+ deploy-server 编译修复。**
