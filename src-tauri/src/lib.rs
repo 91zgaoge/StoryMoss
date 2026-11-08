@@ -1146,6 +1146,19 @@ pub fn run() {
                 crate::subscription::sync_remote_subscription(app.handle());
             }
 
+            // v0.93.3: 日志自动上传提议（启动立即一次 + 每 24h 循环）。仅当
+            // 自上次上传后有新 ERROR 日志且节流条件满足时，打包并向前端发
+            // `log-upload-requested` 授权请求；同意才上传，后端不静默上传。
+            {
+                let log_app = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        crate::log_report::maybe_propose_log_upload(&log_app).await;
+                        tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
+                    }
+                });
+            }
+
             // v0.88.0: 自动连接 enabled 的流式 HTTP MCP 服务器（栗子读书等），
             // 让定时任务/续写训练在后端可直连；单台失败不影响启动。
             if let Some(ref pool) = pool {

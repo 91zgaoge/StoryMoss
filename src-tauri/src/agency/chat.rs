@@ -172,6 +172,13 @@ impl ChatService {
                             .await;
                     }
                     Err(e) => {
+                        // v0.93.3: 导演回合失败写 error 级日志
+                        log::error!(
+                            "agency: 导演回合失败 session={} message={} error={}",
+                            sid,
+                            mid,
+                            e
+                        );
                         let _ = chat_c.update_message_payload(
                             &mid,
                             "failed",

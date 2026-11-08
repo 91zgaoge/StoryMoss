@@ -1,4 +1,6 @@
-# StoryMoss v0.93.3 架构文档
+# StoryMoss v0.93.4 架构文档
+
+> **v0.93.4**：**agency 可观测与修订兜底 + 日志上传免登录**——agency 失败链（run 终态/对话派发/导演回合）补 `log::error`、派发动作补 `log::info`；`write_revision_chapter` 新增 `revision_draft_with_fallback` 三层兜底（精确 key → 任意 key → `revision_prose_fallback` prose 直出）；`AppError::LlmRequestFailed`（severity Retry）替代网络发送失败的 Internal 包装，网关 per-candidate 退避得以生效；`upload_log_report`/`/api/logs/upload` 双端免登录（`Option<AuthClaims>` + 全局限流）；新增日志自动授权上传（后台 24h 检查新 ERROR → `log-upload-requested` 事件 → 幕后 confirmDialog 同意才传）。
 
 > **v0.93.3**：**导出格式修复与切书加固**——`export` 模块新增 `content.rs` 作为唯一正文清洗入口（tiptap HTML 块级切段、行内剥壳、实体解码、markdown 围栏清理），MD/HTML/TXT/EPUB/PDF/模板上下文统一走规范化段落；PDF 改为内嵌 Noto Serif SC（`src-tauri/assets/fonts/`，printpdf `font_subsetting` 子集化）并按显示宽度折行；EPUB 样式对齐幕前 `.ProseMirror` 阅读排版。幕后切书：flush 旧章保存 5s 超时、失败降级继续、`selectStory` 返回落地结果（未落地同 seq 重试一次）、`selectChapter` 懒加载两跳皆败按空正文应用元数据。上一版（v0.93.2）：`task_system::executor::spawn_cancel_monitor` 统一取消监听（修协程泄漏）、执行锁全路径互斥、训练「立即跑」upsert+trigger。
 

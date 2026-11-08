@@ -184,6 +184,16 @@ impl TaskScheduler {
         } else {
             target_chapter
         };
+        // v0.93.3: 派发可观测性——打包日志此前完全看不到导演派发了什么
+        log::info!(
+            "agency: 派发子任务 task={} role={} directed_chapter={} target_chapter={:?} target_scene={:?} target_end_chapter={:?}",
+            task_id,
+            role.as_str(),
+            directed_chapter,
+            target_chapter,
+            target_scene,
+            target_end_chapter
+        );
         tokio::spawn(async move {
             if directed_chapter {
                 sched
@@ -278,6 +288,12 @@ impl TaskScheduler {
                 let _ = reporter
                     .finish("failed", None, Some("父任务未完成或超时"))
                     .await;
+                // v0.93.3: 失败终态写 error 级日志
+                log::error!(
+                    "agency: 对话派发任务失败（父任务未完成或超时）task={} role={}",
+                    task.id,
+                    task.role.as_str()
+                );
                 return;
             }
         }
@@ -350,6 +366,17 @@ impl TaskScheduler {
         let _ = reporter
             .finish(status, summary.as_deref(), error.as_deref())
             .await;
+
+        // v0.93.3: 失败终态写 error 级日志（此前 agency 失败链全程零 error，
+        // 打包日志看不到任何错误级条目）
+        if status == "failed" {
+            log::error!(
+                "agency: 对话派发任务失败 task={} role={} error={}",
+                task.id,
+                task.role.as_str(),
+                error.as_deref().unwrap_or("未知错误")
+            );
+        }
 
         self.notify_waiters(&task.id);
         unregister_task_cancel(&task.id);
@@ -803,6 +830,15 @@ impl TaskScheduler {
         let _ = reporter
             .finish(status, summary.as_deref(), error.as_deref())
             .await;
+        // v0.93.3: 失败终态写 error 级日志
+        if status == "failed" {
+            log::error!(
+                "agency: 导演派发任务失败 task={} role={} error={}",
+                task.id,
+                task.role.as_str(),
+                error.as_deref().unwrap_or("未知错误")
+            );
+        }
         self.notify_waiters(&task.id);
         unregister_task_cancel(&task.id);
         if status == "completed" {
@@ -923,11 +959,21 @@ impl TaskScheduler {
         };
         let content = match status {
             "cancelled" => "已取消".to_string(),
-            _ => format!(
-                "{} 任务失败：{}",
-                task.role.as_str(),
-                error.unwrap_or("未知错误")
-            ),
+            _ => {
+                // v0.93.3: 用户可见的最终失败串同步写 error 级日志
+                log::error!(
+                    "agency: {} 任务失败 task={} message_id={} error={}",
+                    task.role.as_str(),
+                    task.id,
+                    message_id,
+                    error.unwrap_or("未知错误")
+                );
+                format!(
+                    "{} 任务失败：{}",
+                    task.role.as_str(),
+                    error.unwrap_or("未知错误")
+                )
+            }
         };
         let repo = ChatRepository::new(self.pool.clone());
         if repo

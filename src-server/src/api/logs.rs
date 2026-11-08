@@ -86,10 +86,22 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 #[post("/logs/upload")]
 async fn upload(
-    claims: AuthClaims,
+    claims: Option<AuthClaims>,
     pool: web::Data<PgPool>,
     mut payload: Multipart,
 ) -> impl Responder {
+    // v0.93.3: 免登录上传——claims 为 None 时匿名（user_id 空）。轻量全局限流
+    // 防匿名滥用：最近 1 小时入库包数超阈值直接 429。
+    let recent: i64 = sqlx::query_scalar!(
+        "SELECT COUNT(*) AS n FROM log_packages WHERE uploaded_at >= NOW() - INTERVAL '1 hour'"
+    )
+    .fetch_one(pool.get_ref())
+    .await
+    .unwrap_or(0);
+    if recent > 50 {
+        return HttpResponse::TooManyRequests().body("upload rate limit exceeded (50/hour)");
+    }
+
     let mut file_bytes: Option<Vec<u8>> = None;
     let mut client_sha: Option<String> = None;
 
@@ -176,7 +188,9 @@ async fn upload(
         size,
         app_version,
         platform,
-        uuid::Uuid::parse_str(&claims.sub).ok(),
+        claims
+            .as_ref()
+            .and_then(|c| uuid::Uuid::parse_str(&c.sub).ok()),
     )
     .fetch_optional(pool.get_ref())
     .await;

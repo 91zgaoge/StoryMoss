@@ -1259,6 +1259,9 @@ impl<R: Runtime> LlmService<R> {
             // v0.73.6: 首字节超时（连接已建立但模型迟迟不返回响应头）同样可重试
             // 1 次——典型场景是推理模型非流式调用的思考阶段。
             AppError::LlmResponseTimeout { .. } => true,
+            // v0.93.3: 发送阶段失败（reqwest "error sending request"）包装点已
+            // 归为 LlmRequestFailed(Retry)，统一可重试。
+            AppError::LlmRequestFailed { .. } => true,
             AppError::LlmGenerationTimeout { .. } => false,
             // v0.11.2: 模型响应超时通常是服务端/本地模型无法及时处理，重试只会
             // 让用户等待更久（候选阶段 120s 超时 × 重试会轻松超过 500s）。
@@ -1949,6 +1952,16 @@ impl<R: Runtime> LlmService<R> {
                                 ))
                             } else if err_msg.contains(super::adapter::GENERATION_TIMEOUT_MARKER) {
                                 Err(AppError::llm_generation_timeout(timeout_seconds * 1000))
+                            } else if err_msg.contains("error sending request") {
+                                // v0.93.3: 发送阶段失败（reqwest DNS/拒连/网络
+                                // 瞬断）包成 LlmRequestFailed(Retry)——网关
+                                // per-candidate retry_with_backoff 按 severity
+                                // 门控，此前 Internal(Fatal) 使网关路径 0 重试
+                                // 直接换候选（v0.86.0 分类在网关路径是死代码）。
+                                Err(AppError::llm_request_failed(format!(
+                                    "Generation failed: {}",
+                                    e
+                                )))
                             } else {
                                 Err(AppError::internal(format!("Generation failed: {}", e)))
                             }

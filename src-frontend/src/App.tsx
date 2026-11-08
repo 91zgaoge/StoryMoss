@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { loggedInvoke } from '@/services/tauri';
+import { confirmDialog } from '@/components/ui/confirm';
 import { createLogger } from '@/utils/logger';
 import { useQueryClient } from '@tanstack/react-query';
 import { Sidebar } from '@/components/Sidebar';
@@ -157,6 +159,63 @@ function App() {
       if (unlisten) unlisten();
     };
   }, [queryClient]);
+
+  // v0.93.3: 后端自动提议上传日志包——仅幕后窗口响应，confirmDialog 同意才
+  // 上传（后端不静默上传）；拒绝记当天，当日不再提示。
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    const today = () => new Date().toISOString().slice(0, 10);
+    const setup = async () => {
+      try {
+        unlisten = await listen<{
+          filename: string;
+          file_path: string;
+          sha256: string;
+          size_bytes: number;
+          file_count: number;
+          error_count: number;
+        }>('log-upload-requested', async event => {
+          // 双窗口共用 App 壳：仅幕后窗口弹窗（浏览器/mock 环境默认响应）
+          let isBackstage = true;
+          try {
+            isBackstage = getCurrentWindow().label === 'backstage';
+          } catch {
+            isBackstage = true;
+          }
+          if (!isBackstage) return;
+          if (localStorage.getItem('log-upload-declined-date') === today()) return;
+          const p = event.payload;
+          const ok = await confirmDialog({
+            title: '上传日志包协助诊断？',
+            description: `检测到 ${p.error_count} 条新错误日志，已打包 ${p.filename}（${(p.size_bytes / 1024 / 1024).toFixed(1)} MB，${p.file_count} 个文件）。上传后服务端仅保留 72 小时，用于定位崩溃与错误。`,
+            confirmText: '同意上传',
+            cancelText: '今天不上传',
+          });
+          if (!ok) {
+            localStorage.setItem('log-upload-declined-date', today());
+            toast('已跳过，今天不再提示日志上传', { icon: '📤' });
+            return;
+          }
+          try {
+            const res = await loggedInvoke<{ accepted: boolean; duplicate: boolean }>(
+              'upload_log_report',
+              { file_path: p.file_path, sha256: p.sha256 }
+            );
+            if (res.duplicate) toast.success('日志包已存在（服务端去重），无需重复上传');
+            else toast.success('日志包已上传，感谢协助改进');
+          } catch (e) {
+            toast.error(`日志上传失败：${(e as Error).message}`);
+          }
+        });
+      } catch (e) {
+        createLogger('ui:App').error('Failed to setup log-upload-requested listener', { error: e });
+      }
+    };
+    setup();
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   // 监听 backstage-update 事件（幕前 → 幕后联动）
   useEffect(() => {

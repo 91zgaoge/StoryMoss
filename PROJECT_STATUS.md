@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.93.3 项目完成状态
+# StoryMoss (草苔) v0.93.4 项目完成状态
+
+> 最后更新: 2026-11-09（**v0.93.4：agency 错误入日志 + 修订主创熔断三层兜底 + 日志上传免登录与自动授权**——失败链补 log::error、`revision_draft_with_fallback`（精确 key→任意 key→prose 直出）、`AppError::LlmRequestFailed`(Retry) 网关闪断重试、上传删双端登录门 + 自动检查弹窗授权上传。Rust **2078/17**（+4），Vitest **699/3**，Playwright **138/5** 基线不变。**未关闭**：deploy-server 后真机复测全路径。）
 
 > 最后更新: 2026-11-09（**v0.93.3：导出格式修复与幕后切书死端加固**——新增 `export/content.rs` 统一清洗 tiptap HTML 存量（块级切段/实体解码/去围栏），EPUB 对齐幕前阅读样式（衬线/两端对齐/缩进 2em/行高 1.8），PDF 内嵌 Noto Serif SC 子集字体 + 按显示宽度折行修复中文乱码；切书链 flush 5s 超时、失败降级继续、selectStory 落地校验重试、懒加载死端按空正文兜底。Rust **2074/17**（+16），Vitest **699/3**，Playwright **138**（+3）。**未关闭**：真机复测 EPUB/PDF 导出与切书全路径。）
 

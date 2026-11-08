@@ -146,9 +146,10 @@ impl ServerClient {
 
     /// v0.89.0: 上传日志压缩包（multipart）。返回 (accepted, duplicate)——
     /// 服务端对同 sha256 幂等返回 409，视为 duplicate=true 不算错误。
+    /// v0.93.3: `token` 可空——None 匿名上传（不带 Authorization 头）。
     pub async fn upload_log_package(
         &self,
-        token: &str,
+        token: Option<&str>,
         bytes: Vec<u8>,
         filename: &str,
         sha256: &str,
@@ -160,11 +161,14 @@ impl ServerClient {
         let form = reqwest::multipart::Form::new()
             .text("sha256", sha256.to_string())
             .part("file", part);
-        let resp = self
+        let mut req = self
             .client
             .post(format!("{}/api/logs/upload", self.base_url))
-            .bearer_auth(token)
-            .multipart(form)
+            .multipart(form);
+        if let Some(token) = token {
+            req = req.bearer_auth(token);
+        }
+        let resp = req
             .send()
             .await
             .map_err(|e| AppError::internal(format!("上传日志包失败: {e}")))?;
@@ -172,7 +176,7 @@ impl ServerClient {
             200 | 201 => Ok((true, false)),
             409 => Ok((false, true)),
             401 => Err(AppError::validation_failed(
-                "登录已过期，请重新登录后再上传日志",
+                "服务端尚未开启免登录上传，请更新服务端或登录账号后重试",
                 None::<String>,
             )),
             s => {

@@ -1608,6 +1608,18 @@ impl AgencyCoordinator {
                 let repo_c = repo.clone();
                 let rid = run_id.to_string();
                 let msg = e.to_string();
+                // v0.93.3: 失败终态写 error 级日志（此前只有 DB+事件，打包
+                // 日志里看不到 agency 失败链的最终错误）
+                if status == "failed" {
+                    log::error!(
+                        "agency: run 失败 run={} phase={} error={}",
+                        run_id,
+                        phase,
+                        msg
+                    );
+                } else {
+                    log::warn!("agency: run 取消 run={} phase={}", run_id, phase);
+                }
                 let _ = self
                     .db(move || {
                         repo_c
@@ -3624,6 +3636,18 @@ impl AgencyCoordinator {
                 let repo_c = repo.clone();
                 let rid = run_id.to_string();
                 let msg = e.to_string();
+                // v0.93.3: 失败终态写 error 级日志（此前只有 DB+事件，打包
+                // 日志里看不到 agency 失败链的最终错误）
+                if status == "failed" {
+                    log::error!(
+                        "agency: run 失败 run={} phase={} error={}",
+                        run_id,
+                        phase,
+                        msg
+                    );
+                } else {
+                    log::warn!("agency: run 取消 run={} phase={}", run_id, phase);
+                }
                 let _ = self
                     .db(move || {
                         repo_c
@@ -6743,7 +6767,9 @@ impl AgencyCoordinator {
             &[],
         );
         let existing_chars = existing.chars().count();
-        let writer_task = format!(
+        // v0.93.3: base_task 与 board_write 指令拆开——熔断兜底 prose 直出时
+        // 复用 base_task（含导演指令），不带工具协议。
+        let base_task = format!(
             "修订第{ch}章{scope}正文（原正文约 {existing_chars} 字；只修订这一{scope_unit}，\
              不新增章节、不覆盖手写资产）。\n\
              【本章现有正文（修订基底；保留既有事实、人物关系、时间线与未兑现伏笔，\
@@ -6754,8 +6780,7 @@ impl AgencyCoordinator {
              - 输出完整修订后的正文，不保留原稿的重复段落/句子；\n\
              - 保留本章既有事件结果，不引入与资产冲突的新设定；\n\
              - 按导演指令强化要求的部分，但不得改变既有章号与章节边界；\n\
-             - 禁止空正文；\n\
-             完成后用 board_write 把完整修订稿写入 draft 区（item_type=chapter, key={key}）。",
+             - 禁止空正文。",
             ch = chapter_number,
             existing_chars = existing_chars,
             existing = existing,
@@ -6771,9 +6796,11 @@ impl AgencyCoordinator {
             } else {
                 "章"
             },
-            key = key
         );
-        let writer_task = inject_director_directive(writer_task, directive);
+        let base_task = inject_director_directive(base_task, directive);
+        let writer_task = format!(
+            "{base_task}\n完成后用 board_write 把完整修订稿写入 draft 区（item_type=chapter, key={key}）。"
+        );
         let writer_out = self
             .run_role_with_llm_and_budget(
                 budget,
@@ -6790,23 +6817,44 @@ impl AgencyCoordinator {
         let draft = if writer_out.aborted {
             let reason = circuit_break_reason(&writer_out);
             log::warn!(
-                "agency: 修订主创 tool_loop 熔断（{}），尝试按 key 取稿 run={}",
+                "agency: 修订主创 tool_loop 熔断（{}），三层兜底取稿 run={}",
                 reason,
                 run_id
             );
+            self.revision_draft_with_fallback(
+                board,
+                run_id,
+                story_id,
+                budget,
+                &key,
+                &base_task,
+                &format!("熔断（{reason}）"),
+            )
+            .await
+        } else {
             match self
                 .latest_draft_by_key(board, run_id, &key, "主创未按约定 key 写入修订稿")
                 .await
             {
                 Ok(d) if d.content.chars().count() >= 200 => Ok(d),
-                _ => Err(AppError::from(format!(
-                    "修订主创熔断（{}），且黑板无「{}」修订稿",
-                    reason, key
-                ))),
+                _ => {
+                    log::warn!(
+                        "agency: 修订主创正常结束但黑板无「{}」稿，三层兜底取稿 run={}",
+                        key,
+                        run_id
+                    );
+                    self.revision_draft_with_fallback(
+                        board,
+                        run_id,
+                        story_id,
+                        budget,
+                        &key,
+                        &base_task,
+                        "正常结束但未按 key 写稿",
+                    )
+                    .await
+                }
             }
-        } else {
-            self.latest_draft_by_key(board, run_id, &key, "主创未按约定 key 写入修订稿")
-                .await
         }?;
         Ok(BatchChapterArtifacts {
             draft,
@@ -7549,6 +7597,18 @@ impl AgencyCoordinator {
                 let repo_c = repo.clone();
                 let rid = run_id.to_string();
                 let msg = e.to_string();
+                // v0.93.3: 失败终态写 error 级日志（此前只有 DB+事件，打包
+                // 日志里看不到 agency 失败链的最终错误）
+                if status == "failed" {
+                    log::error!(
+                        "agency: run 失败 run={} phase={} error={}",
+                        run_id,
+                        phase,
+                        msg
+                    );
+                } else {
+                    log::warn!("agency: run 取消 run={} phase={}", run_id, phase);
+                }
                 let _ = self
                     .db(move || {
                         repo_c
@@ -8282,6 +8342,98 @@ impl AgencyCoordinator {
                 .rev()
                 .find(|d| d.status == "active" && !d.content.is_empty() && d.key == key)
                 .ok_or_else(|| AppError::from(format!("草稿区缺少「{}」：{}", key, on_missing)))
+        })
+        .await
+    }
+
+    /// v0.93.3: 修订路径三层兜底取稿——精确 key → 任意 key（v0.80.4「熔断
+    /// 不丢稿」口径）→ prose 直出。此前只有第一层，主创熔断且黑板无精确
+    /// key 稿时整轮失败（真机：「修订主创熔断（达到最大轮数），且黑板无
+    /// 『第11章场景修订』修订稿」）。
+    async fn revision_draft_with_fallback(
+        &self,
+        board: &BlackboardService,
+        run_id: &str,
+        story_id: &str,
+        budget: &Arc<AgencyBudget>,
+        key: &str,
+        base_task: &str,
+        context_label: &str,
+    ) -> Result<BoardItem, AppError> {
+        // 1) 精确 key
+        if let Ok(d) = self
+            .latest_draft_by_key(board, run_id, key, "主创未按约定 key 写入修订稿")
+            .await
+        {
+            if d.content.chars().count() >= 200 {
+                return Ok(d);
+            }
+        }
+        // 2) 任意 key（避免模型写错 key 时整轮白跑）
+        if let Ok(d) = self.latest_draft(board, run_id).await {
+            let chars = d.content.chars().count();
+            if chars >= 200 {
+                log::warn!(
+                    "agency: 修订主创未按 key「{}」写入，从黑板取回「{}」（{} 字）run={}",
+                    key,
+                    d.key,
+                    chars,
+                    run_id
+                );
+                return Ok(d);
+            }
+        }
+        // 3) prose 直出（对齐续写路径 writer_prose_fallback）
+        log::warn!(
+            "agency: 修订主创{}且黑板无可用稿，prose 兜底直出修订稿 run={}",
+            context_label,
+            run_id
+        );
+        let task = format!(
+            "{base_task}\n\n【降级直出模式】不要调用任何工具、不要写黑板，直接在回复中输出完整修订后的正文全文。"
+        );
+        let llm = BudgetedLlm::new(
+            self.llm_for_run(run_id, AgentRole::LeadWriter, story_id),
+            budget.clone(),
+            AgentRole::LeadWriter,
+        );
+        let text = llm
+            .complete(
+                "你是主创。按修订要求直接输出完整正文全文，不要输出任何解释或工具调用。",
+                &task,
+                TaskType::CreativeWriting,
+                8192,
+            )
+            .await?;
+        let text = text.trim().to_string();
+        let chars = text.chars().count();
+        if chars < 200 {
+            return Err(AppError::from(format!(
+                "修订主创{}，prose 兜底直出仍过短（{} 字符），修订失败",
+                context_label, chars
+            )));
+        }
+        log::warn!(
+            "agency: 修订主创 prose 兜底产出修订稿（{} 字）run={}",
+            chars,
+            run_id
+        );
+        let summary: String = text.chars().take(60).collect();
+        let board_c = board.clone();
+        let rid = run_id.to_string();
+        let sid = story_id.to_string();
+        let ckey = key.to_string();
+        self.db(move || {
+            board_c.write(
+                &rid,
+                &sid,
+                AgentRole::LeadWriter,
+                BoardZone::Draft,
+                "chapter",
+                &ckey,
+                &text,
+                &summary,
+            )
         })
         .await
     }

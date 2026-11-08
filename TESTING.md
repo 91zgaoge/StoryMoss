@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.93.3)
+# 🧪 StoryMoss 自动化测试环境 (v0.93.4)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.93.4 变更说明
+
+- **agency/上传改造**：新增 4 项 Rust 测试（`LlmRequestFailed` severity=Retry/code/message、`Internal` 仍 Fatal 对照、`count_recent_errors` tracing+workflow 双格式计数与 mtime 过滤、`should_propose_auto_upload` 错误数/上传窗/提示窗/拒绝日组合判定）；agency 失败链补 error 级日志（无契约变更）。
+- **结果**：Rust **2078 passed / 17 ignored**（+4）；Vitest **699 / 3**；Playwright **138 / 5** 基线不变；tsc/fmt/clippy/guard 全绿。
+- **未关闭**：deploy-server 后真机复测熔断兜底/日志 ERROR/免登录与自动授权上传。
 
 ### v0.93.3 变更说明
 

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.3-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.4-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.93.4 · 代理工作室错误可追溯，修订熔断不再丢稿
+
+代理工作室的任务失败现在会以 ERROR 级写入应用日志（连同导演派发了什么），日志页上传的分析包能看到完整失败链。修订场景时即使主创多轮没按约定格式写稿，也会自动从黑板取回草稿或降级直出修订文，不再整轮失败报「黑板无修订稿」。模型端点闪断会先重试一次再切换候选。日志上传免登录：检测到新错误日志时自动打包并弹窗询问，同意才上传（拒绝则当天不再提示）。
 
 ### v0.93.3 · 导出不再乱码，幕后切书即点即达
 

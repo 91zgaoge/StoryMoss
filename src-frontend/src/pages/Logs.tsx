@@ -370,7 +370,7 @@ export function Logs() {
           </ul>
           <p className="text-xs leading-5 text-ai-ink-3">
             用途：定位崩溃与生成失败、改进稳定性。上传到 storymoss.top 后<b>仅保留 3 天</b>， 按内容
-            SHA-256 去重，不会重复占用空间。上传需要登录账号。
+            SHA-256 去重，不会重复占用空间。免登录上传（已登录则自动关联账号）。
           </p>
 
           {!packaged ? (
@@ -402,7 +402,7 @@ export function Logs() {
                 isLoading={uploading}
                 className="mt-2 w-full"
               >
-                确认上传（需已登录）
+                确认上传
               </Button>
             </div>
           )}

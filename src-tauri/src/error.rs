@@ -39,6 +39,11 @@ pub enum AppError {
     LlmResponseTimeout { elapsed_ms: u64 },
     /// LLM 生成阶段超时（已连接但响应读取超时，不可重试）
     LlmGenerationTimeout { elapsed_ms: u64 },
+    /// v0.93.3: LLM 请求发送失败（reqwest send 错误，如端点闪断/DNS/拒连，
+    /// Display 是「error sending request for url (...)」）——可重试 1 次。
+    /// 此前被包成 Internal(Fatal)，网关 per-candidate 退避按 severity 门控，
+    /// 0 重试直接换候选，v0.86.0 的重试分类在网关路径是死代码。
+    LlmRequestFailed { message: String },
     /// 数据库锁定（并发写入冲突）
     DbLocked { message: String },
     /// 上下文不可用（StoryContextBuilder 空返回等）
@@ -84,6 +89,7 @@ impl AppError {
             AppError::LlmConnectionTimeout { .. } => "LLM_CONNECTION_TIMEOUT",
             AppError::LlmResponseTimeout { .. } => "LLM_RESPONSE_TIMEOUT",
             AppError::LlmGenerationTimeout { .. } => "LLM_GENERATION_TIMEOUT",
+            AppError::LlmRequestFailed { .. } => "LLM_REQUEST_FAILED",
             AppError::DbLocked { .. } => "DB_LOCKED",
             AppError::ContextUnavailable { .. } => "CONTEXT_UNAVAILABLE",
             AppError::ValidationFailed { .. } => "VALIDATION_FAILED",
@@ -108,6 +114,7 @@ impl AppError {
             | AppError::LlmConnectionTimeout { .. }
             | AppError::LlmResponseTimeout { .. }
             | AppError::LlmGenerationTimeout { .. }
+            | AppError::LlmRequestFailed { .. }
             | AppError::DbLocked { .. }
             | AppError::NetworkOffline { .. } => ErrorSeverity::Retry,
             AppError::ContextUnavailable { .. } | AppError::Cancellation { .. } => {
@@ -137,6 +144,7 @@ impl AppError {
             AppError::LlmGenerationTimeout { elapsed_ms } => {
                 format!("模型生成响应超时（{}ms），请重试或切换模型", elapsed_ms)
             }
+            AppError::LlmRequestFailed { message } => message.clone(),
             AppError::DbLocked { message } => message.clone(),
             AppError::ContextUnavailable { message, .. } => message.clone(),
             AppError::ValidationFailed { message, .. } => message.clone(),
@@ -443,6 +451,14 @@ impl AppError {
         AppError::LlmGenerationTimeout { elapsed_ms }
     }
 
+    /// v0.93.3: 请求发送失败（端点闪断/DNS/拒连），severity=Retry——网关
+    /// per-candidate 退避会先重试一次再 failover。
+    pub fn llm_request_failed(message: impl Into<String>) -> Self {
+        AppError::LlmRequestFailed {
+            message: message.into(),
+        }
+    }
+
     pub fn db_locked(message: impl Into<String>) -> Self {
         AppError::DbLocked {
             message: message.into(),
@@ -559,5 +575,33 @@ impl From<crate::domain::foreshadowing::ForeshadowingError> for AppError {
                 message: other.to_string(),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// v0.93.3: 发送阶段失败（端点闪断/DNS/拒连）必须归为 Retry——网关
+    /// per-candidate retry_with_backoff 按 severity 门控，Fatal 会导致 0 重试
+    /// 直接换候选（真机：Qwren127 闪断每次都立即 failover）。
+    #[test]
+    fn llm_request_failed_is_retry() {
+        let e = AppError::llm_request_failed("Generation failed: error sending request for url (http://127.0.0.1:11234/v1/chat/completions)");
+        assert_eq!(e.code(), "LLM_REQUEST_FAILED");
+        assert_eq!(e.severity(), ErrorSeverity::Retry);
+        assert!(e.message().contains("error sending request"));
+    }
+
+    #[test]
+    fn llm_response_timeout_still_retry_and_internal_still_fatal() {
+        assert_eq!(
+            AppError::llm_response_timeout(180_000).severity(),
+            ErrorSeverity::Retry
+        );
+        assert_eq!(
+            AppError::internal("Generation failed: boom").severity(),
+            ErrorSeverity::Fatal
+        );
     }
 }

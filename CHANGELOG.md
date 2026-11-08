@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.93.4（2026-11-09）
+
+**agency 错误入日志 + 修订主创熔断三层兜底 + 日志上传免登录与自动授权。**
+
+- **agency 失败链 log::error 全覆盖**：此前 agency 全 crate 零 `log::error`——失败只落 DB/聊天/事件，打包日志里没有任何 ERROR 级条目，每天 10:00 的日志分析自动化看不到错误。现四处终态补齐：run 失败（创世/角色任务/续写修订批次共用 finish_run 失败臂）、对话派发任务失败（run_task 主臂与父任务等待臂、finish_directed_task、update_chat_task_status 的「{role} 任务失败」最终串）、导演回合失败（chat.rs）、派发动作 log::info（role/target_scene/target_chapter）。
+- **修订主创熔断三层兜底（修真机「修订主创熔断（达到最大轮数），且黑板无『第11章场景修订』修订稿」）**：`write_revision_chapter` 此前熔断后只有精确 key 捞稿一层，主创 10 轮跑完没按约定 key 写稿即整 run 失败。对齐续写路径 v0.80.4 口径：精确 key → 任意 key `latest_draft` → 新增 `revision_prose_fallback`（base_task 拆出复用、BudgetedLlm 直出修订稿、<200 字报错）；非 aborted 但无稿同样兜底。`writer_task` 拆为 base_task + board_write 指令行，prose 兜底不带工具协议。
+- **网络闪断可重试**：reqwest「error sending request」（端点闪断/DNS/拒连）此前被包成 `AppError::Internal`(Fatal)——网关 per-candidate 退避按 severity 门控，0 重试直接换候选，v0.86.0 的重试分类在网关路径是死代码。新增 `AppError::LlmRequestFailed`（code `LLM_REQUEST_FAILED`，severity Retry），wrap 点命中该子串改包新类型，网关先重试一次再 failover（与首字节超时同机制）。
+- **日志上传免登录**：应用端 `upload_log_report` 删 Device 身份硬拒（账号带 token 关联、设备匿名）；`upload_log_package` token 改 `Option<&str>`；服务端 `/api/logs/upload` 改 `Option<AuthClaims>`（user_id 列本就可空）+ 轻量全局限流（近 1h >50 包 429）。**服务端需重新 deploy-server 后匿名上传才生效**，401 有降级文案。
+- **自动上传（弹窗同意才传）**：启动立即检查 + 每 24h 循环（仿 health_daemon）。条件（纯函数）：自上次成功上传后日志里有新 ERROR 行（storymoss.log.* 按 " ERROR "、creative_workflow.log 按 `"level":"ERROR"`，文件 mtime 晚于上次上传）且今天未拒绝且 24h 内未提示过 → 打包 → 发 `log-upload-requested` 事件（含体积/SHA/错误数）→ 幕后 App.tsx 仅 backstage 窗口 confirmDialog，同意才 `upload_log_report`，拒绝记 localStorage 当天不再弹；后端不做静默上传。
+- **验证**：Rust **2078 passed / 17 ignored**（+4：LLM_REQUEST_FAILED severity/code、错误行计数、自动上传条件判定×2）；tsc 0 错误；Vitest **699 / 3**；Playwright **138 / 5** 基线不变；fmt/clippy/check/guard 全绿。未本地打包。
+- **未关闭**：deploy-server 重部署后真机复测「修订熔断兜底产出修订稿 / 打包日志可见 agency ERROR / 未登录手动与自动授权上传」全路径。
+
 ## v0.93.3（2026-11-09）
 
 **导出格式修复（中文字体/段落规范化）与幕后切书死端加固。**

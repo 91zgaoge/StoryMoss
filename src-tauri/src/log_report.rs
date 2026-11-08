@@ -5,6 +5,10 @@
 //! 超限从大到小丢弃最大块），算 SHA-256，上传到官网 `/api/logs/upload`。
 //! 防重复：本地 `app_settings` 记录上传历史（sha256 去重）+ 服务端同
 //! sha256 幂等拒绝（409 视为已上传成功）。服务端只保留 3 天。
+//!
+//! v0.93.3: 免登录（设备身份匿名上传）+ 自动提议上传——启动/每 24h 检查
+//! 一次，自上次上传后有新 ERROR 日志且满足节流条件时打包并发
+//! `log-upload-requested` 事件，前端弹窗征得同意才真正上传；拒绝当天不再问。
 
 use std::{
     io::{Read as _, Write as _},
@@ -13,7 +17,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Manager, Runtime, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 use crate::{
     db::DbPool,
@@ -324,7 +328,8 @@ pub async fn package_log_report<R: Runtime>(app: AppHandle<R>) -> Result<Package
         .map_err(|e| AppError::internal(format!("打包任务失败: {e}")))?
 }
 
-/// 上传已打包的日志（需登录；显式授权由前端确认对话框保证）。
+/// 上传已打包的日志（v0.93.3 起免登录：账号身份带 token 便于关联用户，
+/// 设备身份匿名上传；显式授权由前端确认对话框保证）。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn upload_log_report<R: Runtime>(
     app: AppHandle<R>,
@@ -332,14 +337,10 @@ pub async fn upload_log_report<R: Runtime>(
     file_path: String,
     sha256: String,
 ) -> Result<serde_json::Value, AppError> {
+    // 免登录：Account 带 token（服务端关联 user_id），Device 匿名
     let token = match resolve_identity(&app, pool.inner()) {
-        Identity::Account { token, .. } => token,
-        Identity::Device { ref machine_id, .. } => {
-            return Err(AppError::validation_failed(
-                format!("上传日志需要登录账号（当前为设备身份 {machine_id}）。请先在登录页登录。"),
-                None::<String>,
-            ));
-        }
+        Identity::Account { token, .. } => Some(token),
+        Identity::Device { .. } => None,
     };
 
     let bytes = tokio::fs::read(&file_path)
@@ -353,7 +354,7 @@ pub async fn upload_log_report<R: Runtime>(
 
     let client = ServerClient::new();
     let (accepted, duplicate) = client
-        .upload_log_package(&token, bytes, &filename, &sha256)
+        .upload_log_package(token.as_deref(), bytes, &filename, &sha256)
         .await?;
 
     // 记录上传历史（含重复——重复说明服务端已有，无需再传）
@@ -458,5 +459,269 @@ mod tests {
         let v = serde_json::to_value(&m).unwrap();
         assert_eq!(v["files"][0]["path"], "logs/creative_workflow.log");
         assert_eq!(v["files"][0]["bytes"], 123);
+    }
+}
+
+// ==================== v0.93.3 自动提议上传 ====================
+
+/// 自动上传提议状态（app_data/log_upload_state.json）
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AutoUploadState {
+    /// 用户最近一次拒绝的日期（YYYY-MM-DD）；拒绝当天不再提示
+    #[serde(default)]
+    pub last_declined_date: Option<String>,
+    /// 最近一次提示时间（RFC3339）；24h 内不重复提示
+    #[serde(default)]
+    pub last_prompted_at: Option<String>,
+}
+
+fn auto_upload_state_path(app_dir: &std::path::Path) -> PathBuf {
+    app_dir.join("log_upload_state.json")
+}
+
+fn load_auto_upload_state(app_dir: &std::path::Path) -> Result<AutoUploadState, AppError> {
+    let path = auto_upload_state_path(app_dir);
+    if !path.exists() {
+        return Ok(AutoUploadState::default());
+    }
+    let raw = std::fs::read_to_string(&path).map_err(|e| AppError::internal(format!("{e}")))?;
+    serde_json::from_str(&raw).map_err(|e| AppError::internal(format!("{e}")))
+}
+
+fn save_auto_upload_state(
+    app_dir: &std::path::Path,
+    state: &AutoUploadState,
+) -> Result<(), AppError> {
+    let json = serde_json::to_vec_pretty(state).map_err(|e| AppError::internal(format!("{e}")))?;
+    std::fs::write(auto_upload_state_path(app_dir), json)
+        .map_err(|e| AppError::internal(format!("{e}")))
+}
+
+/// 统计 mtime 晚于 cutoff 的日志文件中的 ERROR
+/// 行数（纯函数，测试可注入临时目录）。 tracing 轮转文件（storymoss.log.*）按 "
+/// ERROR " 匹配；创作工作流 JSONL 按 "level":"ERROR" 匹配。
+pub(crate) fn count_recent_errors(dir: &std::path::Path, cutoff: std::time::SystemTime) -> u64 {
+    let mut total = 0u64;
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        let is_tracing = name.starts_with("storymoss.log");
+        let is_workflow = name == "creative_workflow.log";
+        if !is_tracing && !is_workflow {
+            continue;
+        }
+        let Ok(meta) = std::fs::metadata(&path) else {
+            continue;
+        };
+        if meta.modified().ok().is_none_or(|m| m <= cutoff) {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let needle = if is_workflow {
+            "\"level\":\"ERROR\""
+        } else {
+            " ERROR "
+        };
+        total += content.lines().filter(|l| l.contains(needle)).count() as u64;
+    }
+    total
+}
+
+/// 是否应提议自动上传（纯函数）：有新 ERROR 且距上次上传 >24h（从未上传
+/// 则只要有新错误就提示）且今天未拒绝且 24h 内未提示过。
+pub(crate) fn should_propose_auto_upload(
+    error_count: u64,
+    now: chrono::DateTime<chrono::Local>,
+    last_uploaded_at: Option<chrono::DateTime<chrono::Local>>,
+    last_prompted_at: Option<chrono::DateTime<chrono::Local>>,
+    last_declined_date: Option<&str>,
+) -> bool {
+    if error_count == 0 {
+        return false;
+    }
+    let today = now.format("%Y-%m-%d").to_string();
+    if last_declined_date == Some(today.as_str()) {
+        return false;
+    }
+    if let Some(p) = last_prompted_at {
+        if now.signed_duration_since(p) < chrono::Duration::hours(24) {
+            return false;
+        }
+    }
+    match last_uploaded_at {
+        Some(u) => now.signed_duration_since(u) >= chrono::Duration::hours(24),
+        None => true,
+    }
+}
+
+/// 后台检查：满足条件则打包日志并向前端发 `log-upload-requested` 事件
+/// （同意与否由前端弹窗决定，后端不做静默上传）。由 lib.rs setup 启动：
+/// 立即一次 + 每 24h 循环。
+pub async fn maybe_propose_log_upload<R: Runtime>(app: &AppHandle<R>) {
+    let Ok(app_dir) = app.path().app_data_dir() else {
+        return;
+    };
+    let state = load_auto_upload_state(&app_dir).unwrap_or_default();
+    let history = load_upload_history(&app_dir).unwrap_or_default();
+    let last_uploaded_at = history.last().and_then(|r| {
+        chrono::DateTime::parse_from_rfc3339(&r.uploaded_at)
+            .ok()
+            .map(|d| d.with_timezone(&chrono::Local))
+    });
+    let cutoff = last_uploaded_at.map(|d| d.into()).unwrap_or_else(|| {
+        std::time::SystemTime::now() - std::time::Duration::from_secs(3 * 24 * 3600)
+    });
+    let dir = app_dir.clone();
+    let error_count = tokio::task::spawn_blocking(move || count_recent_errors(&dir, cutoff))
+        .await
+        .unwrap_or(0);
+    let now = chrono::Local::now();
+    let last_prompted_at = state
+        .last_prompted_at
+        .as_deref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&chrono::Local));
+    if !should_propose_auto_upload(
+        error_count,
+        now,
+        last_uploaded_at,
+        last_prompted_at,
+        state.last_declined_date.as_deref(),
+    ) {
+        return;
+    }
+
+    // 打包在前（弹窗要展示体积/SHA），上传与否由前端决定
+    let app_c = app.clone();
+    let info = match tauri::async_runtime::spawn_blocking(move || package_logs(&app_c)).await {
+        Ok(Ok(info)) => info,
+        Ok(Err(e)) => {
+            log::warn!("[log_report] 自动上传打包失败: {}", e);
+            return;
+        }
+        Err(e) => {
+            log::warn!("[log_report] 自动上传打包任务失败: {}", e);
+            return;
+        }
+    };
+
+    let mut st = state;
+    st.last_prompted_at = Some(now.to_rfc3339());
+    if let Err(e) = save_auto_upload_state(&app_dir, &st) {
+        log::warn!("[log_report] 自动上传状态写入失败: {}", e);
+    }
+    log::info!(
+        "[log_report] 检测到 {} 条新错误日志，已打包 {}（{}），向前端请求授权上传",
+        error_count,
+        info.filename,
+        info.sha256
+    );
+    let _ = app.emit(
+        "log-upload-requested",
+        serde_json::json!({
+            "filename": info.filename,
+            "file_path": info.path,
+            "sha256": info.sha256,
+            "size_bytes": info.size_bytes,
+            "file_count": info.file_count,
+            "error_count": error_count,
+        }),
+    );
+}
+
+/// v0.93.3: 自动上传判定与错误行计数测试
+#[cfg(test)]
+mod auto_upload_tests {
+    use std::time::{Duration, SystemTime};
+
+    use super::*;
+
+    #[test]
+    fn count_recent_errors_matches_tracing_and_workflow() {
+        let dir = std::env::temp_dir().join(format!(
+            "storymoss-log-report-test-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("storymoss.log.2026-11-09"),
+            "[02:52:54.659] INFO ok\n[02:55:40.338] ERROR llm.generate.error — failed\n[02:55:41.000] ERROR second one\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("creative_workflow.log"),
+            "{\"level\":\"INFO\"}\n{\"level\":\"ERROR\"}\n",
+        )
+        .unwrap();
+        // 无关文件不计入
+        std::fs::write(dir.join("unrelated.log"), "ERROR noise\n").unwrap();
+
+        let recent_past = SystemTime::now() - Duration::from_secs(60);
+        let future = SystemTime::now() + Duration::from_secs(60);
+        // cutoff 在未来：新文件 mtime 早于 cutoff → 全部不计
+        assert_eq!(count_recent_errors(&dir, future), 0);
+        // cutoff 为近过去：刚写入的文件计入，2 tracing ERROR + 1 workflow ERROR
+        assert_eq!(count_recent_errors(&dir, recent_past), 3);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn should_propose_auto_upload_gate() {
+        let now = chrono::Local::now();
+        let day_ago = now - chrono::Duration::hours(25);
+        let hour_ago = now - chrono::Duration::hours(1);
+
+        // 无错误不提示
+        assert!(!should_propose_auto_upload(0, now, None, None, None));
+        // 从未上传 + 有错误 → 提示
+        assert!(should_propose_auto_upload(3, now, None, None, None));
+        // 24h 内刚上传过 → 不提示
+        assert!(!should_propose_auto_upload(
+            3,
+            now,
+            Some(hour_ago),
+            None,
+            None
+        ));
+        // 上传已超 24h → 提示
+        assert!(should_propose_auto_upload(
+            3,
+            now,
+            Some(day_ago),
+            None,
+            None
+        ));
+        // 24h 内提示过 → 不提示
+        assert!(!should_propose_auto_upload(
+            3,
+            now,
+            Some(day_ago),
+            Some(hour_ago),
+            None
+        ));
+        // 今天拒绝过 → 不提示
+        let today = now.format("%Y-%m-%d").to_string();
+        assert!(!should_propose_auto_upload(
+            3,
+            now,
+            Some(day_ago),
+            None,
+            Some(&today)
+        ));
+        // 拒绝是昨天 → 提示
+        assert!(should_propose_auto_upload(
+            3,
+            now,
+            Some(day_ago),
+            None,
+            Some("2020-01-01")
+        ));
     }
 }

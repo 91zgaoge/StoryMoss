@@ -1,3 +1,13 @@
+<!-- 2026-11-09（v0.93.4）：自 AGENTS.md 归档 v0.92.0 摘要。 -->
+
+### v0.92.0 - 主工作流学习与数据闭合（P2+P3 合并）
+
+**为什么**：学习中心批准的 instinct/技能只躺在页面上、写作策略只对幕前生效、叙事分析与追读债数据从不回流创作、修订后 KG/向量不重采。
+
+**改动**：①`learning.rs::render_instinct_block`（promoted top3、600 字预算）+ `continue_instinct_enabled` 开关，注入单拍与批量 writer。②`ToolContext.app_handle` + `SkillExecuteTool`（白名单 `learned.*` 且启用，输出截 2000 字），注册进 agency_default。③`load_continue_context_parts(strategy)` 用 `AppConfig.writing_strategy` 覆盖 bundle 约束（单拍/批量/修订）。④`continue_assets` 新增叙事节奏块与追读债块进 continuity_blocks。⑤`CrewSnapshot.insights` + 导演 prompt Insights 区块。⑥修订装配后 `spawn_scene_ingest` 重采 KG/向量。
+
+**验证**：Rust **2052 / 16**（+6）；fmt/clippy/check/guard 全绿；前端基线不变（Vitest 696/3、Playwright 134/5）。**未关闭**：原生安装包真机复测学习注入/追读债/洞察。
+
 <!-- 2026-11-09（v0.93.2）：自 AGENTS.md 归档 v0.91.0 摘要。 -->
 
 ### v0.91.0 - 主工作流调度闭合
