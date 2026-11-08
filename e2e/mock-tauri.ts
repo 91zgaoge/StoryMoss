@@ -507,6 +507,62 @@ export function getMockTauriInitScript() {
           }
           case 'notify_backstage_content_changed':
             return null;
+          case 'mcp_ensure_connections':
+            return [
+              {
+                id: 'legado',
+                name: '栗子读书',
+                enabled: true,
+                connected: true,
+                tools: 2,
+                resources: 0,
+                mapping_version: '1.0.0',
+                source_name: 'legado-macos',
+                source_version: '0.14.24',
+                permissions: { read: { granted: true, tools: ['list_books', 'get_book'] } },
+                error_code: null,
+                error_message: null,
+              },
+            ];
+          case 'mcp_list_saved_servers':
+            return [
+              {
+                id: 'legado',
+                name: '栗子读书',
+                enabled: true,
+                config: {
+                  id: 'legado',
+                  name: '栗子读书',
+                  command: '',
+                  args: [],
+                  env: {},
+                  timeout_seconds: 30,
+                  url: 'http://127.0.0.1:1122/mcp',
+                  headers: {},
+                },
+                created_at: '2026-11-08T00:00:00Z',
+                updated_at: '2026-11-08T00:00:00Z',
+              },
+            ];
+          case 'get_mcp_connections':
+            return [];
+          case 'list_mcp_tools':
+            return [
+              {
+                name: 'mcp.legado.list_books',
+                description: '书架列表',
+                parameters: { type: 'object' },
+              },
+              {
+                name: 'mcp.legado.get_book',
+                description: '书籍详情',
+                parameters: { type: 'object' },
+              },
+            ];
+          case 'mcp_save_server':
+          case 'mcp_delete_server':
+          case 'mcp_set_server_enabled':
+            return null;
           case 'show_backstage':
             return null;
           case 'show_frontstage':

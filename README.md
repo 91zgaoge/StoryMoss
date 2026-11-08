@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.92.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.93.0 · MCP 自动连接，工具不再逐个填
+
+幕后「设置 → 扩展 → MCP 连接」现在打开即自动扫描并连接已保存的服务器；栗子读书的连接状态、11 个工具、映射版本和权限一屏可见，不需要再手动点连接或逐个选工具。工具目录按服务器分组展示，添加服务器改成弹窗；续写训练页会自动选服务器、自动选 `get_chapter_content` 并生成参数（`book_url` 自动解析）。
 
 ### v0.92.0 · 学习回路与叙事数据接入主工作流
 

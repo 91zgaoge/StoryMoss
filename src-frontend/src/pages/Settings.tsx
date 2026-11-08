@@ -285,9 +285,9 @@ export function Settings() {
                         className="text-xs text-cinema-gold/50 leading-relaxed"
                         data-testid="extensions-note"
                       >
-                        MCP 扩展连接不进入默认续写热路径；仅供高级工具调用与外部服务器联调。
+                        MCP 服务器已保存后自动连接，工具全部自动注册；写/联网权限由源系统控制。
                       </p>
-                      <Panel title="MCP 扩展">
+                      <Panel title="MCP 连接">
                         <Mcp />
                       </Panel>
                     </div>

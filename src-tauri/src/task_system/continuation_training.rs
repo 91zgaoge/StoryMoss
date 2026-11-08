@@ -10,8 +10,9 @@
 //!
 //! 源支持两类：
 //! - `mcp`：通过已连接的 MCP 服务器（如栗子读书 legado）按章取正文。
-//!   `chapter_tool` + `args_template` 显式指定（`$book`/`$index` 占位符），
-//!   不猜测各服务器工具命名。
+//!   `chapter_tool` 为空时自动选择章节正文工具；`args_template` 为空时按 工具
+//!   JSON Schema 自动生成 `$book`/`$index`/开关参数。`$book` 会在执行时 经 MCP
+//!   `get_book` 解析为源系统的 book_url（失败回退书名）。
 //! - `file`：本地 epub/txt/pdf，复用
 //!   `book_deconstruction::parser::parse_book`。
 
@@ -59,10 +60,10 @@ pub struct TrainingPayload {
 pub enum SourceSpec {
     Mcp {
         server_id: String,
-        /// 章节正文工具名（如 getChapterContent）
+        /// 章节正文工具名（留空时自动选择）
         chapter_tool: String,
-        /// 参数模板：值为字符串时 `$book`/`$index` 被替换（如
-        /// `{"book": "$book", "index": "$index"}`），其余类型原样传递
+        /// 参数模板：值为字符串时 `$book`/`$index` 被替换；留空时按工具 schema
+        /// 自动生成。`$index` 单独出现时转为数值。
         #[serde(default)]
         args_template: serde_json::Map<String, serde_json::Value>,
     },
@@ -379,6 +380,16 @@ impl ContinuationTrainingExecutor {
                 args_template,
             } => {
                 let start = payload.start_chapter.unwrap_or(1);
+                let tool = self.pick_mcp_chapter_tool(server_id, chapter_tool).await?;
+                let template = if args_template.is_empty() {
+                    self.default_mcp_args_template(server_id, &tool).await
+                } else {
+                    args_template.clone()
+                };
+                let book_ref = self
+                    .resolve_mcp_book_ref(server_id, &payload.book_title)
+                    .await
+                    .unwrap_or_else(|| payload.book_title.clone());
                 // 连续取 n+1 章（n 上下文 + 1 基准）；连续两次空结果即止
                 let mut out: Vec<Chapter> = Vec::new();
                 let mut empty_streak = 0;
@@ -387,10 +398,8 @@ impl ContinuationTrainingExecutor {
                         break;
                     }
                     let index = start + offset;
-                    let args = Self::render_args(args_template, &payload.book_title, index);
-                    let content = self
-                        .call_mcp_chapter_tool(server_id, chapter_tool, args)
-                        .await?;
+                    let args = Self::render_args(&template, &book_ref, index);
+                    let content = self.call_mcp_chapter_tool(server_id, &tool, args).await?;
                     let trimmed = content.trim().to_string();
                     if trimmed.is_empty() {
                         empty_streak += 1;
@@ -444,6 +453,9 @@ impl ContinuationTrainingExecutor {
         let mut out = serde_json::Map::new();
         for (k, v) in template {
             let replaced = match v {
+                serde_json::Value::String(s) if s == "$index" => {
+                    serde_json::Value::Number(index.into())
+                }
                 serde_json::Value::String(s) => serde_json::Value::String(
                     s.replace("$book", book)
                         .replace("$index", &index.to_string()),
@@ -453,6 +465,139 @@ impl ContinuationTrainingExecutor {
             out.insert(k.clone(), replaced);
         }
         serde_json::Value::Object(out)
+    }
+
+    /// 未显式指定章节工具时，从服务器连接自动挑一个正文工具。
+    async fn pick_mcp_chapter_tool(
+        &self,
+        server_id: &str,
+        preferred: &str,
+    ) -> Result<String, String> {
+        let preferred = preferred.trim();
+        if !preferred.is_empty() {
+            return Ok(preferred.to_string());
+        }
+        let connections = crate::MCP_CONNECTIONS.lock().await;
+        let client = connections
+            .get(server_id)
+            .ok_or_else(|| format!("MCP 服务器 {server_id} 未连接"))?;
+        Self::pick_chapter_tool_from_tools(client.get_tools()).ok_or_else(|| {
+            format!("MCP 服务器 {server_id} 未提供章节正文工具；请在 MCP 页确认工具列表")
+        })
+    }
+
+    fn pick_chapter_tool_from_tools(tools: &[crate::mcp::McpTool]) -> Option<String> {
+        if tools.iter().any(|tool| tool.name == "get_chapter_content") {
+            return Some("get_chapter_content".to_string());
+        }
+        let keywords = ["chapter", "content", "正文", "章节"];
+        tools
+            .iter()
+            .find(|tool| {
+                let haystack = format!("{} {}", tool.name, tool.description).to_ascii_lowercase();
+                keywords.iter().any(|keyword| haystack.contains(keyword))
+            })
+            .map(|tool| tool.name.clone())
+    }
+
+    /// 参数模板为空时，按工具 JSON Schema 自动生成 $book/$index/开关。
+    async fn default_mcp_args_template(
+        &self,
+        server_id: &str,
+        tool_name: &str,
+    ) -> serde_json::Map<String, serde_json::Value> {
+        let mut template = serde_json::Map::new();
+        let connections = crate::MCP_CONNECTIONS.lock().await;
+        let client = match connections.get(server_id) {
+            Some(client) => client,
+            None => return template,
+        };
+        let tool = client
+            .get_tools()
+            .iter()
+            .find(|tool| tool.name == tool_name);
+        let Some(tool) = tool else {
+            return template;
+        };
+        Self::default_args_from_tool(tool)
+    }
+
+    fn default_args_from_tool(
+        tool: &crate::mcp::McpTool,
+    ) -> serde_json::Map<String, serde_json::Value> {
+        let mut template = serde_json::Map::new();
+        let properties = tool
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object());
+        let Some(properties) = properties else {
+            return template;
+        };
+        for (name, schema) in properties {
+            let lower = name.to_ascii_lowercase();
+            let schema_type = schema
+                .get("type")
+                .and_then(|value| value.as_str())
+                .unwrap_or("string");
+            if lower.contains("book") && schema_type == "string" {
+                template.insert(name.clone(), serde_json::json!("$book"));
+            } else if (lower.contains("index") || lower.contains("chapter"))
+                && (schema_type == "integer" || schema_type == "number")
+            {
+                template.insert(name.clone(), serde_json::json!("$index"));
+            } else if lower == "fetch_online" || lower == "include_content" {
+                template.insert(name.clone(), serde_json::Value::Bool(true));
+            }
+        }
+        template
+    }
+
+    /// 书名 → 源系统 book_url（优先走 MCP get_book；失败则回退书名）。
+    async fn resolve_mcp_book_ref(&self, server_id: &str, book_title: &str) -> Option<String> {
+        let mut connections = crate::MCP_CONNECTIONS.lock().await;
+        let client = connections.get_mut(server_id)?;
+        if !client
+            .get_tools()
+            .iter()
+            .any(|tool| tool.name == "get_book")
+        {
+            return None;
+        }
+        let result = client
+            .call_tool("get_book", serde_json::json!({ "name": book_title }))
+            .await
+            .ok()?;
+        let text = Self::extract_text(&result);
+        let parsed: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
+        Self::find_book_url(&parsed)
+    }
+
+    fn find_book_url(value: &serde_json::Value) -> Option<String> {
+        if let Some(url) = value.get("book_url").and_then(|item| item.as_str()) {
+            return Some(url.to_string());
+        }
+        if let Some(book) = value.get("book") {
+            if let Some(url) = Self::find_book_url(book) {
+                return Some(url);
+            }
+        }
+        for key in ["books", "candidates", "items"] {
+            if let Some(items) = value.get(key).and_then(|item| item.as_array()) {
+                for item in items {
+                    if let Some(url) = Self::find_book_url(item) {
+                        return Some(url);
+                    }
+                }
+            }
+        }
+        if let Some(items) = value.as_array() {
+            for item in items {
+                if let Some(url) = Self::find_book_url(item) {
+                    return Some(url);
+                }
+            }
+        }
+        None
     }
 
     async fn call_mcp_chapter_tool(
@@ -722,5 +867,71 @@ fn fmt_num(v: &serde_json::Value) -> String {
         serde_json::Value::Number(n) => n.to_string(),
         serde_json::Value::String(s) => s.clone(),
         other => other.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_args_coerces_index_and_replaces_book_url() {
+        let mut template = serde_json::Map::new();
+        template.insert("book_url".to_string(), serde_json::json!("$book"));
+        template.insert("index".to_string(), serde_json::json!("$index"));
+        template.insert("fetch_online".to_string(), serde_json::Value::Bool(true));
+
+        let args =
+            ContinuationTrainingExecutor::render_args(&template, "https://example.test/book/1", 7);
+        assert_eq!(args["book_url"], "https://example.test/book/1");
+        assert_eq!(args["index"], 7);
+        assert_eq!(args["fetch_online"], true);
+    }
+
+    #[test]
+    fn find_book_url_recurses_candidates() {
+        let value = serde_json::json!({
+            "candidates": [
+                { "name": "阴脉先生", "book_url": "https://example.test/book/1" }
+            ]
+        });
+        assert_eq!(
+            ContinuationTrainingExecutor::find_book_url(&value),
+            Some("https://example.test/book/1".to_string())
+        );
+    }
+
+    #[test]
+    fn auto_selects_chapter_tool_and_schema_args() {
+        let tools = vec![
+            crate::mcp::McpTool {
+                name: "list_books".into(),
+                description: "书架".into(),
+                parameters: serde_json::json!({ "type": "object" }),
+                annotations: None,
+            },
+            crate::mcp::McpTool {
+                name: "get_chapter_content".into(),
+                description: "取章节正文".into(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "book_url": { "type": "string" },
+                        "index": { "type": "integer" },
+                        "fetch_online": { "type": "boolean" }
+                    }
+                }),
+                annotations: None,
+            },
+        ];
+        assert_eq!(
+            ContinuationTrainingExecutor::pick_chapter_tool_from_tools(&tools),
+            Some("get_chapter_content".to_string())
+        );
+
+        let template = ContinuationTrainingExecutor::default_args_from_tool(&tools[1]);
+        assert_eq!(template["book_url"], "$book");
+        assert_eq!(template["index"], "$index");
+        assert_eq!(template["fetch_online"], true);
     }
 }

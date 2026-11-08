@@ -6,7 +6,7 @@
  * 五维对比评审 → 改进建议自动注入下一轮。报告按书聚合，看总分趋势。
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Dumbbell, Play, RefreshCw, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -16,11 +16,20 @@ import { Button } from '@/components/ui/Button';
 import { Input, Select, Textarea } from '@/components/ui/controls';
 import { Field } from '@/components/ui/Field';
 import { Modal } from '@/components/ui/Modal';
+import { Panel } from '@/components/ui/Panel';
 import { AiInsightCards } from '@/components/ui/ai/AiInsightCards';
 import { loggedInvoke } from '@/services/tauri';
 import { mcpListSavedServers, type SavedMcpServer } from '@/services/api/skills';
+import { useMcpTools } from '@/hooks/useMcpTools';
 import { useCreateTask, useTasks } from '@/hooks/useTasks';
 import { useAppStore } from '@/stores/appStore';
+import {
+  bareMcpToolName,
+  buildMcpArgsTemplate,
+  formatArgsTemplate,
+  pickChapterTool,
+  serverIdFromMcpToolName,
+} from '@/utils/mcp';
 import { cn } from '@/utils/cn';
 
 interface TrainingReportSummary {
@@ -57,7 +66,7 @@ export default function TrainingLab() {
   const [sourceKind, setSourceKind] = useState<'mcp' | 'file'>('mcp');
   const [serverId, setServerId] = useState('');
   const [chapterTool, setChapterTool] = useState('');
-  const [argsTemplate, setArgsTemplate] = useState('{"book": "$book", "index": "$index"}');
+  const [argsTemplate, setArgsTemplate] = useState('');
   const [filePath, setFilePath] = useState('');
   const [chapterCount, setChapterCount] = useState(10);
   const [strategy, setStrategy] = useState('fixed');
@@ -65,11 +74,42 @@ export default function TrainingLab() {
   const [estTotal, setEstTotal] = useState(0);
   const [cron, setCron] = useState(DEFAULT_CRON);
 
+  const { externalTools, connections, refreshConnections, isConnecting } = useMcpTools();
   const savedServersQuery = useQuery({
     queryKey: ['mcp-saved-servers'],
     queryFn: mcpListSavedServers,
   });
   const savedServers: SavedMcpServer[] = savedServersQuery.data ?? [];
+
+  useEffect(() => {
+    void refreshConnections();
+  }, [refreshConnections]);
+
+  const serverTools = useMemo(
+    () =>
+      serverId ? externalTools.filter(tool => serverIdFromMcpToolName(tool.name) === serverId) : [],
+    [externalTools, serverId]
+  );
+
+  useEffect(() => {
+    if (!serverId && savedServers.length > 0) {
+      const preferred = savedServers.find(server => server.enabled);
+      if (preferred) setServerId(preferred.id);
+    }
+  }, [savedServers, serverId]);
+
+  useEffect(() => {
+    if (!serverId || serverTools.length === 0) return;
+    const available = serverTools.map(tool => bareMcpToolName(tool.name));
+    const preferred =
+      chapterTool && available.includes(chapterTool) ? chapterTool : pickChapterTool(serverTools);
+    if (!preferred) return;
+    if (preferred !== chapterTool) setChapterTool(preferred);
+    if (!argsTemplate.trim()) {
+      const tool = serverTools.find(item => bareMcpToolName(item.name) === preferred);
+      setArgsTemplate(formatArgsTemplate(buildMcpArgsTemplate(tool)));
+    }
+  }, [serverId, serverTools, chapterTool, argsTemplate]);
 
   const reportsQuery = useQuery({
     queryKey: ['training-reports'],
@@ -107,11 +147,10 @@ export default function TrainingLab() {
   const buildPayload = () => {
     if (!bookTitle.trim()) throw new Error('请填写书名');
     if (sourceKind === 'mcp') {
-      if (!serverId) throw new Error('请选择 MCP 服务器（先在 MCP 页保存并连接）');
-      if (!chapterTool.trim()) throw new Error('请填写章节正文工具名（从 MCP 页工具列表查看）');
+      if (!serverId) throw new Error('请选择 MCP 服务器');
       let template: Record<string, unknown>;
       try {
-        template = JSON.parse(argsTemplate || '{}');
+        template = argsTemplate.trim() ? (JSON.parse(argsTemplate) as Record<string, unknown>) : {};
       } catch {
         throw new Error('参数模板不是合法 JSON');
       }
@@ -224,35 +263,65 @@ export default function TrainingLab() {
               </Field>
               {sourceKind === 'mcp' ? (
                 <>
-                  <Field label="MCP 服务器（已保存；HTTP 型随启动自动重连）">
-                    <Select value={serverId} onChange={e => setServerId(e.target.value)}>
+                  <Field label="MCP 服务器（自动连接）">
+                    <Select
+                      value={serverId}
+                      onChange={e => {
+                        setServerId(e.target.value);
+                        setChapterTool('');
+                        setArgsTemplate('');
+                      }}
+                    >
                       <option value="">
-                        {savedServers.length
-                          ? '选择服务器'
-                          : '暂无已保存服务器——先去「MCP 工具」页保存'}
+                        {savedServers.length ? '自动选择服务器' : '暂无已保存服务器'}
                       </option>
-                      {savedServers.map(s => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}（{s.config.url ? 'HTTP' : 'stdio'}）
-                        </option>
-                      ))}
+                      {savedServers.map(s => {
+                        const status = connections.find(item => item.id === s.id);
+                        return (
+                          <option key={s.id} value={s.id}>
+                            {s.name}（{s.config.url ? 'HTTP' : 'stdio'} ·{' '}
+                            {status?.connected ? '已连接' : s.enabled ? '未连接' : '已停用'}）
+                          </option>
+                        );
+                      })}
                     </Select>
                   </Field>
-                  <Field label="章节正文工具名（在 MCP 页工具列表查看）">
-                    <Input
+                  <Field
+                    label={isConnecting ? '章节正文工具（自动加载中）' : '章节正文工具（自动选择）'}
+                  >
+                    <Select
                       value={chapterTool}
-                      onChange={e => setChapterTool(e.target.value)}
-                      placeholder="例如：getChapterContent"
-                    />
+                      onChange={e => {
+                        setChapterTool(e.target.value);
+                        const tool = serverTools.find(
+                          item => bareMcpToolName(item.name) === e.target.value
+                        );
+                        setArgsTemplate(formatArgsTemplate(buildMcpArgsTemplate(tool)));
+                      }}
+                    >
+                      <option value="">
+                        {serverTools.length ? '自动选择工具' : '连接服务器后自动选择'}
+                      </option>
+                      {serverTools.map(tool => {
+                        const bare = bareMcpToolName(tool.name);
+                        return (
+                          <option key={tool.name} value={bare}>
+                            {bare}
+                          </option>
+                        );
+                      })}
+                    </Select>
                   </Field>
-                  <Field label="工具参数模板（$book=书名，$index=章号）">
-                    <Textarea
-                      value={argsTemplate}
-                      onChange={e => setArgsTemplate(e.target.value)}
-                      rows={2}
-                      className="font-mono text-xs"
-                    />
-                  </Field>
+                  <Panel title="高级参数" collapsible defaultOpen={false}>
+                    <Field label="工具参数模板（自动生成，可覆盖）">
+                      <Textarea
+                        value={argsTemplate}
+                        onChange={e => setArgsTemplate(e.target.value)}
+                        rows={3}
+                        className="font-mono text-xs"
+                      />
+                    </Field>
+                  </Panel>
                 </>
               ) : (
                 <Field label="本地书籍路径">

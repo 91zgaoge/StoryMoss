@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.92.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.93.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.93.0 变更说明
+
+- **MCP 自动连接/训练自动化**：新增 `live_ensure_saved_server_auto_connects`（live、token 环境变量）、训练自动选工具/参数模板测试；新增 `utils/mcp` 3 项（server 前缀解析、章节工具优先、参数模板）；新增 MCP 页 E2E 1 项（自动展示保存服务器与全部工具）。
+- **结果**：Rust **2055 passed / 17 ignored**；Vitest **699 / 3**；Playwright **135 / 5**；tsc/fmt/clippy/guard 全绿。
+- **未关闭**：原生安装包真机复测 MCP 页自动连接与续写训练自动选工具。
 
 ### v0.92.0 变更说明
 

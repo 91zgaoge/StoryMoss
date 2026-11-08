@@ -1,16 +1,40 @@
 //! Mcp commands
 
+use std::collections::HashMap;
+
+use serde::Serialize;
 use tauri::State;
 
 use crate::{
     db::DbPool,
     error::AppError,
-    mcp::{McpClient, McpServerConfig},
+    mcp::{repository::SavedMcpServer, McpClient, McpServerConfig},
     BUILTIN_MCP_SERVER, MCP_CONNECTIONS,
 };
 
+/// 已保存 MCP 服务器的实时连接状态（前端自动连接页使用）。
+#[derive(Debug, Clone, Serialize)]
+pub struct McpConnectionStatus {
+    pub id: String,
+    pub name: String,
+    pub enabled: bool,
+    pub connected: bool,
+    pub tools: usize,
+    pub resources: usize,
+    pub mapping_version: Option<String>,
+    pub source_name: Option<String>,
+    pub source_version: Option<String>,
+    pub permissions: Option<serde_json::Value>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+}
+
 /// 连接一台 MCP 服务器并注册能力（命令与启动自动连接共用）。
 pub async fn connect_server(config: McpServerConfig) -> Result<Vec<crate::mcp::McpTool>, AppError> {
+    // 重连同一 id 前先释放旧 transport，避免子进程/连接泄漏；能力注册会在
+    // 下方重新填充（同 id 覆盖）。
+    disconnect_server(&config.id).await;
+
     let mut client = McpClient::new(config.clone());
     client.connect().await.map_err(AppError::from)?;
     let tools = client.get_tools().clone();
@@ -276,42 +300,162 @@ pub async fn mcp_set_server_enabled(
 ) -> Result<(), AppError> {
     if !enabled {
         disconnect_server(&server_id).await;
+        crate::mcp::repository::set_enabled(pool.inner(), &server_id, false)?;
+        return Ok(());
     }
-    crate::mcp::repository::set_enabled(pool.inner(), &server_id, enabled)
+    crate::mcp::repository::set_enabled(pool.inner(), &server_id, true)?;
+    // 启用即自动连接；连接失败保留 enabled=true（下次打开 MCP 页会重试）。
+    let config = crate::mcp::repository::list_servers(pool.inner())?
+        .into_iter()
+        .find(|server| server.id == server_id)
+        .map(|server| server.config);
+    if let Some(config) = config {
+        connect_server(config).await?;
+    }
+    Ok(())
+}
+
+fn connection_status(
+    saved: &SavedMcpServer,
+    client: Option<&McpClient>,
+    error: Option<&AppError>,
+) -> McpConnectionStatus {
+    let mapping = client.and_then(|client| client.get_mapping_snapshot());
+    McpConnectionStatus {
+        id: saved.id.clone(),
+        name: saved.name.clone(),
+        enabled: saved.enabled,
+        connected: client.is_some(),
+        tools: client.map(|client| client.get_tools().len()).unwrap_or(0),
+        resources: client
+            .map(|client| client.get_resources().len())
+            .unwrap_or(0),
+        mapping_version: mapping.map(|mapping| mapping.mapping_version.clone()),
+        source_name: mapping.map(|mapping| mapping.source_name.clone()),
+        source_version: mapping.map(|mapping| mapping.source_version.clone()),
+        permissions: mapping.and_then(|mapping| serde_json::to_value(&mapping.permissions).ok()),
+        error_code: error.map(|error| error.code().to_string()),
+        error_message: error.map(|error| error.message()),
+    }
+}
+
+/// 自动连接所有 enabled 的已保存服务器（启动、MCP 页、训练页共用）。
+///
+/// 已连接的服务器直接复用；单台失败只记录状态，不阻塞其余服务器。stdio
+/// 服务器也按保存的 command/args/env 尝试拉起（不再需要手动连接）。
+pub async fn ensure_saved_server_connections(
+    pool: &DbPool,
+) -> Result<Vec<McpConnectionStatus>, AppError> {
+    let servers = crate::mcp::repository::list_servers(pool)?;
+    let mut errors: HashMap<String, AppError> = HashMap::new();
+
+    for server in &servers {
+        if !server.enabled {
+            continue;
+        }
+        let already_connected = {
+            let connections = MCP_CONNECTIONS.lock().await;
+            connections.contains_key(&server.id)
+        };
+        if already_connected {
+            continue;
+        }
+        if let Err(error) = connect_server(server.config.clone()).await {
+            log::warn!(
+                "[MCP] 自动连接 {}（{}）失败: {}",
+                server.name,
+                server.id,
+                error
+            );
+            errors.insert(server.id.clone(), error);
+        }
+    }
+
+    let connections = MCP_CONNECTIONS.lock().await;
+    Ok(servers
+        .iter()
+        .map(|server| {
+            connection_status(server, connections.get(&server.id), errors.get(&server.id))
+        })
+        .collect())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn mcp_ensure_connections(
+    pool: State<'_, DbPool>,
+) -> Result<Vec<McpConnectionStatus>, AppError> {
+    ensure_saved_server_connections(pool.inner()).await
 }
 
 /// 启动时自动连接所有 enabled 的 MCP 服务器（lib.rs setup 末尾调用）。
-/// 单台失败只记日志，不阻塞其余连接——MCP 服务器（如栗子读书手机端）
-/// 可能暂时不在线，前端可手动重连。
+/// 单台失败只记日志，不阻塞其余连接。
 pub async fn auto_connect_saved_servers(pool: crate::db::DbPool) {
-    let configs = match crate::mcp::repository::list_enabled_configs(&pool) {
-        Ok(c) => c,
-        Err(e) => {
-            log::warn!("[MCP] 启动自动连接读取配置失败: {e}");
-            return;
-        }
-    };
-    for config in configs {
-        if !config.is_http() {
-            // stdio 服务器需要拉起子进程，启动期不自动拉起（保留手动触发）
-            continue;
-        }
-        match connect_server(config.clone()).await {
-            Ok(tools) => {
-                log::info!(
-                    "[MCP] 自动连接 {}（{}）成功，{} 个工具",
-                    config.name,
-                    config.id,
-                    tools.len()
-                );
-            }
-            Err(e) => {
-                log::warn!(
-                    "[MCP] 自动连接 {}（{}）失败（服务器可能未开机）：{e}",
-                    config.name,
-                    config.id
-                );
+    match ensure_saved_server_connections(&pool).await {
+        Ok(statuses) => {
+            let connected = statuses.iter().filter(|status| status.connected).count();
+            log::info!(
+                "[MCP] 启动自动连接扫描完成: {connected}/{} 台服务器已连接",
+                statuses.len()
+            );
+            for status in statuses.iter().filter(|status| !status.connected) {
+                if status.enabled {
+                    log::warn!(
+                        "[MCP] {}（{}）未连接: {}",
+                        status.name,
+                        status.id,
+                        status
+                            .error_message
+                            .as_deref()
+                            .unwrap_or("服务器可能未开机")
+                    );
+                }
             }
         }
+        Err(error) => log::warn!("[MCP] 启动自动连接读取配置失败: {error}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    fn live_config(token: String) -> McpServerConfig {
+        McpServerConfig {
+            id: "legado-test".into(),
+            name: "栗子读书（测试）".into(),
+            command: String::new(),
+            args: vec![],
+            env: HashMap::new(),
+            timeout_seconds: 30,
+            url: Some("http://127.0.0.1:1122/mcp".into()),
+            headers: HashMap::from([("Authorization".to_string(), format!("Bearer {token}"))]),
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "需要本机 Legado MCP 在线与 LEGADO_MCP_TOKEN"]
+    async fn live_ensure_saved_server_auto_connects() {
+        let token = std::env::var("LEGADO_MCP_TOKEN").expect("LEGADO_MCP_TOKEN 未设置");
+        let pool = crate::db::create_test_pool().expect("测试 DB 初始化失败");
+        let config = live_config(token);
+        crate::mcp::repository::save_server(&pool, &config, true).expect("保存配置失败");
+
+        let statuses = ensure_saved_server_connections(&pool)
+            .await
+            .expect("自动连接失败");
+        let status = statuses
+            .iter()
+            .find(|status| status.id == config.id)
+            .expect("缺少连接状态");
+        assert!(status.connected, "enabled 服务器应自动连接");
+        assert!(
+            status.tools >= 10,
+            "Legado 至少暴露 10 个基础工具，实际 {}",
+            status.tools
+        );
+        assert!(status.error_code.is_none());
+        disconnect_server(&config.id).await;
     }
 }

@@ -136,6 +136,31 @@ test.describe('Backstage 页面加载测试', () => {
     expect(consoleErrors.filter(e => !e.includes('enablePersistence'))).toHaveLength(0);
   });
 
+  test('MCP 页面自动展示已保存服务器与全部工具', async ({ page }) => {
+    const consoleErrors: string[] = [];
+    page.on('console', msg => {
+      if (msg.type() === 'error') consoleErrors.push(msg.text());
+    });
+    await page.addInitScript(getMockTauriInitScript());
+    await page.goto('/index.html');
+
+    await page.locator('nav').getByRole('button', { name: '设置', exact: true }).click();
+    await expect(page.locator('h1')).toContainText('工作室配置', {
+      timeout: 10000,
+    });
+    await page.getByTestId('settings-tabs').getByRole('button', { name: '扩展', exact: true }).click();
+
+    await expect(page.getByRole('heading', { name: 'MCP 连接' }).first()).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByTestId('mcp-saved-legado')).toContainText('栗子读书');
+    await expect(page.getByTestId('mcp-saved-legado')).toContainText('已连接');
+    await expect(page.getByText('mcp.legado.list_books')).toBeVisible();
+    await expect(page.getByText('mcp.legado.get_book')).toBeVisible();
+
+    expect(consoleErrors.filter(e => !e.includes('enablePersistence'))).toHaveLength(0);
+  });
+
   test('设置页面可切换标签页', async ({ page }) => {
     await page.addInitScript(getMockTauriInitScript());
     await page.goto('/index.html');

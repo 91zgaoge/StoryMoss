@@ -40,8 +40,38 @@ export const callMcpTool = (serverId: string, toolName: string, args: unknown) =
 export const disconnectMcpServer = (serverId: string) =>
   loggedInvoke<void>('disconnect_mcp_server', { server_id: serverId });
 
+export interface McpPermissionState {
+  granted: boolean;
+  tools: string[];
+}
+
+export interface McpConnectionStatus {
+  id: string;
+  name: string;
+  enabled: boolean;
+  connected: boolean;
+  tools: number;
+  resources: number;
+  mapping_version?: string | null;
+  source_name?: string | null;
+  source_version?: string | null;
+  permissions?: Record<string, McpPermissionState> | null;
+  error_code?: string | null;
+  error_message?: string | null;
+}
+
+export const mcpEnsureConnections = () =>
+  loggedInvoke<McpConnectionStatus[]>('mcp_ensure_connections');
+
 export const getMcpConnections = () =>
-  loggedInvoke<Array<{ id: string; tools: number; resources: number }>>('get_mcp_connections');
+  loggedInvoke<
+    Array<{
+      id: string;
+      tools: number;
+      resources: number;
+      mapping?: Record<string, unknown> | null;
+    }>
+  >('get_mcp_connections');
 
 // ═══════════════ v0.88.0: MCP 服务器配置持久化（V156） ═══════════════
 

@@ -96,6 +96,17 @@ const mockTauri = {
             case "call_mcp_tool":
                 return { result: "工具执行结果" };
 
+            case "mcp_ensure_connections":
+            case "mcp_list_saved_servers":
+            case "get_mcp_connections":
+            case "list_mcp_tools":
+                return [];
+
+            case "mcp_save_server":
+            case "mcp_delete_server":
+            case "mcp_set_server_enabled":
+                return null;
+
             case "get_config_command":
                 return { llm: { provider: "openai", api_key: "", model: "gpt-4", temperature: 0.7, max_tokens: 4096 } };
 

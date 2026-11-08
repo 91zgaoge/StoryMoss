@@ -175,8 +175,30 @@ impl HttpTransport {
 
     /// 回环地址的原生 HTTP/1 请求：Legado 的 MCP 服务器对 request header 与
     /// body 分开到达的请求会返回 400「请求不完整」。把整个请求拼好后用一次
-    /// write_all 发出，避免 hyper 分次写请求。
+    /// write_all 发出，避免 hyper 分次写请求。initialize/tools/list 等幂等请求
+    /// 遇到偶发 400/connection reset 时重试一次；tools/call
+    /// 不重试（避免副作用）。
     async fn send_raw_http(&mut self, request: JsonRpcRequest) -> Result<(), McpError> {
+        let retry_safe = request.method != "tools/call";
+        let mut attempt = 0;
+        loop {
+            match self.send_raw_http_once(&request).await {
+                Ok(()) => return Ok(()),
+                Err(error) if retry_safe && attempt == 0 => {
+                    attempt += 1;
+                    log::warn!(
+                        "[MCP] 回环 HTTP 请求失败，重试一次: method={} error={}",
+                        request.method,
+                        error
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    async fn send_raw_http_once(&mut self, request: &JsonRpcRequest) -> Result<(), McpError> {
         let url = self
             .loopback_url
             .clone()
@@ -195,7 +217,7 @@ impl HttpTransport {
             host_header.push_str(&format!(":{port}"));
         }
 
-        let body = serde_json::to_string(&request)
+        let body = serde_json::to_string(request)
             .map_err(|e| McpError::SerializationError(e.to_string()))?;
         let path = url.path();
         let mut raw = format!("POST {path} HTTP/1.1\r\n").into_bytes();

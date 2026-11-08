@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.92.0 项目完成状态
+# StoryMoss (草苔) v0.93.0 项目完成状态
 
+> 最后更新: 2026-11-08（**v0.93.0：MCP 自动连接与幕后界面简化**——启动/打开页面自动 ensure enabled 保存服务器、MCP 页状态与工具目录、续写训练自动选工具与参数；Rust **2055/17**；Vitest **699/3**；Playwright **135/5**。**未关闭**：原生安装包真机复测。）
+>
 > 最后更新: 2026-11-08（**v0.92.0：学习与数据闭合**——instinct/skill/写作策略进 agency，叙事节奏/追读债进写作上下文，洞察进导演快照，修订后重采 KG。Rust 全量结果见 AGENTS。）
 >
 > 最后更新: 2026-11-08（**v0.91.1：MCP 映射层版本/权限契约 + 栗子读书工具列表/回环代理修复**——`mcp/mapping.rs` 协议白名单与 Legado 0.14.x 源版本门、10 基础读工具、Network/Write/Private 权限快照；`McpTool` 兼容 `inputSchema`、`McpResource` 兼容 `mimeType`；回环 HTTP 改原生单次 write，11 工具真机列出；结构化 `MCP_*` 错误码。Rust **2047/16**；Vitest **696/3**；Playwright **134/5**。**未关闭**：CI 安装包真机复测 MCP 页与权限撤销错误。）

@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.93.0（2026-11-08）
+
+**MCP 自动连接与幕后界面简化：已保存服务器自动扫描、工具全量可用，续写训练不再手填工具/参数。**
+
+- **自动连接**：新增 `McpConnectionStatus` 与 `mcp_ensure_connections`；应用启动、打开 MCP 页、打开续写训练页都会自动连接 enabled 保存服务器（HTTP/stdio），单台失败隔离并显示错误；启用服务器即连接；重连前释放旧 transport。
+- **MCP 页简化**：连接状态 chips（已连接/工具数/映射版本）+ 服务器卡片（连接状态、工具数、源版本、权限、错误、重连/停用/删除）+ 添加服务器 Modal；全部工具按服务器分组展示；手动工具执行收进工具调试 Modal。
+- **续写训练自动化**：服务器自动选首个 enabled，章节工具改为实时工具目录 Select 且默认 `get_chapter_content`；参数模板按 JSON Schema 自动生成（`book_url`/`index`/`fetch_online`）；后端空工具/空模板自动兜底，`$book` 经 `get_book` 解析为 `book_url`，`$index` 数值化。
+- **回环传输加固**：loopback raw HTTP 对 initialize/tools/list 等幂等请求失败重试一次；`tools/call` 不重试，避免副作用。
+- **验证**：Rust **2055 passed / 17 ignored**（+3 自动连接/训练自动选择）；Playwright **135 / 5**（+1 MCP 自动展示）；Vitest **699 / 3**（+3）；tsc/fmt/clippy/guard 全绿；未本地打包。
+- **未关闭**：原生安装包真机复测 MCP 页自动连接与续写训练自动选工具；stdio 自动拉起需在真机确认命令存在。
+
 ## v0.92.0（2026-11-08）
 
 **主工作流学习与数据闭合（原计划 P2+P3 合并发布）：学习回路注入 agency，叙事数据回流写作与导演。**

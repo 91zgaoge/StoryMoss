@@ -1,5 +1,4 @@
 import { useState, useCallback } from 'react';
-import { loggedInvoke } from '@/services/tauri';
 import toast from 'react-hot-toast';
 import {
   callMcpTool,
@@ -8,7 +7,10 @@ import {
   executeMcpTool,
   registerMcpTool,
   unregisterMcpTool,
+  mcpEnsureConnections,
+  type McpConnectionStatus,
 } from '@/services/tauri';
+import { serverIdFromMcpToolName } from '@/utils/mcp';
 
 export interface McpTool {
   name: string;
@@ -30,7 +32,7 @@ export interface ExternalServer {
 export function useMcpTools() {
   const [tools, setTools] = useState<McpTool[]>([]);
   const [externalTools, setExternalTools] = useState<McpTool[]>([]);
-  const [connectedServer, setConnectedServer] = useState<ExternalServer | null>(null);
+  const [connections, setConnections] = useState<McpConnectionStatus[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
 
@@ -56,6 +58,25 @@ export function useMcpTools() {
     }
   }, []);
 
+  /**
+   * 自动连接所有 enabled 的已保存服务器（幂等），随后刷新工具目录。
+   * 页面挂载、点击重新扫描、启用服务器后调用。
+   */
+  const refreshConnections = useCallback(async () => {
+    setIsConnecting(true);
+    try {
+      const statuses = await mcpEnsureConnections();
+      setConnections(statuses);
+      await listTools();
+      return statuses;
+    } catch (error) {
+      toast.error('自动连接 MCP 服务器失败: ' + (error as Error).message);
+      throw error;
+    } finally {
+      setIsConnecting(false);
+    }
+  }, [listTools]);
+
   const executeTool = useCallback(async (toolName: string, args: Record<string, unknown>) => {
     try {
       const result = await executeMcpTool(toolName, args);
@@ -66,59 +87,32 @@ export function useMcpTools() {
     }
   }, []);
 
-  const connectServer = useCallback(async (config: ExternalServer) => {
-    setIsConnecting(true);
+  const callExternalTool = useCallback(async (toolName: string, args: Record<string, unknown>) => {
+    const serverId = serverIdFromMcpToolName(toolName);
+    if (!serverId) {
+      throw new Error('工具名缺少 mcp.{server}.{tool} 前缀');
+    }
     try {
-      const serverConfig = {
-        id: config.id || crypto.randomUUID(),
-        name: config.name,
-        command: config.command,
-        args: config.args ?? [],
-        env: config.env ?? {},
-        url: config.url ?? null,
-        headers: config.headers ?? {},
-      };
-      const data = await loggedInvoke<McpTool[]>('connect_mcp_server', { config: serverConfig });
-      setExternalTools(data.map(t => ({ ...t, source: 'external' as const })));
-      setConnectedServer(config);
-      toast.success(`已连接到 ${config.name}，发现 ${data.length} 个工具`);
-      return data;
+      const result = await callMcpTool(serverId, toolName, args);
+      return result;
     } catch (error) {
-      toast.error('连接外部服务器失败: ' + (error as Error).message);
-      setExternalTools([]);
-      setConnectedServer(null);
+      toast.error('调用外部工具失败: ' + (error as Error).message);
       throw error;
-    } finally {
-      setIsConnecting(false);
     }
   }, []);
 
-  const callExternalTool = useCallback(
-    async (toolName: string, args: Record<string, unknown>) => {
-      if (!connectedServer) throw new Error('未连接外部服务器');
+  const disconnectServer = useCallback(
+    async (serverId: string) => {
       try {
-        const result = await callMcpTool(connectedServer.id, toolName, args);
-        return result;
-      } catch (error) {
-        toast.error('调用外部工具失败: ' + (error as Error).message);
-        throw error;
-      }
-    },
-    [connectedServer]
-  );
-
-  const disconnectServer = useCallback(async () => {
-    if (connectedServer) {
-      try {
-        await disconnectMcpServer(connectedServer.id);
+        await disconnectMcpServer(serverId);
       } catch {
-        // ignore
+        // 断开失败不阻塞本地刷新；后端连接可能已不存在。
       }
-    }
-    setExternalTools([]);
-    setConnectedServer(null);
-    toast.success('已断开外部服务器连接');
-  }, [connectedServer]);
+      await refreshConnections();
+      toast.success('已断开服务器连接');
+    },
+    [refreshConnections]
+  );
 
   const registerTool = useCallback(
     async (tool: McpTool) => {
@@ -152,12 +146,12 @@ export function useMcpTools() {
     tools,
     externalTools,
     allTools: [...tools, ...externalTools],
+    connections,
     isLoading,
     isConnecting,
-    connectedServer,
     listTools,
+    refreshConnections,
     executeTool,
-    connectServer,
     callExternalTool,
     disconnectServer,
     registerTool,
