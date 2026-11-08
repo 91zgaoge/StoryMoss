@@ -1,5 +1,7 @@
-# StoryMoss v0.91.0 架构文档
+# StoryMoss v0.91.1 架构文档
 
+> **v0.91.1**：**MCP 映射契约 v1**——`mcp/mapping.rs`（`mcp-mapping/1.0.0`）：协议白名单 `2024-11-05`/`2025-03-26`/`2025-06-18`，Legado 源版本门 `0.14.x`，10 个基础读工具 + Network/Write/Private 权限快照；`McpTool` 以 serde alias 兼容标准 `inputSchema`，`McpResource` 兼容 `mimeType`；单工具 schema drift 隔离，基础工具缺失/全漂移整体失效，权限撤销查询返回 `MCP_PERMISSION_DENIED`/`MCP_PERMISSION_CHANGED`。回环 `http://` 走单次 write 的原生 HTTP/1（JSON/SSE、Content-Length/chunked），绕开 reqwest 分次写与 macOS 系统代理；非回环继续 reqwest。契约文档 `docs/plans/2026-11-08-mcp-mapping-contract.md`。
+>
 > **v0.91.0**：**调度闭合**——`CrewSnapshot.debts`（open top5）+ 导演 prompt Debts 区块；`record_debt` 真实写台账；CascadeCenter/Tasks/SceneEditor/ExecutionPanel 通过 sessionStorage handoff 预填导演聊天（不自动发送），Tasks 代理任务直接复用 `agency_crew_retry_task`/`agency_crew_cancel_task`。
 >
 > **v0.90.0**：**主工作流观测闭合**——`agency/coordinator.rs` 新增 run 级 trace 注册表（`RUN_TRACES` + `RunTraceGuard`），四个 run 入口（genesis/continue/role_task/batch_body）登记 trace，`AgencyLlm` 每调用记录角色 step 并透传 trace_id 至模型网关；导演回合开 `director.plan` 短 trace。仪表盘改用 `AgencyRunsPanel`（`agency_list_runs` + `agency_start_genesis`）；`get_llm_usage_by_role` 按 `llm_calls.purpose` 聚合角色用量。

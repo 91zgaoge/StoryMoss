@@ -169,18 +169,28 @@ export interface McpServer {
   command: string;
   args: string[];
   env?: Record<string, string>;
-  enabled: boolean;
+  enabled?: boolean;
   tools?: McpTool[];
+  timeout_seconds?: number;
   /** v0.88.0: 流式 HTTP 端点（存在时优先于 stdio），如栗子读书 http://127.0.0.1:1122/mcp */
   url?: string | null;
   /** v0.88.0: 随请求发送的自定义 HTTP 头（如 Authorization: Bearer <token>） */
   headers?: Record<string, string>;
 }
 
+export interface McpToolAnnotations {
+  readOnlyHint?: boolean;
+  openWorldHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+}
+
 export interface McpTool {
   name: string;
   description?: string;
-  input_schema?: Record<string, unknown>;
+  /** 后端映射层把标准 MCP inputSchema 归一到这里 */
+  parameters?: Record<string, unknown>;
+  annotations?: McpToolAnnotations;
 }
 
 export interface LlmConfig {

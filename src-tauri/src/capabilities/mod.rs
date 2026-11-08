@@ -980,6 +980,7 @@ fn register_builtin_mcp_tools(registry: &mut CapabilityRegistry) {
                 },
                 "required": ["operation", "path"]
             }),
+            annotations: None,
         },
         McpTool {
             name: "text_processing".to_string(),
@@ -995,6 +996,7 @@ fn register_builtin_mcp_tools(registry: &mut CapabilityRegistry) {
                 },
                 "required": ["operation", "text"]
             }),
+            annotations: None,
         },
         McpTool {
             name: "web_search".to_string(),
@@ -1006,6 +1008,7 @@ fn register_builtin_mcp_tools(registry: &mut CapabilityRegistry) {
                 },
                 "required": ["query"]
             }),
+            annotations: None,
         },
     ];
 

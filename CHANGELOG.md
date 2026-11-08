@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.91.1（2026-11-08）
+
+**MCP 映射层版本/权限契约：修复栗子读书工具列表 0、回环代理 400，并把字段漂移/源权限变化的失效与报错规则定死。**
+
+- **工具列表 0**：`McpTool` 兼容标准 `inputSchema`（内部 `parameters`）与 `mimeType` alias；`refresh_tools/resources` 不再静默吞错，单工具 schema drift 隔离，基础工具缺失/全漂移直接报错。
+- **映射契约 v1**：`mcp/mapping.rs`（`mcp-mapping/1.0.0`）新增协议白名单（2024-11-05/2025-03-26/2025-06-18）、Legado 0.14.x 源版本门、10 个基础读工具、Network/Write/Private 权限快照；查询撤销权限工具返回 `MCP_PERMISSION_DENIED`/`MCP_PERMISSION_CHANGED`，结构化 `MCP_*` 错误码进 IPC。
+- **回环代理修复**：Legado MCP 对 header/body 分次到达的请求返回 400「请求不完整」；回环 `http://` 改走单次 write 的原生 HTTP/1（JSON/SSE、Content-Length/chunked），不再受 reqwest 分次写与 macOS 系统代理影响；非回环继续走 reqwest。
+- **前端链路**：`McpTool.parameters` 类型对齐；保存并连接/已保存服务器连接后正确置位连接态；外部工具 `mcp.{server}.{tool}` 前缀名规范化回裸名；工具执行不再把 JSON 解析错误覆盖真实执行错误。
+- **验证**：Rust **2047 passed / 16 ignored**（+12：映射契约/字段 alias/permission/loopback raw HTTP）；live Legado probe 直连 127.0.0.1:1122 成功（11 工具、`get_chapter_content` 带 JSON Schema、`list_groups` 调用成功）；tsc 0；Vitest **696 passed / 3 skipped**；fmt/clippy/check/guard 全绿；未本地打包。
+- **未关闭**：CI 安装包真机复测 MCP 页工具列表/权限撤销错误；Legado 后续版本字段改名需按 `docs/plans/2026-11-08-mcp-mapping-contract.md` 升契约。
+
 ## v0.91.0（2026-11-08）
 
 **主工作流调度闭合：质量债进导演巡检、级联/编辑器/场景快捷动作全部接入导演派发。**

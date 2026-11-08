@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.91.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.91.1)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.91.1 变更说明
+
+- **MCP 映射契约**：新增 7 项 mapping 测试（Legado/标准 payload、版本越界、协议白名单、字段漂移、基础工具缺失、权限撤销、资源 alias）；新增 client 2 项（前缀名规范化、live Legado probe）；transport 2 项（回环识别、raw HTTP/chunked 解析）。
+- **真机探针**：`LEGADO_MCP_TOKEN=<token> cargo test --lib live_legado_mcp_tools_list -- --ignored --nocapture` 直连 127.0.0.1:1122 通过：11 工具、`get_chapter_content` 带 JSON Schema、`list_groups` 返回对象；系统代理开启时仍成功。
+- **结果**：Rust **2047 passed / 16 ignored**（+12）；Vitest **696 / 3**；Playwright **134 / 5**；tsc/Prettier/fmt/clippy/guard 全绿。
+- **未关闭**：CI 安装包真机复测 MCP 页工具列表与权限撤销错误。
 
 ### v0.91.0 变更说明
 

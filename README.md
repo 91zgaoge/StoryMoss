@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.91.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.91.1-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.91.1 · 栗子读书 MCP 真正可用（映射契约 v1）
+
+栗子读书的 MCP 工具现在能出现在 MCP 页并可执行：标准 `inputSchema` 兼容、回环请求绕过系统代理与 reqwest 分次写、11 个工具（含联网搜索）完整列出。新增映射契约 v1：协议/源版本白名单、字段漂移与源权限变化分别定义整机失效/单工具失效/权限撤销，查询返回稳定的 `MCP_*` 错误码，而不是静默 0 工具。
 
 ### v0.91.0 · 把孤岛接回导演
 

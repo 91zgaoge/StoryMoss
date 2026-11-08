@@ -63,13 +63,21 @@ pub enum AppError {
         message: String,
         issues: Vec<String>,
     },
+    /// MCP 映射层错误（协议/源版本/字段漂移/源系统权限变化）。
+    /// `code` 是稳定的 MCP_* 错误码，`data` 携带 server/tool/permission
+    /// 等诊断。
+    McpMapping {
+        code: String,
+        message: String,
+        data: Option<serde_json::Value>,
+    },
     /// 内部错误（兜底）
     Internal { message: String },
 }
 
 impl AppError {
     /// 错误代码（前端用于路由恢复 UI）
-    pub fn code(&self) -> &'static str {
+    pub fn code(&self) -> &str {
         match self {
             AppError::SubscriptionRequired { .. } => "SUBSCRIPTION_REQUIRED",
             AppError::LlmTimeout { .. } => "LLM_TIMEOUT",
@@ -83,6 +91,7 @@ impl AppError {
             AppError::Cancellation { .. } => "CANCELLATION",
             AppError::NotFound { .. } => "NOT_FOUND",
             AppError::PreflightFailed { .. } => "PREFLIGHT_FAILED",
+            AppError::McpMapping { code, .. } => code.as_str(),
             AppError::Internal { .. } => "INTERNAL_ERROR",
         }
     }
@@ -94,6 +103,7 @@ impl AppError {
             | AppError::ValidationFailed { .. }
             | AppError::NotFound { .. }
             | AppError::PreflightFailed { .. } => ErrorSeverity::UserAction,
+            AppError::McpMapping { .. } => ErrorSeverity::UserAction,
             AppError::LlmTimeout { .. }
             | AppError::LlmConnectionTimeout { .. }
             | AppError::LlmResponseTimeout { .. }
@@ -136,6 +146,7 @@ impl AppError {
             AppError::PreflightFailed { message, issues } => {
                 format!("{}: {}", message, issues.join("; "))
             }
+            AppError::McpMapping { message, .. } => message.clone(),
             AppError::Internal { message } => message.clone(),
         }
     }
@@ -148,6 +159,7 @@ impl AppError {
                 map.insert("issues".to_string(), serde_json::json!(issues));
                 serde_json::to_value(map).ok()
             }
+            AppError::McpMapping { data, .. } => data.clone(),
             _ => None,
         };
         ErrorResponse {
@@ -271,8 +283,91 @@ impl From<crate::book_deconstruction::models::ParseError> for AppError {
 
 impl From<crate::mcp::types::McpError> for AppError {
     fn from(err: crate::mcp::types::McpError) -> Self {
-        AppError::Internal {
-            message: format!("MCP error: {}", err),
+        use crate::mcp::types::McpError;
+
+        match err {
+            McpError::ProtocolUnsupported {
+                requested,
+                supported,
+            } => AppError::McpMapping {
+                code: "MCP_PROTOCOL_UNSUPPORTED".to_string(),
+                message: format!(
+                    "MCP 协议版本 {} 不受支持（支持: {}）；请升级 StoryMoss 或检查 MCP 服务器版本",
+                    requested,
+                    supported.join(" / ")
+                ),
+                data: Some(serde_json::json!({
+                    "requested": requested,
+                    "supported": supported,
+                })),
+            },
+            McpError::MappingUnsupported {
+                source,
+                version,
+                mapping_version,
+                supported,
+            } => AppError::McpMapping {
+                code: "MCP_MAPPING_UNSUPPORTED".to_string(),
+                message: format!(
+                    "MCP 源 {} 版本 {} 超出映射 {} 的支持范围（{}）；请更新映射契约",
+                    source, version, mapping_version, supported
+                ),
+                data: Some(serde_json::json!({
+                    "source": source,
+                    "version": version,
+                    "mapping_version": mapping_version,
+                    "supported": supported,
+                })),
+            },
+            McpError::MappingInvalid { reason } => AppError::McpMapping {
+                code: "MCP_MAPPING_INVALID".to_string(),
+                message: format!("MCP 映射无效: {reason}"),
+                data: Some(serde_json::json!({ "reason": reason })),
+            },
+            McpError::SchemaDrift { tool, missing } => AppError::McpMapping {
+                code: "MCP_SCHEMA_DRIFT".to_string(),
+                message: format!(
+                    "MCP 工具 {} 字段漂移: 缺少 {}；请更新映射契约",
+                    tool,
+                    missing.join(", ")
+                ),
+                data: Some(serde_json::json!({ "tool": tool, "missing": missing })),
+            },
+            McpError::PermissionDenied { permission, tool } => AppError::McpMapping {
+                code: "MCP_PERMISSION_DENIED".to_string(),
+                message: format!(
+                    "MCP 源系统未开启 {}权限，工具 {} 不可用；请在源系统启用后重试",
+                    permission.label_zh(),
+                    tool
+                ),
+                data: Some(serde_json::json!({
+                    "permission": permission.as_str(),
+                    "tool": tool,
+                })),
+            },
+            McpError::PermissionChanged { permission, tool } => AppError::McpMapping {
+                code: "MCP_PERMISSION_CHANGED".to_string(),
+                message: format!(
+                    "MCP 源系统权限已变化，{}权限下的工具 {} 当前不可用；请在源系统确认权限后刷新工具列表",
+                    permission.label_zh(),
+                    tool
+                ),
+                data: Some(serde_json::json!({
+                    "permission": permission.as_str(),
+                    "tool": tool,
+                })),
+            },
+            McpError::ToolUnavailable { tool } => AppError::McpMapping {
+                code: "MCP_TOOL_UNAVAILABLE".to_string(),
+                message: format!(
+                    "MCP 工具 {} 不可用或未提供；请刷新工具列表或检查源系统权限",
+                    tool
+                ),
+                data: Some(serde_json::json!({ "tool": tool })),
+            },
+            other => AppError::Internal {
+                message: format!("MCP error: {}", other),
+            },
         }
     }
 }
@@ -440,6 +535,7 @@ impl Serialize for AppError {
             AppError::PreflightFailed { issues, .. } => {
                 Some(serde_json::json!({ "issues": issues }))
             }
+            AppError::McpMapping { data, .. } => data.clone(),
             _ => None,
         };
 

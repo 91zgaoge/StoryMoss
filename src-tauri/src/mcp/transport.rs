@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    net::TcpStream,
     process::{Child, ChildStdin, ChildStdout, Command},
 };
 
@@ -134,6 +135,10 @@ pub struct HttpTransport {
     session_id: Option<String>,
     /// send() 时缓冲的待取响应（SSE 流可能一次给多条）
     pending: std::collections::VecDeque<JsonRpcResponse>,
+    /// 回环地址解析结果。Legado MCP 的 HTTP 请求解析对
+    /// header/body 分次到达很敏感，回环请求改走单次 write 的原生 HTTP/1。
+    loopback_url: Option<reqwest::Url>,
+    timeout: std::time::Duration,
 }
 
 impl HttpTransport {
@@ -143,18 +148,126 @@ impl HttpTransport {
         } else {
             std::time::Duration::from_secs(timeout_seconds)
         };
-        let client = reqwest::Client::builder()
+        let mut builder = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
-            .timeout(timeout)
-            .build()
-            .unwrap_or_default();
+            .timeout(timeout);
+        let parsed_url = reqwest::Url::parse(url.trim()).ok();
+        let loopback_url = parsed_url
+            .as_ref()
+            .filter(|parsed| parsed.scheme() == "http" && is_loopback_host(parsed))
+            .cloned();
+        // reqwest 默认采用 macOS 系统代理；Legado 的 MCP 服务只绑定本机回环，
+        // 经代理转发会收到 400「请求不完整」。回环地址必须强制直连。
+        if loopback_url.is_some() {
+            builder = builder.no_proxy();
+        }
+        let client = builder.build().unwrap_or_default();
         Self {
             url: url.trim().to_string(),
             headers: headers.clone(),
             client,
             session_id: None,
             pending: std::collections::VecDeque::new(),
+            loopback_url,
+            timeout,
         }
+    }
+
+    /// 回环地址的原生 HTTP/1 请求：Legado 的 MCP 服务器对 request header 与
+    /// body 分开到达的请求会返回 400「请求不完整」。把整个请求拼好后用一次
+    /// write_all 发出，避免 hyper 分次写请求。
+    async fn send_raw_http(&mut self, request: JsonRpcRequest) -> Result<(), McpError> {
+        let url = self
+            .loopback_url
+            .clone()
+            .ok_or_else(|| McpError::TransportError("回环 URL 未解析".into()))?;
+        let host = url
+            .host_str()
+            .ok_or_else(|| McpError::TransportError("回环 URL 缺少 host".into()))?
+            .to_string();
+        let port = url.port_or_known_default().unwrap_or(80);
+        let mut host_header = if host.contains(':') {
+            format!("[{host}]")
+        } else {
+            host.clone()
+        };
+        if url.port().is_some() {
+            host_header.push_str(&format!(":{port}"));
+        }
+
+        let body = serde_json::to_string(&request)
+            .map_err(|e| McpError::SerializationError(e.to_string()))?;
+        let path = url.path();
+        let mut raw = format!("POST {path} HTTP/1.1\r\n").into_bytes();
+        raw.extend_from_slice(format!("host: {host_header}\r\n").as_bytes());
+        raw.extend_from_slice(b"content-type: application/json\r\n");
+        raw.extend_from_slice(b"accept: application/json, text/event-stream\r\n");
+        raw.extend_from_slice(format!("content-length: {}\r\n", body.len()).as_bytes());
+        raw.extend_from_slice(b"connection: close\r\n");
+        for (name, value) in &self.headers {
+            raw.extend_from_slice(format!("{name}: {value}\r\n").as_bytes());
+        }
+        if let Some(session_id) = &self.session_id {
+            raw.extend_from_slice(format!("mcp-session-id: {session_id}\r\n").as_bytes());
+        }
+        raw.extend_from_slice(b"\r\n");
+        raw.extend_from_slice(body.as_bytes());
+
+        let mut stream = TcpStream::connect((host.as_str(), port))
+            .await
+            .map_err(|e| McpError::TransportError(format!("TCP 连接失败: {e}")))?;
+        stream
+            .write_all(&raw)
+            .await
+            .map_err(|e| McpError::TransportError(format!("写入请求失败: {e}")))?;
+
+        let mut received = Vec::new();
+        let read_result =
+            tokio::time::timeout(self.timeout, stream.read_to_end(&mut received)).await;
+        match read_result {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => {
+                return Err(McpError::TransportError(format!("读取响应失败: {e}")));
+            }
+            Err(_) => return Err(McpError::Timeout),
+        }
+
+        let parsed = parse_raw_http_response(&received)?;
+        if let Some(session_id) = parsed.session_id {
+            self.session_id = Some(session_id);
+        }
+
+        // 通知类请求没有响应体需要交给调用方；服务端 200/202 都视为已接收。
+        if request.id.is_none() {
+            return Ok(());
+        }
+        if !(200..300).contains(&parsed.status) {
+            let preview = String::from_utf8_lossy(&parsed.body);
+            return Err(McpError::TransportError(format!(
+                "HTTP {}: {}",
+                parsed.status,
+                &preview[..preview.len().min(300)]
+            )));
+        }
+
+        if parsed.content_type.contains("text/event-stream") {
+            let text = String::from_utf8_lossy(&parsed.body).to_string();
+            for response in self.parse_sse_data(&text) {
+                self.pending.push_back(response);
+            }
+        } else if parsed.body.is_empty() {
+            // 202 / 空响应交给通知路径处理；非通知请求没有 JSON-RPC body
+            // 就是异常。
+            return Err(McpError::SerializationError(
+                "响应为空，缺少 JSON-RPC body".into(),
+            ));
+        } else {
+            let text = String::from_utf8_lossy(&parsed.body).to_string();
+            let response = serde_json::from_str::<JsonRpcResponse>(&text)
+                .map_err(|e| McpError::SerializationError(format!("响应不是合法 JSON-RPC: {e}")))?;
+            self.pending.push_back(response);
+        }
+        Ok(())
     }
 
     /// 从 SSE body 提取所有 `data:` JSON 载荷
@@ -176,6 +289,112 @@ impl HttpTransport {
     }
 }
 
+/// 回环 URL 判定：localhost / 127.0.0.0/8 / ::1。仅这些地址绕过系统代理，
+/// 远程 MCP 仍沿用用户代理配置。
+fn is_loopback_url(url: &str) -> bool {
+    reqwest::Url::parse(url.trim())
+        .map(|parsed| is_loopback_host(&parsed))
+        .unwrap_or(false)
+}
+
+fn is_loopback_host(url: &reqwest::Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    host.parse::<std::net::IpAddr>()
+        .map(|address| address.is_loopback())
+        .unwrap_or(false)
+}
+
+struct RawHttpResponse {
+    status: u16,
+    content_type: String,
+    session_id: Option<String>,
+    body: Vec<u8>,
+}
+
+fn parse_raw_http_response(data: &[u8]) -> Result<RawHttpResponse, McpError> {
+    let header_end = find_bytes(data, b"\r\n\r\n")
+        .ok_or_else(|| McpError::TransportError("HTTP 响应缺少完整 header".into()))?;
+    let header_text = String::from_utf8_lossy(&data[..header_end]);
+    let mut lines = header_text.split("\r\n");
+    let status_line = lines.next().unwrap_or_default();
+    let status = status_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|value| value.parse::<u16>().ok())
+        .ok_or_else(|| McpError::TransportError(format!("无法解析 HTTP 状态行: {status_line}")))?;
+
+    let mut headers: HashMap<String, String> = HashMap::new();
+    for line in lines {
+        if let Some((name, value)) = line.split_once(':') {
+            headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
+        }
+    }
+
+    let raw_body = &data[header_end + 4..];
+    let body = if headers
+        .get("transfer-encoding")
+        .map(|value| value.to_ascii_lowercase().contains("chunked"))
+        .unwrap_or(false)
+    {
+        decode_chunked_body(raw_body)?
+    } else if let Some(length) = headers
+        .get("content-length")
+        .and_then(|value| value.parse::<usize>().ok())
+    {
+        raw_body[..raw_body.len().min(length)].to_vec()
+    } else {
+        raw_body.to_vec()
+    };
+
+    Ok(RawHttpResponse {
+        status,
+        content_type: headers
+            .get("content-type")
+            .cloned()
+            .unwrap_or_default()
+            .to_ascii_lowercase(),
+        session_id: headers.get("mcp-session-id").cloned(),
+        body,
+    })
+}
+
+fn decode_chunked_body(data: &[u8]) -> Result<Vec<u8>, McpError> {
+    let mut cursor = 0usize;
+    let mut out = Vec::new();
+    while cursor < data.len() {
+        let line_end = find_bytes(&data[cursor..], b"\r\n")
+            .ok_or_else(|| McpError::TransportError("chunked 响应缺少块长度行".into()))?
+            + cursor;
+        let line = String::from_utf8_lossy(&data[cursor..line_end]);
+        let size_text = line.split(';').next().unwrap_or_default().trim();
+        let size = usize::from_str_radix(size_text, 16)
+            .map_err(|_| McpError::TransportError(format!("chunked 块长度非法: {size_text}")))?;
+        cursor = line_end + 2;
+        if size == 0 {
+            break;
+        }
+        let chunk_end = cursor + size;
+        if chunk_end > data.len() {
+            return Err(McpError::TransportError("chunked 块数据不完整".into()));
+        }
+        out.extend_from_slice(&data[cursor..chunk_end]);
+        cursor = chunk_end + 2; // skip trailing \r\n
+    }
+    Ok(out)
+}
+
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
 #[async_trait]
 impl Transport for HttpTransport {
     async fn connect(&mut self) -> Result<(), McpError> {
@@ -187,6 +406,9 @@ impl Transport for HttpTransport {
     }
 
     async fn send(&mut self, request: JsonRpcRequest) -> Result<(), McpError> {
+        if self.loopback_url.is_some() {
+            return self.send_raw_http(request).await;
+        }
         let is_notification = request.id.is_none();
         let body = serde_json::to_string(&request)
             .map_err(|e| McpError::SerializationError(e.to_string()))?;
@@ -263,13 +485,15 @@ impl Transport for HttpTransport {
 
     async fn close(&mut self) -> Result<(), McpError> {
         self.pending.clear();
-        // DELETE 会话（尽力而为，失败不阻塞断开）
-        if let Some(sid) = self.session_id.take() {
-            let mut req = self.client.delete(&self.url).header("Mcp-Session-Id", &sid);
-            for (k, v) in &self.headers {
-                req = req.header(k, v);
+        // DELETE 会话（尽力而为，失败不阻塞断开）；回环原生 HTTP 无需 DELETE。
+        if self.loopback_url.is_none() {
+            if let Some(sid) = self.session_id.take() {
+                let mut req = self.client.delete(&self.url).header("Mcp-Session-Id", &sid);
+                for (k, v) in &self.headers {
+                    req = req.header(k, v);
+                }
+                let _ = req.send().await;
             }
-            let _ = req.send().await;
         }
         Ok(())
     }
@@ -316,5 +540,37 @@ mod tests {
         let cfg: McpServerConfig = serde_json::from_str(legacy).unwrap();
         assert!(!cfg.is_http());
         assert!(cfg.headers.is_empty());
+    }
+
+    #[test]
+    fn loopback_urls_bypass_proxy() {
+        assert!(is_loopback_url("http://127.0.0.1:1122/mcp"));
+        assert!(is_loopback_url("http://127.10.0.5:1122/mcp"));
+        assert!(is_loopback_url("http://localhost:1122/mcp"));
+        assert!(is_loopback_url("http://[::1]:1122/mcp"));
+        assert!(!is_loopback_url("http://192.168.1.10:1122/mcp"));
+        assert!(!is_loopback_url("https://example.com/mcp"));
+        assert!(!is_loopback_url("not a url"));
+    }
+
+    #[test]
+    fn parses_raw_http_json_response() {
+        let body = r#"{"ok":true,"n":1}"#;
+        let raw = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let parsed = parse_raw_http_response(raw.as_bytes()).unwrap();
+        assert_eq!(parsed.status, 200);
+        assert_eq!(parsed.content_type, "application/json");
+        assert_eq!(parsed.body, body.as_bytes());
+    }
+
+    #[test]
+    fn parses_raw_http_chunked_response() {
+        let raw = b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\n\r\n5\r\ndata:\r\n0\r\n\r\n";
+        let parsed = parse_raw_http_response(raw).unwrap();
+        assert_eq!(parsed.body, b"data:");
     }
 }

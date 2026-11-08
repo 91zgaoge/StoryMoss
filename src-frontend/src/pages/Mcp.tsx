@@ -17,13 +17,12 @@ import toast from 'react-hot-toast';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { AiCodeBlock } from '@/components/ui/ai/AiCodeBlock';
-import { useMcpTools, type McpTool } from '@/hooks/useMcpTools';
+import { useMcpTools, type McpTool, type ExternalServer } from '@/hooks/useMcpTools';
 import {
   mcpListSavedServers,
   mcpSaveServer,
   mcpDeleteServer,
   mcpSetServerEnabled,
-  connectMcpServer,
   disconnectMcpServer,
   type SavedMcpServer,
 } from '@/services/api/skills';
@@ -77,24 +76,26 @@ export function Mcp() {
     await listTools();
   };
 
-  const buildConfig = (id?: string) => ({
+  const buildConfig = (id?: string): ExternalServer => ({
     id: id || crypto.randomUUID(),
     name: serverName.trim(),
     command: transportMode === 'stdio' ? serverCommand.trim() : '',
     args: transportMode === 'stdio' ? serverArgs.trim().split(' ').filter(Boolean) : [],
-    env: transportMode === 'stdio' && serverEnv.trim() ? JSON.parse(serverEnv) : {},
-    url: transportMode === 'http' ? serverUrl.trim() : null,
-    headers:
-      transportMode === 'http' && authToken.trim()
-        ? { Authorization: `Bearer ${authToken.trim()}` }
+    env:
+      transportMode === 'stdio' && serverEnv.trim()
+        ? (JSON.parse(serverEnv) as Record<string, string>)
         : {},
+    url: transportMode === 'http' ? serverUrl.trim() : null,
+    headers: (transportMode === 'http' && authToken.trim()
+      ? { Authorization: `Bearer ${authToken.trim()}` }
+      : {}) as Record<string, string>,
   });
 
   const handleConnect = async () => {
     if (!serverName.trim()) return;
     if (transportMode === 'stdio' && !serverCommand.trim()) return;
     if (transportMode === 'http' && !serverUrl.trim()) return;
-    await connectServer(buildConfig() as never);
+    await connectServer(buildConfig());
   };
 
   /** 保存到本机数据库并连接（HTTP 型服务器重启后自动重连） */
@@ -105,7 +106,8 @@ export function Mcp() {
     setIsSaving(true);
     try {
       const config = buildConfig();
-      await mcpSaveServer(config as never, true, true);
+      await mcpSaveServer(config, true, false);
+      await connectServer(config);
       await queryClient.invalidateQueries({ queryKey: ['mcp-saved-servers'] });
       await refreshAfterConnect();
       toast.success(`已保存并连接 ${config.name}`);
@@ -116,13 +118,24 @@ export function Mcp() {
     }
   };
 
+  const savedToExternal = (srv: SavedMcpServer) => ({
+    id: srv.id,
+    name: srv.name,
+    command: srv.config.command ?? '',
+    args: srv.config.args ?? [],
+    env: srv.config.env,
+    url: srv.config.url,
+    headers: srv.config.headers,
+  });
+
   const handleToggleSaved = async (srv: SavedMcpServer) => {
     try {
       if (srv.enabled) {
         await mcpSetServerEnabled(srv.id, false);
         await disconnectMcpServer(srv.id).catch(() => undefined);
       } else {
-        await mcpSaveServer(srv.config, true, true);
+        await mcpSaveServer(srv.config, true, false);
+        await connectServer(savedToExternal(srv));
         await refreshAfterConnect();
       }
       await queryClient.invalidateQueries({ queryKey: ['mcp-saved-servers'] });
@@ -145,7 +158,7 @@ export function Mcp() {
 
   const handleConnectSaved = async (srv: SavedMcpServer) => {
     try {
-      await connectMcpServer({ ...srv.config, enabled: true });
+      await connectServer(savedToExternal(srv));
       await refreshAfterConnect();
       toast.success(`已连接 ${srv.name}`);
     } catch (e) {
@@ -156,15 +169,22 @@ export function Mcp() {
   const handleExecute = async () => {
     if (!selectedTool) return;
     setIsExecuting(true);
+    let args: Record<string, unknown>;
     try {
-      const args = JSON.parse(toolArgs);
+      args = JSON.parse(toolArgs) as Record<string, unknown>;
+    } catch {
+      setToolResult({ error: '参数不是合法 JSON' });
+      setIsExecuting(false);
+      return;
+    }
+    try {
       const result =
         selectedTool.source === 'external'
           ? await callExternalTool(selectedTool.name, args)
           : await executeTool(selectedTool.name, args);
       setToolResult(result);
     } catch (e) {
-      setToolResult({ error: 'Invalid JSON arguments' });
+      setToolResult({ error: (e as Error).message });
     } finally {
       setIsExecuting(false);
     }

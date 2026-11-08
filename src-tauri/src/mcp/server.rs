@@ -166,6 +166,7 @@ impl McpServer {
                     },
                     "required": ["operation", "path"]
                 }),
+                annotations: None,
             },
             Box::new(FileSystemTool),
         );
@@ -186,6 +187,7 @@ impl McpServer {
                     },
                     "required": ["operation", "text"]
                 }),
+                annotations: None,
             },
             Box::new(TextProcessingTool),
         );
@@ -202,6 +204,7 @@ impl McpServer {
                     },
                     "required": ["query"]
                 }),
+                annotations: None,
             },
             Box::new(WebSearchTool),
         );

@@ -21,8 +21,10 @@ export interface ExternalServer {
   id: string;
   name: string;
   command: string;
-  args: string;
-  env?: string;
+  args: string[];
+  env?: Record<string, string>;
+  url?: string | null;
+  headers?: Record<string, string>;
 }
 
 export function useMcpTools() {
@@ -67,13 +69,14 @@ export function useMcpTools() {
   const connectServer = useCallback(async (config: ExternalServer) => {
     setIsConnecting(true);
     try {
-      const env: Record<string, string> = config.env ? JSON.parse(config.env) : {};
       const serverConfig = {
         id: config.id || crypto.randomUUID(),
         name: config.name,
         command: config.command,
-        args: config.args.split(' ').filter(Boolean),
-        env,
+        args: config.args ?? [],
+        env: config.env ?? {},
+        url: config.url ?? null,
+        headers: config.headers ?? {},
       };
       const data = await loggedInvoke<McpTool[]>('connect_mcp_server', { config: serverConfig });
       setExternalTools(data.map(t => ({ ...t, source: 'external' as const })));

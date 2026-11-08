@@ -14,6 +14,19 @@ pub async fn connect_server(config: McpServerConfig) -> Result<Vec<crate::mcp::M
     let mut client = McpClient::new(config.clone());
     client.connect().await.map_err(AppError::from)?;
     let tools = client.get_tools().clone();
+    let mapping = client.get_mapping_snapshot().cloned();
+
+    if let Some(mapping) = &mapping {
+        log::info!(
+            "[MCP] 映射快照 {} v{} · source={} {} · tool_names={} · permissions={:?}",
+            mapping.mapping_id,
+            mapping.mapping_version,
+            mapping.source_name,
+            mapping.source_version,
+            mapping.tool_names.len(),
+            mapping.permissions
+        );
+    }
 
     // W4-B2: 动态注册到 CapabilityRegistry
     {
@@ -67,6 +80,15 @@ pub async fn disconnect_server(server_id: &str) {
     }
 }
 
+/// UI / CapabilityRegistry 的 `mcp.{server_id}.{tool}` 前缀名还原为协议裸名。
+pub(crate) fn normalize_external_tool_name(server_id: &str, tool_name: &str) -> String {
+    let prefix = format!("mcp.{server_id}.");
+    tool_name
+        .strip_prefix(&prefix)
+        .unwrap_or(tool_name)
+        .to_string()
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub async fn call_mcp_tool(
     server_id: String,
@@ -74,6 +96,7 @@ pub async fn call_mcp_tool(
     arguments: serde_json::Value,
     _pool: State<'_, DbPool>,
 ) -> Result<serde_json::Value, AppError> {
+    let tool_name = normalize_external_tool_name(&server_id, &tool_name);
     let mut connections = MCP_CONNECTIONS.lock().await;
     let client = connections
         .get_mut(&server_id)
@@ -105,6 +128,9 @@ pub async fn get_mcp_connections(
                 "id": id,
                 "tools": client.get_tools().len(),
                 "resources": client.get_resources().len(),
+                "mapping": client
+                    .get_mapping_snapshot()
+                    .and_then(|mapping| serde_json::to_value(mapping).ok()),
             })
         })
         .collect();
