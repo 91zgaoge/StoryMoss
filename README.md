@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.4-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.5-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.93.5 · 续写更会「接着写」了
+
+用你本机的续写训练报告做了一次质量评估：首轮 0.32 分，主因是 AI 会跳过上一章结尾没写完的场景另起炉灶，以及风格学习静默失败后完全没有文风参照。现在续写指令强制「紧接前文末尾现场、未完结事件先落地」；风格分析失败时自动改用原文章节末尾节选做文风锚点。服务端日志上传接口也修了编译问题。
 
 ### v0.93.4 · 代理工作室错误可追溯，修订熔断不再丢稿
 

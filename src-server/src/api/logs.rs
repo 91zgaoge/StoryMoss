@@ -90,10 +90,13 @@ async fn upload(
     pool: web::Data<PgPool>,
     mut payload: Multipart,
 ) -> impl Responder {
-    // v0.93.3: 免登录上传——claims 为 None 时匿名（user_id 空）。轻量全局限流
+    // v0.93.4: 免登录上传——claims 为 None 时匿名（user_id 空）。轻量全局限流
     // 防匿名滥用：最近 1 小时入库包数超阈值直接 429。
+    // 注意：sqlx 宏对聚合标量可能推断为可空，必须用 COALESCE + "n: i64"
+    // 覆盖为非空 i64（v0.93.4 首版缺此覆盖，CI Docker 内真实编译才暴露）。
     let recent: i64 = sqlx::query_scalar!(
-        "SELECT COUNT(*) AS n FROM log_packages WHERE uploaded_at >= NOW() - INTERVAL '1 hour'"
+        "SELECT COALESCE(COUNT(*), 0) AS \"n: i64\" FROM log_packages \
+         WHERE uploaded_at >= NOW() - INTERVAL '1 hour'"
     )
     .fetch_one(pool.get_ref())
     .await

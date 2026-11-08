@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.93.4)
+# 🧪 StoryMoss 自动化测试环境 (v0.93.5)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.93.5 变更说明
+
+- **续写质量评估落地**：新增 3 项 Rust 测试（`build_style_anchor` 多章取尾/短章边界、`CONTINUITY_HARD_RULE` 措辞完整性）；src-server 限流 SQL `COALESCE` 非空覆盖（修复 v0.93.4 的 CI Docker E0308——本地无 PostgreSQL 编译不到 sqlx 宏，已知限制再次应验：服务端改动必须以 CI 为准）。
+- **结果**：Rust **2081 passed / 17 ignored**（+3）；Vitest **699 / 3**；Playwright **138 / 5**（本轮前端零改动）；tsc/fmt/clippy/guard 全绿。
+- **未关闭**：真机下一轮训练对比 overall 回升幅度。
 
 ### v0.93.4 变更说明
 

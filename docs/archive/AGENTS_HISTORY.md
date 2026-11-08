@@ -1,3 +1,13 @@
+<!-- 2026-11-09（v0.93.5）：自 AGENTS.md 归档 v0.93.0 摘要。 -->
+
+### v0.93.0 - MCP 自动连接与幕后界面简化
+
+**为什么**：栗子读书已能列出 11 工具，但幕后仍要求手填服务器/工具/参数；启动自动连接失败后打开页面不补连，UI 只跟踪单连接；续写训练必须手填 `chapter_tool` 与参数模板。
+
+**改动**：①后端新增 `McpConnectionStatus` + `ensure_saved_server_connections`/`mcp_ensure_connections`：启动、MCP 页、训练页自动连接 enabled 保存服务器（HTTP/stdio），单台失败隔离，启用即连接；重连前释放旧 transport。②MCP 页重构为状态 + 工具目录：自动扫描、服务器卡片（连接/工具数/映射/权限/错误）、添加服务器 Modal、全部工具按服务器分组；手动调试收进工具 Modal。③续写训练：服务器自动选首个 enabled，章节工具改为实时工具目录 Select 并默认 `get_chapter_content`，参数模板按 schema 自动生成；后端空工具/空模板自动兜底，`$book` 经 `get_book` 解析为 `book_url`，`$index` 数值化。④loopback raw HTTP 幂等请求失败重试一次（tools/call 不重试）。
+
+**验证**：Rust **2055 / 17**（+3）；live `ensure_saved_server_auto_connects` 3 次通过；Playwright **135 / 5**（+1 MCP 自动展示）；Vitest **699 / 3**（+3）；fmt/clippy/check/guard 全绿；未本地打包。**未关闭**：原生安装包真机复测 MCP 页自动连接与训练自动选工具。
+
 <!-- 2026-11-09（v0.93.4）：自 AGENTS.md 归档 v0.92.0 摘要。 -->
 
 ### v0.92.0 - 主工作流学习与数据闭合（P2+P3 合并）

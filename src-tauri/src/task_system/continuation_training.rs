@@ -84,6 +84,23 @@ fn default_chapter_count() -> usize {
     10
 }
 
+/// v0.93.5: 风格 DNA 失败时的降级文风锚点——取最后 2 个真实章节的末尾
+/// 各 ~600 字（合计 ≤1200），让模型直接模仿原文的遣词、句式、对话风格与
+/// 细节密度，而不是只收到一句抽象的「文风一致」。
+fn build_style_anchor(chapters: &[Chapter]) -> String {
+    const PER_CHAPTER_CHARS: usize = 600;
+    let mut parts: Vec<String> = Vec::new();
+    for (_, content) in chapters.iter().rev().take(2).rev() {
+        let start = content
+            .char_indices()
+            .nth_back(PER_CHAPTER_CHARS.saturating_sub(1))
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        parts.push(content[start..].trim().to_string());
+    }
+    parts.join("\n……\n")
+}
+
 pub struct ContinuationTrainingExecutor {
     pub pool: DbPool,
     pub app_handle: tauri::AppHandle,
@@ -163,6 +180,21 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             .await;
 
         // ── 4. 上轮改进建议注入（自动闭环）──────────────────────
+        // v0.93.5: 风格 DNA 失败时降级——用真实章节末尾原文节选做 few-shot
+        // 文风/口吻锚点（《阴脉先生》评估：DNA 静默失败时 style/voice 掉到
+        // 2/10，通用指令「文风一致」没有可模仿的具体材料）。
+        let style_anchor = if style_applied {
+            String::new()
+        } else {
+            let anchor = build_style_anchor(&chapters);
+            if !anchor.is_empty() {
+                ctx.log(
+                    "info",
+                    "风格 DNA 不可用，已注入真实章节末尾节选作为文风锚点",
+                );
+            }
+            anchor
+        };
         let prior = self.load_prior_insights(&payload.book_title);
         let base_instruction = format!(
             "这是续写训练沙盒：前 {} 章是小说《{}》的真实内容。请以与原文一致的文风、\
@@ -170,6 +202,14 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             chapters.len() - 1,
             payload.book_title
         );
+        let base_instruction = if style_anchor.is_empty() {
+            base_instruction
+        } else {
+            format!(
+                "{base_instruction}\n\n【文风锚点（原文节选，务必模仿其遣词造句、对话口吻、\
+                 叙事节奏与生活细节密度，不得改换语体）】\n{style_anchor}"
+            )
+        };
         let instruction = match &prior {
             Some(insights) => {
                 format!("{base_instruction}\n\n历史训练结论（务必落实）：\n{insights}")
@@ -853,6 +893,29 @@ fn fmt_num(v: &serde_json::Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn style_anchor_takes_tail_of_last_two_chapters() {
+        let chapters: Vec<Chapter> = (1..=3)
+            .map(|i| (i, format!("第{i}章开头铺垫。{}", "市井细节。".repeat(200))))
+            .collect();
+        let anchor = build_style_anchor(&chapters);
+        // 只取最后两章
+        assert!(!anchor.contains("第1章开头铺垫。"), "不应包含第 1 章");
+        // 每章取的是末尾（含最后一句）
+        assert!(anchor.contains("市井细节。"), "应包含章节末尾原文");
+        assert!(anchor.contains("……\n"), "两章之间应有省略分隔");
+        // 长度受 600 字/章约束（两章 + 分隔 ≈ 1200 余）
+        let chars = anchor.chars().count();
+        assert!(chars <= 1400, "锚点应受长度约束，实际 {chars}");
+    }
+
+    #[test]
+    fn style_anchor_handles_short_chapters() {
+        let chapters: Vec<Chapter> = vec![(1, "短章一".into()), (2, "短章二".into())];
+        let anchor = build_style_anchor(&chapters);
+        assert!(anchor.contains("短章一") && anchor.contains("短章二"));
+    }
 
     #[test]
     fn render_args_coerces_index_and_replaces_book_url() {

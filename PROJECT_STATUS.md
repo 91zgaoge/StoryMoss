@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.93.4 项目完成状态
+# StoryMoss (草苔) v0.93.5 项目完成状态
+
+> 最后更新: 2026-11-09（**v0.93.5：续写质量评估落地 + deploy-server 编译修复**——《阴脉先生》评估实锤承接断裂与风格 DNA 静默失效；三处续写指令注入 `CONTINUITY_HARD_RULE` 硬承接约束；`build_style_anchor` DNA 失败时用原文末尾节选做 few-shot 锚点；src-server 限流 SQL `COALESCE` 非空覆盖修 CI E0308。Rust **2081/17**（+3），Vitest **699/3**，Playwright **138/5**（前端零改动）。**未关闭**：真机下一轮训练对比回升幅度。）
 
 > 最后更新: 2026-11-09（**v0.93.4：agency 错误入日志 + 修订主创熔断三层兜底 + 日志上传免登录与自动授权**——失败链补 log::error、`revision_draft_with_fallback`（精确 key→任意 key→prose 直出）、`AppError::LlmRequestFailed`(Retry) 网关闪断重试、上传删双端登录门 + 自动检查弹窗授权上传。Rust **2078/17**（+4），Vitest **699/3**，Playwright **138/5** 基线不变。**未关闭**：deploy-server 后真机复测全路径。）
 

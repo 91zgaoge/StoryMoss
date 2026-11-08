@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.93.5（2026-11-09）
+
+**续写质量评估落地（硬承接约束 + 风格锚点降级）+ deploy-server 编译修复。**
+
+- **真机训练评估**：《阴脉先生》首轮训练报告 overall **0.32**（style 2 / voice 2 / plot 3 / pacing 4 / hooks 5）。逐字对照生成文与真实第11章实锤两点：①**承接断裂**——第10章结尾的「城中村看房/血红豆眼老鼠」悬停点就在注入的【前文】tail（1800 字）里，模型仍跳开另起新委托事件，真实第11章却是紧接看房场景续写（房东杀价/三百零七块八）；②**风格 DNA 静默失效**（`style_dna_applied=0`，`style_dnas` 表无记录）——LLM 故障窗口期 StyleAnalyzer 失败后生成完全无风格材料，指令里只剩一句抽象的「文风一致」。
+- **续写硬承接约束（主续写管线，三处 writer 指令模板统一注入）**：新增 `CONTINUITY_HARD_RULE`——「必须紧接【前文】末尾的现场继续（同一地点、同一对话或同一悬念直接往下写），前文里未完结的事件必须先落地，禁止跳切到新地点/新委托/新事件」。承接优先于推进，训练沙盒与正作续写同享。
+- **训练风格锚点降级**：`build_style_anchor`——风格 DNA 不可用时取最后 2 个真实章节的末尾各 ~600 字（合计 ≤1200）作为 few-shot 锚点注入指令（模仿遣词/句式/对话口吻/细节密度），并写任务日志；DNA 成功路径不变（v0.93.4 的 `LlmRequestFailed` 重试已提升 DNA 分析成功率）。
+- **deploy-server 编译修复（v0.93.4 首版遗漏）**：`/api/logs/upload` 限流的 `query_scalar!(COUNT(*))` 被 sqlx 推断为可空 `Option<i64>`，本地无 PostgreSQL 编译不到（已知限制），CI Docker 真实编译暴露 E0308。改为 `COALESCE(COUNT(*), 0) AS "n: i64"` 强制非空。
+- **验证**：Rust **2081 passed / 17 ignored**（+3：风格锚点取尾/短章边界/硬承接常量措辞）；tsc 0；Vitest **699 / 3**；Playwright **138 / 5**（本轮前端零改动）；fmt/clippy/check/guard 全绿。
+- **未关闭**：真机跑下一轮训练对比 overall 是否显著回升（预期承接与 style/voice 维度改善）；deploy-server 重部署后匿名上传验证。
+
 ## v0.93.4（2026-11-09）
 
 **agency 错误入日志 + 修订主创熔断三层兜底 + 日志上传免登录与自动授权。**

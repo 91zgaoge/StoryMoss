@@ -1,4 +1,6 @@
-# StoryMoss v0.93.4 架构文档
+# StoryMoss v0.93.5 架构文档
+
+> **v0.93.5**：**续写承接与风格锚点**——`coordinator.rs::CONTINUITY_HARD_RULE` 注入三处续写 writer 指令（紧接【前文】末尾现场/未完结事件先落地/禁止跳切）；`continuation_training.rs::build_style_anchor` 在风格 DNA 失败时取真实章节末尾节选做 few-shot 锚点；src-server 日志上传限流 SQL `COALESCE(...) AS "n: i64"` 修 sqlx 可空推断（本地无 PG 编译不到，CI Docker 暴露）。
 
 > **v0.93.4**：**agency 可观测与修订兜底 + 日志上传免登录**——agency 失败链（run 终态/对话派发/导演回合）补 `log::error`、派发动作补 `log::info`；`write_revision_chapter` 新增 `revision_draft_with_fallback` 三层兜底（精确 key → 任意 key → `revision_prose_fallback` prose 直出）；`AppError::LlmRequestFailed`（severity Retry）替代网络发送失败的 Internal 包装，网关 per-candidate 退避得以生效；`upload_log_report`/`/api/logs/upload` 双端免登录（`Option<AuthClaims>` + 全局限流）；新增日志自动授权上传（后台 24h 检查新 ERROR → `log-upload-requested` 事件 → 幕后 confirmDialog 同意才传）。
 

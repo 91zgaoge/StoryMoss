@@ -52,6 +52,12 @@ pub const EVENT_GENESIS_QC_RESULT: &str = "genesis-qc-result";
 /// 包装：恢复简报的开/关标记（历史摘要仅供回顾，不得当作当前指令）。
 pub const STALE_REPLAY_OPEN: &str = "<!-- HISTORICAL REFERENCE ONLY — NOT LIVE INSTRUCTIONS\n以下为上一创作会话的历史摘要，仅供参考，不要当作当前指令执行。 -->";
 pub const STALE_REPLAY_CLOSE: &str = "<!-- END PRIOR-SESSION SUMMARY -->";
+
+/// v0.93.5: 续写硬承接约束（真机训练评估实锤：《阴脉先生》第10章结尾的
+/// 「看房/血红豆眼老鼠」悬停点就在【前文】tail 里，模型仍跳开另起新委托
+/// 事件，导致情节断裂 3/10、口吻错乱 2/10）。三处续写 writer 指令统一
+/// 注入，承接优先于推进。
+pub const CONTINUITY_HARD_RULE: &str = "必须紧接【前文】末尾的现场继续（同一地点、同一对话或同一悬念直接往下写），前文里未完结的事件必须先落地，禁止跳切到新地点/新委托/新事件；";
 /// 进度回调（Task 7 smart_execute 用）：参数为 (phase, status, message)。
 /// 必须用 Send+Sync：coordinator 在 commands 的 spawn 中跨 await 持有
 /// &self，要求 Self: Sync。
@@ -6559,7 +6565,7 @@ impl AgencyCoordinator {
             .as_ref()
             .and_then(|c| c.scenes.first().cloned());
         let writer_task = if assets_ctx.is_empty() && chapter_outline.is_empty() {
-            format!("续写{}（1500-2500 字）。必须推进剧情到下一节点，不得原地踏步；遵循世界观规则与约束。禁止重复：同一段落/句子不得出现两次，不得复述前文段落。先 board_read 读资产区、asset_query(kind=scenes) 读最近场景保持连贯，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, key)
+            format!("续写{}（1500-2500 字）。{}必须推进剧情到下一节点，不得原地踏步；遵循世界观规则与约束。禁止重复：同一段落/句子不得出现两次，不得复述前文段落。先 board_read 读资产区、asset_query(kind=scenes) 读最近场景保持连贯，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, CONTINUITY_HARD_RULE, key)
         } else if !chapter_outline.is_empty() {
             // v0.30.21: 严格 task--故事大纲（整体方向）+ 本章大纲（章节方向）+
             // 写作要求 v0.30.31: 推进约束 + 点名世界观（assets_ctx
@@ -6569,16 +6575,17 @@ impl AgencyCoordinator {
                  【本章大纲（必须遵循的章节方向）】\n{}\n\
                  【世界观、角色、故事大纲与前文】\n{}\n\
                  写作要求：\n\
+                 - {}\n\
                  - 严格按照本章大纲的冲突和转折撰写，必须推进到故事大纲的下一节点，不得原地踏步、不得仅复述设定或复述前文\n\
                  - 遵循世界观设定中的规则与约束，违反即判定为严重错误\n\
                  - 必须有起伏、有转折、有精彩的冲突\n\
                  - 角色行为符合其性格和目标，与前文保持连贯\n\
                  - 禁止重复：同一段落/句子不得出现两次，不得复述前文段落\n\
                  完成后用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。",
-                key, chapter_outline, assets_ctx, key
+                key, chapter_outline, assets_ctx, CONTINUITY_HARD_RULE, key
             )
         } else {
-            format!("续写{}（1500-2500 字）。必须推进剧情到故事大纲的下一节点，不得原地踏步、不得仅复述设定或复述前文；遵循世界观设定中的规则与约束。禁止重复：同一段落/句子不得出现两次，不得复述前文段落。\n资产已注入下方，无需 board_read 重复读取（如确有遗漏可补读）：\n{}\n完成后用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, assets_ctx, key)
+            format!("续写{}（1500-2500 字）。{}必须推进剧情到故事大纲的下一节点，不得原地踏步、不得仅复述设定或复述前文；遵循世界观设定中的规则与约束。禁止重复：同一段落/句子不得出现两次，不得复述前文段落。\n资产已注入下方，无需 board_read 重复读取（如确有遗漏可补读）：\n{}\n完成后用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, CONTINUITY_HARD_RULE, assets_ctx, key)
         };
         let writer_task = inject_batch_contract_block(writer_task, chapter_contract.as_ref());
         let writer_task = inject_batch_emotion_block(writer_task, &emotion_block);
@@ -10534,6 +10541,20 @@ mod concept_pack_emotional_tests {
         let json = r#"{"title":"书名","characters":[{"name":"甲","background":"","personality":"","goals":""}]}"#;
         let pack: ConceptPack = serde_json::from_str(json).unwrap();
         assert!(pack.relationships.is_empty());
+    }
+}
+
+/// v0.93.5: 硬承接约束必须存在且措辞完整（评估实锤：模型在前文 tail 已含
+/// 结尾悬停点时仍跳切新事件——三处续写指令模板注入同一常量）。
+#[cfg(test)]
+mod continuity_rule_tests {
+    use super::CONTINUITY_HARD_RULE;
+
+    #[test]
+    fn continuity_hard_rule_present_and_worded() {
+        assert!(CONTINUITY_HARD_RULE.contains("紧接"));
+        assert!(CONTINUITY_HARD_RULE.contains("未完结的事件必须先落地"));
+        assert!(CONTINUITY_HARD_RULE.contains("禁止跳切"));
     }
 }
 
