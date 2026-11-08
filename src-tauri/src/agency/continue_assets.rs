@@ -1749,3 +1749,155 @@ mod tests {
         assert!(!chapter_plan_missing(Some(hand_written)));
     }
 }
+
+// ---- v0.93.0 P3-D1/D3：叙事数据回流写作上下文 ----
+
+/// D1：叙事节奏块（最近 6 场的强度/情感/事件类型，来自叙事分析落库）。
+/// 给 writer 一个确定性节奏参照：连续高强度要缓冲，低强度不超 2 场。
+pub fn render_narrative_rhythm_block(pool: &crate::db::DbPool, story_id: &str) -> Option<String> {
+    let scenes = crate::db::repositories::SceneRepository::new(pool.clone())
+        .get_by_story(story_id)
+        .ok()?;
+    let mut rows: Vec<_> = scenes
+        .into_iter()
+        .filter(|s| s.narrative_intensity.is_some() || s.narrative_event_types.is_some())
+        .collect();
+    if rows.is_empty() {
+        return None;
+    }
+    rows.sort_by_key(|s| s.sequence_number);
+    let recent: Vec<&crate::db::Scene> = rows.iter().rev().take(6).collect();
+    let mut out = String::from("【叙事节奏（最近场次，来自叙事分析）】\n");
+    for s in recent.iter().rev() {
+        let intensity = s
+            .narrative_intensity
+            .map(|f| format!("{f:.1}"))
+            .unwrap_or_else(|| "-".into());
+        let sentiment: String = match s.narrative_sentiment {
+            Some(v) if v > 0.2 => "正".to_string(),
+            Some(v) if v < -0.2 => "负".to_string(),
+            Some(_) => "中性".to_string(),
+            None => "-".to_string(),
+        };
+        let types = s
+            .narrative_event_types
+            .as_deref()
+            .map(|raw| {
+                serde_json::from_str::<Vec<String>>(raw)
+                    .unwrap_or_else(|_| vec![raw.chars().take(24).collect()])
+                    .join("/")
+            })
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| "-".into());
+        let title: String = s
+            .title
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(|t| t.chars().take(14).collect())
+            .unwrap_or_else(|| "-".into());
+        out.push_str(&format!(
+            "- #{} {} 强度={} 情感={} 类型={}\n",
+            s.sequence_number, title, intensity, sentiment, types
+        ));
+    }
+    out.push_str(
+        "节奏参照：连续 2 场高强度后安排缓冲/回响；低强度连续不得超过 2 场；事件类型保持多样。\n",
+    );
+    Some(out)
+}
+
+/// D3：追读债块（active/overdue 汇总 + 到期最近的债），提醒 writer 兑付。
+pub fn render_chase_debt_block(pool: &crate::db::DbPool, story_id: &str) -> Option<String> {
+    let debts = crate::db::ChaseDebtRepository::new(pool.clone())
+        .get_active_by_story(story_id)
+        .unwrap_or_default();
+    if debts.is_empty() {
+        return None;
+    }
+    let overdue = debts.iter().filter(|d| d.status == "overdue").count();
+    let total: f64 = debts.iter().map(|d| d.current_amount).sum();
+    let mut out = format!(
+        "【追读债（读者期待账本）】active={}，overdue={}，合计强度 {:.1}\n",
+        debts.len(),
+        overdue,
+        total
+    );
+    let mut sorted = debts;
+    sorted.sort_by(|a, b| a.due_chapter.cmp(&b.due_chapter));
+    for d in sorted.iter().take(4) {
+        out.push_str(&format!(
+            "- {}：源第{}章，应第{}章前兑付，当前强度 {:.1}{}\n",
+            d.debt_type,
+            d.source_chapter,
+            d.due_chapter,
+            d.current_amount,
+            if d.status == "overdue" {
+                "（已逾期）"
+            } else {
+                ""
+            }
+        ));
+    }
+    out.push_str("优先在本章或下一章给出明确的兑付进展（哪怕部分）。\n");
+    Some(out)
+}
+
+#[cfg(test)]
+mod narrative_block_tests {
+    use super::*;
+    use crate::db::connection::create_test_pool;
+
+    #[test]
+    fn narrative_rhythm_block_lists_recent_scenes_and_empty_returns_none() {
+        let pool = create_test_pool().unwrap();
+        let story = crate::db::repositories::StoryRepository::new(pool.clone())
+            .create(crate::db::dto::CreateStoryRequest {
+                title: "节奏书".into(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        // 无叙事数据 → None（不占提示词预算）
+        assert!(render_narrative_rhythm_block(&pool, &story.id).is_none());
+
+        let repo = crate::db::repositories::SceneRepository::new(pool.clone());
+        let scene = repo.create(&story.id, 1, Some("雨夜")).unwrap();
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "UPDATE scenes SET narrative_intensity = 0.8, narrative_sentiment = -0.5, \
+             narrative_event_types = ?1 WHERE id = ?2",
+            rusqlite::params![r#"["reveal","conflict"]"#, scene.id],
+        )
+        .unwrap();
+        let block = render_narrative_rhythm_block(&pool, &story.id).expect("应有节奏块");
+        assert!(block.contains("叙事节奏"));
+        assert!(block.contains("强度=0.8"));
+        assert!(block.contains("负"));
+        assert!(
+            block.contains("reveal/conflict"),
+            "事件类型应解析为数组: {block}"
+        );
+    }
+
+    #[test]
+    fn chase_debt_block_empty_is_none() {
+        let pool = create_test_pool().unwrap();
+        let story = crate::db::repositories::StoryRepository::new(pool.clone())
+            .create(crate::db::dto::CreateStoryRequest {
+                title: "无债书".into(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        assert!(render_chase_debt_block(&pool, &story.id).is_none());
+    }
+}

@@ -61,6 +61,8 @@ pub struct CrewSnapshot {
     pub scenes: Vec<CrewScene>,
     /// v0.91.0 B1：未结清质量债（severity 排序 top5），让导演能看见并修复。
     pub debts: Vec<CrewDebt>,
+    /// v0.93.0 D2：数据洞察摘要（追读债/未处理标注），只读、确定性。
+    pub insights: Vec<String>,
 }
 
 /// 巡检：只读、确定性、不调 LLM。导演/现场面板共用。
@@ -141,6 +143,7 @@ impl CrewInspector {
             )
         });
         debts.truncate(5);
+        let insights = insight_lines(pool, story_id);
 
         let mut alerts = Vec::new();
         let terminal_runs: std::collections::HashSet<String> = runs
@@ -254,8 +257,37 @@ impl CrewInspector {
             alerts,
             scenes,
             debts,
+            insights,
         })
     }
+}
+
+/// v0.93.0 D2：确定性洞察摘要（不调 LLM）：追读债汇总 + 未处理高危标注。
+fn insight_lines(pool: &DbPool, story_id: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let debts = crate::db::ChaseDebtRepository::new(pool.clone())
+        .get_active_by_story(story_id)
+        .unwrap_or_default();
+    if !debts.is_empty() {
+        let overdue = debts.iter().filter(|d| d.status == "overdue").count();
+        let total: f64 = debts.iter().map(|d| d.current_amount).sum();
+        out.push(format!(
+            "追读债：active {} 条 / 逾期 {} 条 / 合计强度 {:.1}",
+            debts.len(),
+            overdue,
+            total
+        ));
+    }
+    let annotations = crate::db::TextAnnotationRepository::new(pool.clone())
+        .get_annotations_by_story(story_id)
+        .unwrap_or_default();
+    let high = annotations.iter().filter(|a| a.severity == "high").count();
+    if high > 0 {
+        out.push(format!(
+            "未处理高危标注：{high} 条（建议派发修订或 escalate）"
+        ));
+    }
+    out
 }
 
 fn severity_rank(severity: &str) -> u8 {

@@ -583,6 +583,7 @@ mod tests {
             story_id: "s1".into(),
             role: AgentRole::Producer,
             board: BlackboardService::new(pool.clone()),
+            app_handle: None,
             pool,
         };
         (ctx, Arc::new(ToolRegistry::agency_default()))

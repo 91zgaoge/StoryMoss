@@ -1506,7 +1506,8 @@ async fn real_machine_probe_foreshadow_hint_usage() {
     println!(
         "[真机探针] V154 回填后：未回收伏笔 {setup_total} 条，其中 {with_window} 条有结构化窗口"
     );
-    let Some(parts) = crate::agency::coordinator::load_continue_context_parts(&pool, &story_id)
+    let Some(parts) =
+        crate::agency::coordinator::load_continue_context_parts(&pool, &story_id, None)
     else {
         println!("[真机探针] 跳过：continue context 加载失败");
         return;

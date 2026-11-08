@@ -129,7 +129,7 @@
 | B4 | SceneEditor 生成大纲/草稿增加「派发」选项（走导演 dispatch OutlinePlanner 语义或主创），旧一键路径保留为「快速生成」 | SceneEditor.tsx、chat_commands.rs | 编辑器内派发 → 审批卡 → 产物写回大纲/草稿 |
 | B5 | ExecutionPanel ai_continue/ai_revise 接真实动作：续写当前章（`agency_continue_chapter`）/ 修订（预填导演聊天 target_scene） | ExecutionPanel.tsx | 场景页快捷操作产生真实 run/审批卡，无占位 toast |
 
-### P2 学习与设置闭合（目标 v0.92.0）——「学习回路闭环」
+### P2 学习与设置闭合（目标 v0.92.0，已实施）——「学习回路闭环」
 
 | # | 改动 | 关键文件 | 验收探针 |
 |---|---|---|---|
@@ -137,7 +137,7 @@
 | C2 | 工具面新增 `skill_execute`（白名单：仅 learned/approved、生成类技能、单次输出截断），先开放给主创/管理 | tools.rs、SkillManager 复用、roles 提示词工具说明 | 主创在 ToolLoop 中成功调用一次 learned 技能并产出可见文本 |
 | C3 | 写作策略接入 agency：AppConfig 策略字段读入 coordinator，覆盖 bundle 默认值（与旧管线同语义） | write_time_bundle.rs:361-365、coordinator.rs 装配点 | 设置改冲突等级 → 续写提示词策略块变化 |
 
-### P3 数据闭合（目标 v0.93.0）——「叙事数据回流」
+### P3 数据闭合（并入 v0.92.0 发布，已实施）——「叙事数据回流」
 
 | # | 改动 | 关键文件 | 验收探针 |
 |---|---|---|---|

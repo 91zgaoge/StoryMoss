@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.91.1-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.92.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.92.0 · 学习回路与叙事数据接入主工作流
+
+你在学习中心批准的写作模式（instinct）现在会直接注入主创的写作提示词（可在设置里关掉）；学习技能可以被四个 agent 通过 `skill_execute` 调用；设置页的写作策略（冲突强度/节奏/AI 自由度）对续写生效。同时，叙事分析的场景节奏、追读债账本会回流到写作上下文，导演巡检也能看到这些数据洞察；修订章节后会自动重新提取知识图谱。
 
 ### v0.91.1 · 栗子读书 MCP 真正可用（映射契约 v1）
 

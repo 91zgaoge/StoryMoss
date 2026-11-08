@@ -303,6 +303,50 @@ pub fn list_instincts(
     Ok(out)
 }
 
+/// v0.92.0 C1：把已批准（promoted）的 instinct 渲染成写作 prompt 块。
+/// 按置信度/证据数排序取前 3 条，总预算 max_chars（默认调用方传 600）。
+/// 无批准项返回 None（不占提示词预算）。
+pub fn render_instinct_block(
+    app_dir: &std::path::Path,
+    story_id: &str,
+    max_chars: usize,
+) -> Option<String> {
+    let logger = ObservationLogger::new(app_dir.to_path_buf());
+    let mut list = list_instincts(&logger, story_id).ok()?;
+    list.retain(|i| i.status == "promoted");
+    if list.is_empty() {
+        return None;
+    }
+    list.sort_by(|a, b| {
+        b.confidence
+            .partial_cmp(&a.confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(b.evidence_count.cmp(&a.evidence_count))
+    });
+
+    let header = "【已学模式（由作者批准，优先遵守）】\n";
+    let mut out = String::from(header);
+    for inst in list.iter().take(3) {
+        let trigger: String = inst.trigger.chars().take(60).collect();
+        let action: String = inst.action.chars().take(80).collect();
+        let line = format!(
+            "- {} → {}（证据 {} 次 / 置信度 {:.0}%）\n",
+            trigger,
+            action,
+            inst.evidence_count,
+            inst.confidence * 100.0
+        );
+        if out.chars().count() + line.chars().count() > max_chars {
+            break;
+        }
+        out.push_str(&line);
+    }
+    if out.chars().count() <= header.chars().count() {
+        return None;
+    }
+    Some(out.trim_end().to_string())
+}
+
 pub fn parse_instinct(text: &str) -> Option<Instinct> {
     let (fm, _body) = crate::prompts::registry::split_frontmatter(text)?;
     #[derive(serde::Deserialize)]
@@ -751,6 +795,52 @@ mod tests {
     fn logger() -> (ObservationLogger, tempfile::TempDir) {
         let tmp = tempfile::tempdir().unwrap();
         (ObservationLogger::new(tmp.path().to_path_buf()), tmp)
+    }
+
+    #[test]
+    fn render_instinct_block_keeps_only_promoted_and_budgeted() {
+        let (logger, _tmp) = logger();
+        let promoted = Instinct {
+            id: "i-promoted".into(),
+            trigger: "写到雨夜场景".into(),
+            action: "先写触觉再写对话".into(),
+            confidence: 0.86,
+            evidence_count: 5,
+            scope: "story".into(),
+            status: "promoted".into(),
+            created_at: "2026-11-01T00:00:00Z".into(),
+            updated_at: "2026-11-01T00:00:00Z".into(),
+            evolved_from: vec![],
+        };
+        let candidate = Instinct {
+            id: "i-candidate".into(),
+            trigger: "候选模式不应注入".into(),
+            action: "不应出现".into(),
+            confidence: 0.4,
+            evidence_count: 1,
+            scope: "story".into(),
+            status: "candidate".into(),
+            created_at: "2026-11-01T00:00:00Z".into(),
+            updated_at: "2026-11-01T00:00:00Z".into(),
+            evolved_from: vec![],
+        };
+        std::fs::create_dir_all(logger.instincts_path("s1")).unwrap();
+        std::fs::write(
+            logger.instincts_path("s1").join("i-promoted.md"),
+            render_instinct(&promoted, "body"),
+        )
+        .unwrap();
+        std::fs::write(
+            logger.instincts_path("s1").join("i-candidate.md"),
+            render_instinct(&candidate, "body"),
+        )
+        .unwrap();
+
+        let block = render_instinct_block(_tmp.path(), "s1", 600).expect("promoted 应出块");
+        assert!(block.contains("雨夜场景"));
+        assert!(block.contains("触觉"));
+        assert!(!block.contains("候选模式不应注入"), "非 promoted 不得注入");
+        assert!(block.chars().count() <= 600, "块必须受预算约束");
     }
 
     #[test]

@@ -4,6 +4,7 @@ use std::{
 };
 
 use rusqlite::OptionalExtension;
+use tauri::Manager;
 
 use crate::{
     agency::{board::BlackboardService, models::*},
@@ -25,6 +26,9 @@ pub struct ToolContext {
     pub role: AgentRole,
     pub board: BlackboardService,
     pub pool: DbPool,
+    /// v0.92.0 C2：app 句柄（skill_execute 经 Tauri State 取 SkillManager；
+    /// 测试环境 None，该工具返回可读错误而非 panic）。
+    pub app_handle: Option<tauri::AppHandle>,
 }
 
 #[async_trait::async_trait]
@@ -189,6 +193,7 @@ impl ToolRegistry {
         registry.register(Arc::new(CreativeContextTool));
         registry.register(Arc::new(CorpusSearchTool));
         registry.register(Arc::new(CorpusReadTool));
+        registry.register(Arc::new(SkillExecuteTool));
         for role in AgentRole::all() {
             registry.allow(role, "board_read");
             registry.allow(role, "story_info");
@@ -197,6 +202,7 @@ impl ToolRegistry {
             registry.allow(role, "creative_context");
             registry.allow(role, "corpus_search");
             registry.allow(role, "corpus_read");
+            registry.allow(role, "skill_execute");
         }
         // 编辑审计只读（审查结论经 ToolLoop final 由协调器落审查区）
         registry.allow(AgentRole::LeadWriter, "board_write");
@@ -211,6 +217,93 @@ impl ToolRegistry {
 }
 
 // ---- 内置工具 ----
+
+/// v0.92.0 C2：学习中心已批准技能执行（白名单：仅 `learned.*` 且启用）。
+/// 经 Tauri State 取共享 SkillManager，走既有 SkillExecutor 管线（含提示词
+/// 覆盖）；输出截断 2000 字符防上下文爆炸。
+pub struct SkillExecuteTool;
+
+#[async_trait::async_trait]
+impl AgentTool for SkillExecuteTool {
+    fn name(&self) -> &'static str {
+        "skill_execute"
+    }
+    fn description(&self) -> &'static str {
+        "执行一个已批准的学习技能（learned.*）：按作者批准的处理模式加工输入文本。只能运行学习中心 promoted 技能；内置技能不在此开放"
+    }
+    fn args_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "skill_id": {"type": "string", "description": "学习技能 ID（learned. 前缀）"},
+                "input": {"type": "string", "description": "输入文本（最多 8000 字）"}
+            },
+            "required": ["skill_id", "input"]
+        })
+    }
+    async fn execute(
+        &self,
+        ctx: &ToolContext,
+        args: serde_json::Value,
+    ) -> Result<String, AppError> {
+        let skill_id = args
+            .get("skill_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        let input = args
+            .get("input")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if skill_id.is_empty() || input.is_empty() {
+            return Err(AppError::validation_failed(
+                "skill_execute 缺少 skill_id 或 input",
+                Some("args"),
+            ));
+        }
+        if !skill_id.starts_with("learned.") {
+            return Err(AppError::validation_failed(
+                "skill_execute 只允许 learned.* 学习技能（白名单）；其余技能请走幕后技能中心",
+                Some("skill_id"),
+            ));
+        }
+        let app = ctx
+            .app_handle
+            .as_ref()
+            .ok_or_else(|| AppError::from("skill_execute 在当前环境不可用"))?;
+        let manager = app
+            .try_state::<crate::skills::SkillManager>()
+            .map(|s| s.inner().clone())
+            .ok_or_else(|| AppError::from("SkillManager 未初始化"))?;
+        let mut params = std::collections::HashMap::new();
+        params.insert(
+            "input".to_string(),
+            serde_json::Value::String(input.chars().take(8000).collect()),
+        );
+        let context = crate::domain::agent_context::AgentContext {
+            story: crate::domain::agent_context::StoryContext {
+                story_id: ctx.story_id.clone(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let result = manager.execute_skill(skill_id, &context, params).await?;
+        if !result.success {
+            return Err(AppError::from(format!(
+                "技能执行失败: {}",
+                result.error.unwrap_or_else(|| "未知错误".into())
+            )));
+        }
+        let text = serde_json::to_string(&result.data).unwrap_or_default();
+        let truncated: String = text.chars().take(2000).collect();
+        Ok(if text.chars().count() > 2000 {
+            format!("{truncated}\n…（输出已截断）")
+        } else {
+            truncated
+        })
+    }
+}
 
 pub struct BoardReadTool;
 
@@ -1023,6 +1116,7 @@ mod tests {
             story_id: "s1".into(),
             role,
             board: BlackboardService::new(pool.clone()),
+            app_handle: None,
             pool,
         }
     }
@@ -1741,5 +1835,28 @@ mod tests {
         assert!(registry
             .get_for_role(AgentRole::EditorAuditor, "asset_read")
             .is_some());
+    }
+
+    #[tokio::test]
+    async fn skill_execute_rejects_non_learned_prefix() {
+        let pool = create_test_pool().unwrap();
+        let context = ctx(pool, AgentRole::Producer);
+        let err = SkillExecuteTool
+            .execute(
+                &context,
+                serde_json::json!({"skill_id": "builtin.style_enhancer", "input": "文本"}),
+            )
+            .await;
+        assert!(err.is_err(), "内置技能不得经 skill_execute 执行");
+        let err2 = SkillExecuteTool
+            .execute(
+                &context,
+                serde_json::json!({"skill_id": "learned.x", "input": "文本"}),
+            )
+            .await;
+        assert!(
+            err2.is_err(),
+            "无 app 句柄（测试环境）应得到可读错误而非 panic"
+        );
     }
 }

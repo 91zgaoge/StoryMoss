@@ -5729,3 +5729,41 @@ fn eight_beat_append_quality_contract() {
     );
     assert!(!prompt.contains("最高优先级"));
 }
+
+#[test]
+fn writing_strategy_override_reaches_continue_context() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "策略故事".into(),
+            description: None,
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    let custom = crate::config::settings::WritingStrategy {
+        conflict_level: 90,
+        ..Default::default()
+    };
+    let parts =
+        load_continue_context_parts(&pool, &story.id, Some(custom)).expect("context 应可用");
+    let rendered = parts
+        .bundle
+        .writing_strategy_constraints
+        .expect("自定义策略应生成约束块");
+    assert!(
+        rendered.contains("极高"),
+        "约束块应携带用户冲突强度设置: {rendered}"
+    );
+    // None 回退内置默认（不含自定义高冲突值）
+    let default_parts =
+        load_continue_context_parts(&pool, &story.id, None).expect("默认 continue context 应可用");
+    let default_rendered = default_parts
+        .bundle
+        .writing_strategy_constraints
+        .expect("默认策略约束块应存在");
+    assert_ne!(rendered, default_rendered, "自定义策略必须改变约束块");
+}

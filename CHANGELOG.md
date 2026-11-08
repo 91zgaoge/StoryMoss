@@ -2,6 +2,32 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.92.0（2026-11-08）
+
+**主工作流学习与数据闭合（原计划 P2+P3 合并发布）：学习回路注入 agency，叙事数据回流写作与导演。**
+
+- **C1 已批准 instinct 进写作 prompt**：学习中心 promoted 模式按置信度取 top3（600 字预算），单拍与批量两条 writer 路径注入；配置键 `continue_instinct_enabled`（默认开）可关。
+- **C2 `skill_execute` 代理工具**：四角色可在 ToolLoop 里执行学习技能；白名单仅 `learned.*` 且启用，经共享 SkillManager 走既有执行器（含提示词覆盖），输出截断 2000 字。`ToolContext` 增加 app_handle（测试环境安全降级）。
+- **C3 写作策略对 agency 生效**：`load_continue_context_parts` 覆盖 bundle 约束为用户 `AppConfig.writing_strategy`（单拍/批量/修订三路径），与幕前 time_sliced 同口径。
+- **D1 叙事节奏进写作上下文**：最近 6 场的强度/情感/事件类型（叙事分析落库）渲染成节奏参照块。
+- **D2 洞察摘要进导演快照**：`CrewSnapshot.insights`（追读债汇总 + 未处理高危标注，确定性不调 LLM），导演 prompt 新增 Insights 区块。
+- **D3 追读债进写作上下文**：active/overdue 汇总 + 到期最近 4 条，提示 writer 兑付。
+- **D4 修订后重采 KG**：修订装配写入正文后走 `SceneIngestor::spawn_ingest_debounced`（与手动编辑同路径，后台防抖）。
+- **验证**：Rust 新增 5 项测试（instinct 块/技能白名单/策略覆盖/节奏块/洞察 prompt）；全量结果见 AGENTS。**未关闭**：原生安装包真机复测学习注入与追读债块。
+
+## v0.92.0（2026-11-08）
+
+**主工作流学习与数据闭合（原计划 P2+P3 合并发布）：学习回路注入 agency，叙事数据回流写作与导演。**
+
+- **C1 已批准 instinct 进写作 prompt**：学习中心 promoted 模式按置信度取 top3（600 字预算），单拍与批量两条 writer 路径注入；配置键 `continue_instinct_enabled`（默认开）可关。
+- **C2 `skill_execute` 代理工具**：四角色可在 ToolLoop 里执行学习技能；白名单仅 `learned.*` 且启用，经共享 SkillManager 走既有执行器（含提示词覆盖），输出截断 2000 字。`ToolContext` 增加 app_handle（测试环境安全降级）。
+- **C3 写作策略对 agency 生效**：`load_continue_context_parts` 覆盖 bundle 约束为用户 `AppConfig.writing_strategy`（单拍/批量/修订三路径），与幕前 time_sliced 同口径。
+- **D1 叙事节奏进写作上下文**：最近 6 场的强度/情感/事件类型（叙事分析落库）渲染成节奏参照块。
+- **D2 洞察摘要进导演快照**：`CrewSnapshot.insights`（追读债汇总 + 未处理高危标注，确定性不调 LLM），导演 prompt 新增 Insights 区块。
+- **D3 追读债进写作上下文**：active/overdue 汇总 + 到期最近 4 条，提示 writer 兑付。
+- **D4 修订后重采 KG**：修订装配写入正文后走 `SceneIngestor::spawn_ingest_debounced`（与手动编辑同路径，后台防抖）。
+- **验证**：Rust 新增 5 项测试（instinct 块/技能白名单/策略覆盖/节奏块/洞察 prompt）；全量结果见 AGENTS。**未关闭**：原生安装包真机复测学习注入与追读债块。
+
 ## v0.91.1（2026-11-08）
 
 **MCP 映射层版本/权限契约：修复栗子读书工具列表 0、回环代理 400，并把字段漂移/源权限变化的失效与报错规则定死。**

@@ -1115,6 +1115,58 @@ impl AgencyCoordinator {
             .unwrap_or(true)
     }
 
+    /// v0.92.0 C1：已批准 instinct 是否注入（默认开，配置键
+    /// `continue_instinct_enabled`）。
+    fn instinct_enabled(&self) -> bool {
+        let Some(app) = self.app_handle.as_ref() else {
+            return true;
+        };
+        let Ok(dir) = app.path().app_data_dir() else {
+            return true;
+        };
+        crate::config::AppConfig::load(&dir)
+            .map(|config| config.continue_instinct_enabled)
+            .unwrap_or(true)
+    }
+
+    /// v0.92.0 C1：渲染 instinct 块（promoted、top3、600 字预算）。
+    fn instinct_block(&self, story_id: &str) -> Option<String> {
+        if !self.instinct_enabled() {
+            return None;
+        }
+        let app = self.app_handle.as_ref()?;
+        let dir = app.path().app_data_dir().ok()?;
+        crate::agency::learning::render_instinct_block(&dir, story_id, 600)
+    }
+
+    /// v0.93.0 D4：修订装配更新场景正文后，触发后台 ingest（KG/向量重采）。
+    /// 与手动编辑同路径（SceneIngestor::spawn_ingest_debounced），best-effort：
+    /// app/vector 不可用（测试环境）静默跳过。
+    fn spawn_scene_ingest(&self, scene_id: &str) {
+        let Some(app) = self.app_handle.as_ref() else {
+            return;
+        };
+        let Some(store) = self.retrieval_store() else {
+            return;
+        };
+        crate::story_system::scene_service::SceneIngestor::spawn_ingest_debounced(
+            scene_id.to_string(),
+            self.pool.clone(),
+            app.clone(),
+            store,
+        );
+    }
+
+    /// v0.92.0 C3：读取用户写作策略（AppConfig.writing_strategy）；不可用
+    /// 时返回 None（bundle 回退内置默认策略）。
+    pub(crate) fn user_writing_strategy(&self) -> Option<crate::config::settings::WritingStrategy> {
+        let app = self.app_handle.as_ref()?;
+        let dir = app.path().app_data_dir().ok()?;
+        crate::config::AppConfig::load(&dir)
+            .ok()
+            .map(|config| config.writing_strategy)
+    }
+
     /// 按正文重写生产资产。不创建会挡住续写的 Agency run。
     pub async fn run_asset_refresh(
         &self,
@@ -3636,6 +3688,7 @@ impl AgencyCoordinator {
             self.current_deadline(),
             reporter,
             cancel.clone(),
+            self.app_handle.clone(),
         )
         .await?;
         // v0.80.4: 对话派发路径此前没有创世/续写路径的「熔断不丢稿」兜底。
@@ -5426,12 +5479,14 @@ impl AgencyCoordinator {
         let sid = story_id.to_string();
         let content_for_card = current_content.unwrap_or("").to_string();
         let scene_id_owned = scene_id.map(|s| s.to_string());
+        let strategy = self.user_writing_strategy();
         let (mut parts, mut card) = self
             .db({
                 let pool = pool.clone();
                 let sid = sid.clone();
                 let content_for_card = content_for_card.clone();
                 let scene_id_owned = scene_id_owned.clone();
+                let strategy = strategy.clone();
                 move || {
                     // v0.64.10：同一行读出 location 与 outline_content——
                     // 后者即上一拍卡块，冲突阶梯据此升级/衰减
@@ -5451,7 +5506,7 @@ impl AgencyCoordinator {
                             .as_ref()
                             .and_then(|s| s.outline_content.as_deref()),
                     )?;
-                    Ok((load_continue_context_parts(&pool, &sid), card))
+                    Ok((load_continue_context_parts(&pool, &sid, strategy), card))
                 }
             })
             .await?;
@@ -5620,6 +5675,8 @@ impl AgencyCoordinator {
                 crate::agency::continue_director::sanitize_bundle_relations(&filtered, &lock);
             p.bundle.relationship_lines = filtered;
             relation_alerts.extend(bundle_dropped);
+            // v0.92.0 C1：已批准 instinct 进入单拍写作上下文
+            let instinct_block = self.instinct_block(story_id);
             let mut continuity_blocks = {
                 let pool = self.pool.clone();
                 let sid = story_id.to_string();
@@ -5644,6 +5701,22 @@ impl AgencyCoordinator {
                     // P2-B：作者文风偏好（从手改中提炼），优先遵守。
                     if let Some(block) =
                         crate::story_system::style_learning::render_style_block(&pool, &sid)
+                    {
+                        blocks.push(block);
+                    }
+                    // v0.92.0 C1：已批准 instinct（学习中心模式）优先遵守
+                    if let Some(block) = instinct_block.clone() {
+                        blocks.push(block);
+                    }
+                    // v0.93.0 D1：叙事节奏（叙事分析落库的最近场次强度）
+                    if let Some(block) =
+                        crate::agency::continue_assets::render_narrative_rhythm_block(&pool, &sid)
+                    {
+                        blocks.push(block);
+                    }
+                    // v0.93.0 D3：追读债（读者期待账本）兑付提醒
+                    if let Some(block) =
+                        crate::agency::continue_assets::render_chase_debt_block(&pool, &sid)
                     {
                         blocks.push(block);
                     }
@@ -6322,12 +6395,14 @@ impl AgencyCoordinator {
         let key = format!("第{}章", chapter_number);
         let pool = self.pool.clone();
         let sid = story_id.to_string();
+        let strategy = self.user_writing_strategy();
         let (parts, card, latest_content, pinned_blocks) = self
             .db({
                 let pool = pool.clone();
                 let sid = sid.clone();
+                let strategy = strategy.clone();
                 move || {
-                    let parts = load_continue_context_parts(&pool, &sid);
+                    let parts = load_continue_context_parts(&pool, &sid, strategy);
                     let latest_scene = parts
                         .as_ref()
                         .and_then(|p| p.scenes.iter().max_by_key(|s| s.sequence_number));
@@ -6486,6 +6561,12 @@ impl AgencyCoordinator {
         // v0.80.5：导演派发的指令作为额外写作要求注入；它不能覆盖世界观/
         // 本章大纲/情感契约的硬约束，只调整这一章的写法。
         let writer_task = inject_director_directive(writer_task, directive);
+        // v0.92.0 C1：已批准 instinct 进入批量主创 writer prompt
+        let writer_task = if let Some(block) = self.instinct_block(story_id) {
+            format!("{writer_task}\n\n{block}")
+        } else {
+            writer_task
+        };
         let writer_out = self
             .run_role_with_llm_and_budget(
                 budget,
@@ -6583,12 +6664,14 @@ impl AgencyCoordinator {
         let pool = self.pool.clone();
         let sid = story_id.to_string();
         let target_scene_owned = target_scene_id.map(str::to_string);
+        let strategy = self.user_writing_strategy();
         let (parts, card, existing, outline, prior) = self
             .db({
                 let pool = pool.clone();
                 let sid = sid.clone();
+                let strategy = strategy.clone();
                 move || {
-                    let parts = load_continue_context_parts(&pool, &sid)
+                    let parts = load_continue_context_parts(&pool, &sid, strategy)
                         .ok_or_else(|| AppError::from("修订章缺少故事上下文"))?;
                     let target = if let Some(scene_id) = target_scene_owned.as_deref() {
                         parts
@@ -6963,6 +7046,8 @@ impl AgencyCoordinator {
         })
         .await
         .map_err(|e| AppError::from(format!("revision assembly join error: {e}")))??;
+        // v0.93.0 D4：修订写入正文后重采 KG/向量（后台防抖，与手动编辑同路径）
+        self.spawn_scene_ingest(&scene_id);
         self.emit_activity(run_id, AgentRole::Producer, "done", "修订装配");
         self.checkpoint_auto(run_id, story_id, "chapter", Some(chapter_number), budget)
             .await;
@@ -8138,8 +8223,18 @@ impl AgencyCoordinator {
         let llm = self.llm_for_run(run_id, role, story_id);
         let deadline = self.current_deadline();
         run_role_loop(
-            &llm, budget, &self.pool, board, registry, role, run_id, story_id, premise, task,
+            &llm,
+            budget,
+            &self.pool,
+            board,
+            registry,
+            role,
+            run_id,
+            story_id,
+            premise,
+            task,
             deadline,
+            self.app_handle.clone(),
         )
         .await
     }
@@ -8285,6 +8380,7 @@ async fn run_role_loop(
     premise: &str,
     task: &str,
     deadline: Option<std::time::Instant>,
+    app: Option<tauri::AppHandle>,
 ) -> Result<crate::agency::tool_loop::LoopResult, AppError> {
     let spec = spec_for(role);
     let system_prompt = resolve_role_prompt_with_pool(pool, spec.prompt_id, premise).await;
@@ -8294,6 +8390,7 @@ async fn run_role_loop(
         role,
         board: board.clone(),
         pool: pool.clone(),
+        app_handle: app.clone(),
     };
     // 预算包装：角色信号量限流 + token 记账，对 ToolLoop 透明
     let budgeted: Arc<dyn LoopLlm> = Arc::new(BudgetedLlm::new(llm.clone(), budget.clone(), role));
@@ -8319,6 +8416,7 @@ pub async fn run_role_loop_reported(
     deadline: Option<std::time::Instant>,
     reporter: &TaskReporter,
     cancel: Option<Arc<AtomicBool>>,
+    app: Option<tauri::AppHandle>,
 ) -> Result<crate::agency::tool_loop::LoopResult, AppError> {
     let spec = spec_for(role);
     let system_prompt = resolve_role_prompt_with_pool(pool, spec.prompt_id, premise).await;
@@ -8328,6 +8426,7 @@ pub async fn run_role_loop_reported(
         role,
         board: board.clone(),
         pool: pool.clone(),
+        app_handle: app.clone(),
     };
     let budgeted: Arc<dyn LoopLlm> = Arc::new(BudgetedLlm::new(llm.clone(), budget.clone(), role));
     let reported: Arc<dyn LoopLlm> = Arc::new(ReportingLlm::new(budgeted, reporter.clone()));
@@ -8572,6 +8671,7 @@ pub(crate) async fn evaluate_gate_impl(
             // deadline 安全--熔断后仍有两次兜底产出裁决。此处传 deadline 让
             // editor 获得超时保护（剩余 <30s 熔断 -> salvage -> 散文回退）。
             deadline,
+            None,
         )
         .await
         .map_err(|e| AppError::from(format!("编辑审计 Agent 阶段失败: {}", e)))?;
@@ -9011,8 +9111,9 @@ pub(crate) struct ContinueContextParts {
 pub(crate) fn load_continue_context_parts(
     pool: &DbPool,
     story_id: &str,
+    strategy: Option<crate::config::settings::WritingStrategy>,
 ) -> Option<ContinueContextParts> {
-    let bundle = match crate::creative_engine::write_time_bundle::WriteTimeBundle::load_sync(
+    let mut bundle = match crate::creative_engine::write_time_bundle::WriteTimeBundle::load_sync(
         pool, story_id, 1, None, None, None,
     ) {
         Ok(b) => b,
@@ -9021,6 +9122,13 @@ pub(crate) fn load_continue_context_parts(
             return None;
         }
     };
+    // v0.92.0 C3：用户的写作策略设置对 agency 续写生效（覆盖 bundle 内置
+    // 默认值）；口径与幕前 time_sliced 的 AppConfig 覆盖一致。
+    if let Some(ws) = strategy {
+        bundle.writing_strategy_constraints = Some(
+            crate::creative_engine::write_time_bundle::format_writing_strategy_constraints(&ws),
+        );
+    }
     let table_names: Vec<String> = bundle
         .core_characters
         .iter()
@@ -9919,7 +10027,7 @@ pub(crate) fn assemble_continue_user_prompt(
     chapter_outline: &str,
 ) -> Result<(String, crate::agency::beat_card::SceneBeatCard), AppError> {
     let mut card = crate::agency::beat_card::compile_beat_card(pool, story_id, current_content)?;
-    let Some(parts) = load_continue_context_parts(pool, story_id) else {
+    let Some(parts) = load_continue_context_parts(pool, story_id, None) else {
         let mut admitted = Vec::new();
         let mut l2 = Vec::new();
         let lock =
@@ -10102,7 +10210,7 @@ pub(crate) fn build_volume_plan_context(
 
 pub(crate) fn build_writer_context_from_db(pool: &DbPool, story_id: &str) -> String {
     use crate::agency::continue_assets::ADMITTED_CAP;
-    let Some(parts) = load_continue_context_parts(pool, story_id) else {
+    let Some(parts) = load_continue_context_parts(pool, story_id, None) else {
         return String::new();
     };
     let admitted: Vec<String> = parts

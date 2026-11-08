@@ -721,6 +721,13 @@ pub(crate) fn render_director_user_prompt(
             l.resource, l.owner_task_id, l.expires_at
         ));
     }
+    // v0.93.0 D2：数据洞察摘要（追读债/标注），导演据此决定派发方向。
+    if !snapshot.insights.is_empty() {
+        out.push_str("Insights（数据洞察摘要）：\n");
+        for line in snapshot.insights.iter().take(4) {
+            out.push_str(&format!("- {line}\n"));
+        }
+    }
     // v0.91.0 B1：未结清质量债进巡检（导演可派发修订并按需要登记新债）。
     if !snapshot.debts.is_empty() {
         out.push_str("Debts（未结清质量债，可据此派发修订或 escalate）：\n");
@@ -953,6 +960,7 @@ mod tests {
                 word_count: 640,
             }],
             debts: vec![],
+            insights: vec![],
             alerts: vec![CrewAlert {
                 severity: "high".into(),
                 kind: "StaleTask".into(),
@@ -1156,6 +1164,7 @@ mod tests {
             corpus_count: 0,
             scenes: vec![],
             debts: vec![],
+            insights: vec![],
             alerts: vec![],
         };
         let text = render_director_user_prompt(&snapshot, "续写", &[], "", &[]);
@@ -1184,6 +1193,7 @@ mod tests {
                 chapter_number: Some(3),
                 suggested_window: Some("第4章前（尽快）".into()),
             }],
+            insights: vec![],
             alerts: vec![],
         };
         let text = render_director_user_prompt(&snapshot, "年报", &[], "", &[]);
@@ -1196,5 +1206,24 @@ mod tests {
             text.contains("第三章缺少具名阻力"),
             "Debts 应输出细节: {text}"
         );
+    }
+
+    #[test]
+    fn test_render_prompt_includes_insights() {
+        let snapshot = CrewSnapshot {
+            story_id: "s".into(),
+            story_title: "长夜".into(),
+            runs: vec![],
+            tasks: vec![],
+            leases: vec![],
+            corpus_count: 0,
+            scenes: vec![],
+            debts: vec![],
+            insights: vec!["追读债：active 2 条 / 逾期 1 条 / 合计强度 3.5".into()],
+            alerts: vec![],
+        };
+        let text = render_director_user_prompt(&snapshot, "巡检", &[], "", &[]);
+        assert!(text.contains("Insights"), "prompt 应含洞察区块: {text}");
+        assert!(text.contains("追读债"), "洞察应输出追读债摘要: {text}");
     }
 }

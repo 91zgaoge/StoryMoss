@@ -236,6 +236,10 @@ pub struct AppConfig {
     /// 关掉则完全不检索、不消耗 embedding。
     #[serde(default = "default_continue_retrieval_enabled")]
     pub continue_retrieval_enabled: bool,
+    /// v0.92.0：已批准 instinct（学习中心模式）注入续写 writer prompt
+    /// （默认开；总预算 600 字，仅 promoted）。关掉则完全不注入。
+    #[serde(default = "default_continue_instinct_enabled")]
+    pub continue_instinct_enabled: bool,
     /// 拆书分析 LLM 并发数（默认 3，本地模型可调大）
     #[serde(default = "default_concurrency")]
     pub book_deconstruction_concurrency: usize,
@@ -450,6 +454,10 @@ fn default_auto_recompute_after_edit() -> bool {
 }
 
 fn default_continue_retrieval_enabled() -> bool {
+    true
+}
+
+fn default_continue_instinct_enabled() -> bool {
     true
 }
 
@@ -1154,6 +1162,7 @@ impl Default for AppConfig {
             agent_mappings,
             auto_recompute_after_edit: true,
             continue_retrieval_enabled: true,
+            continue_instinct_enabled: true,
             book_deconstruction_concurrency: 3,
             rewrite_threshold: 0.75,
             max_feedback_loops: 2,
