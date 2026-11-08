@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.93.0
+- **版本**: v0.93.1
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -125,6 +125,14 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.73.13 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 起瘦身，v0.77.0 归档 v0.74.2；根文件只保留最近 5 个版本与关键教训）。
+
+### v0.93.1 - CI 分章用例超时加固
+
+**为什么**：v0.93.0 CI frontend-check 在 `FrontstageApp.split-auto-switch.test.tsx` 的「分章命中当前章」用例失败——内部 `waitFor` 上界 10s，但 Vitest 默认测试超时 5s，CI 负载抖动下先触发 5s 超时；本地连跑 3 次均通过。
+
+**改动**：该用例显式传 20000ms 测试超时，与既有 CI 抖动加固口径一致。
+
+**验证**：Vitest **699/3** 全绿；Rust **2055/17** 不变；tsc/prettier/guard 全绿；未本地打包。**未关闭**：v0.93.0 功能真机复测（见下）。
 
 ### v0.93.0 - MCP 自动连接与幕后界面简化
 

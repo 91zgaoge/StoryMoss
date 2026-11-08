@@ -2,6 +2,14 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.93.1（2026-11-08）
+
+**CI 稳定修复：分章自动切换用例显式 20s 超时。**
+
+- v0.93.0 的 frontend-check 中 `FrontstageApp.split-auto-switch.test.tsx`「分章命中当前章」用例失败：内部 `waitFor` 上界 10s，但 Vitest 默认测试超时 5s，CI 负载抖动下先触发 5s 超时；本地连跑 3 次均通过。
+- 修复：该用例显式传 20000ms 测试超时，保留既有分章切换链路断言与安全断言；Vitest **699/3** 全绿。
+- 功能随 v0.93.0（MCP 自动连接与幕后界面简化）一并发布。
+
 ## v0.93.0（2026-11-08）
 
 **MCP 自动连接与幕后界面简化：已保存服务器自动扫描、工具全量可用，续写训练不再手填工具/参数。**

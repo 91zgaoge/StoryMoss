@@ -1,5 +1,7 @@
-# StoryMoss v0.93.0 架构文档
+# StoryMoss v0.93.1 架构文档
 
+> **v0.93.1**：CI 稳定性补丁——`FrontstageApp.split-auto-switch.test.tsx` 分章用例显式 20s 测试超时（内部 waitFor 上界 10s，Vitest 默认 5s 在 CI 负载下提前超时）；功能架构同 v0.93.0。
+>
 > **v0.93.0**：**MCP 自动连接与工具目录**——`commands/mcp.rs` 新增 `McpConnectionStatus` 与 `ensure_saved_server_connections`：启动/页面挂载自动连接 enabled 保存服务器（HTTP/stdio），单台失败隔离，重连前释放旧 transport；IPC `mcp_ensure_connections`。前端 MCP 页改为状态 + 工具目录，配置表单入 Modal；续写训练自动选首个 enabled 服务器、工具 Select 默认 `get_chapter_content`、参数模板按 schema 生成；后端空工具/空模板兜底，`$book` 经 MCP `get_book` 解析 `book_url`，`$index` 数值化。设计文档 `docs/plans/2026-11-08-mcp-auto-connect-ui-design.md`。
 >
 > **v0.92.0**：**学习与数据闭合**——`learning.rs::render_instinct_block`（promoted top3/600 字）注入单拍+批量 writer；`ToolContext.app_handle` + `SkillExecuteTool`（白名单 `learned.*`）；`load_continue_context_parts` 增 strategy 参数（AppConfig 覆盖，与 time_sliced 同口径）；`continue_assets` 新增叙事节奏块与追读债块；`CrewSnapshot.insights` + 导演 Insights 区块；修订装配后 `spawn_scene_ingest` 重采。

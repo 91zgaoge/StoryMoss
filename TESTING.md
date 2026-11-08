@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.93.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.93.1)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.93.1 变更说明
+
+- **CI 分章用例超时加固**：`FrontstageApp.split-auto-switch.test.tsx` 的「分章命中当前章」用例显式 20000ms 超时（内含 10s waitFor）；本地连跑 3 次通过。
+- **结果**：Vitest **699/3**；Rust **2055/17**；Playwright **135/5**；fmt/clippy/guard 全绿。
+- **未关闭**：原生安装包真机复测 MCP 自动连接与训练自动选工具。
 
 ### v0.93.0 变更说明
 

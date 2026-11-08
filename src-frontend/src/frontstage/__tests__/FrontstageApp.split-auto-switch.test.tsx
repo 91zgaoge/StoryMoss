@@ -351,7 +351,7 @@ describe('自动分章：chapterCreated(split_from_chapter_id) 命中当前编�
     expect(updateSceneCalls()).toHaveLength(0);
     // 待执行的防抖保存被取消
     expect(mockCancelAutoSave).toHaveBeenCalled();
-  });
+  }, 20000);
 
   it('分章自动切换：新章 sceneId 解析为 scene.id（非 chapter.id 回落），避免重复 scene heal', async () => {
     render(<FrontstageApp />, { wrapper });
