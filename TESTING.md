@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.93.12)
+# 🧪 StoryMoss 自动化测试环境 (v0.93.13)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.93.13 变更说明
+
+- **CI AppImage 工具预热**：Ubuntu tauri-build 前置重试下载 AppRun/linuxdeploy/插件脚本到 `~/.cache/tauri`，修 GitHub 504 连累 Linux 打包；应用代码与测试数量不变。
+- **结果**：Rust **2085 passed / 17 ignored**；Vitest **703 / 3**；Playwright **144 / 5**。
+- **未关闭**：v0.93.8 错误 Release 是否清理待确认。
 
 ### v0.93.12 变更说明
 

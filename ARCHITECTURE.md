@@ -1,4 +1,6 @@
-# StoryMoss v0.93.12 架构文档
+# StoryMoss v0.93.13 架构文档
+
+> **v0.93.13**：**CI 外部工具预热**——Ubuntu tauri-build 在打包前用 curl（`--retry 5` × 5 轮）预热 `~/.cache/tauri`：`AppRun-x86_64`、`linuxdeploy-x86_64.AppImage`、gtk/gstreamer 插件脚本（770 权限）；`tauri-bundler` 命中缓存后跳过 GitHub Releases 下载，504 抖动不再让 AppImage 打包失败。
 
 > **v0.93.12**：**修订熔断兜底 + 任务状态链路**——`agency/coordinator.rs::handle_gate` 在修订轮调用失败/熔断时保留首轮草稿并采用首道 gate 裁决继续装配（黑板有新稿优先采用；取稿失败回退原稿），不再整轮失败；`domain/style.rs::SyntaxProfile.avg_sentence_length` 宽容反序列化（小数四舍五入/数字字符串/负数回退 0）；前端 `App` 顶层监听 `task-created`/`task-status-changed` → `utils/taskToast` 弹带「查看任务」的 toast → `appStore.pendingTaskFocusId` → Tasks 页展开/高亮/滚动到目标行；TrainingLab 新增常驻训练状态横幅（`training-status-card`）与失败就地重试。
 

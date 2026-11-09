@@ -452,6 +452,36 @@ jobs:
           fi
           echo "TAURI_SIGNING_PRIVATE_KEY is set (${#TAURI_SIGNING_PRIVATE_KEY} chars)"
 
+      # v0.93.11: AppImage 打包会从 GitHub Releases 拉 AppRun/linuxdeploy（tauri-bundler
+      # 自身无重试）——v0.93.10 的 Linux 构建就因 AppRun 下载 504 失败。提前带重试
+      # 预热 ~/.cache/tauri，命中缓存后 bundler 不再联网。
+      - name: Prefetch AppImage bundler tools (Ubuntu, retry)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          CACHE="$HOME/.cache/tauri"
+          mkdir -p "$CACHE"
+          fetch() {
+            local url="$1" out="$2"
+            for attempt in 1 2 3 4 5; do
+              echo "Fetching ${out} (attempt ${attempt})"
+              if curl -fSL --retry 5 --retry-delay 5 --connect-timeout 15 --max-time 300 -o "$out" "$url"; then
+                chmod 770 "$out"
+                return 0
+              fi
+              sleep 10
+            done
+            rm -f "$out"
+            echo "::warning::prefetch failed (bundler will retry on its own): ${url}"
+            return 0
+          }
+          fetch "https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-x86_64" "$CACHE/AppRun-x86_64"
+          fetch "https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy/linuxdeploy-x86_64.AppImage" "$CACHE/linuxdeploy-x86_64.AppImage"
+          fetch "https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh" "$CACHE/linuxdeploy-plugin-gtk.sh"
+          fetch "https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-gstreamer/master/linuxdeploy-plugin-gstreamer.sh" "$CACHE/linuxdeploy-plugin-gstreamer.sh"
+          ls -l "$CACHE"
+
       - name: Build Tauri app (PR)
         if: github.event_name == 'pull_request'
         uses: tauri-apps/tauri-action@v0

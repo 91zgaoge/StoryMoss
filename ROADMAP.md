@@ -1,5 +1,7 @@
 # StoryMoss (草苔) 开发路线图
 
+> 最后更新: 2026-11-09（v0.93.13：CI AppImage 工具预热——Ubuntu tauri-build 前置重试下载 AppRun/linuxdeploy/插件脚本到 `~/.cache/tauri`，修 GitHub 504 连累 Linux 打包。Rust **2085/17**，Vitest **703/3**，Playwright **144/5**。**未关闭**：v0.93.8 错误 Release 清理待确认。）
+
 > 最后更新: 2026-11-09（v0.93.12：续写训练失败根修 + 任务状态可见性——handle_gate 修订熔断保留首轮草稿继续装配、StyleDNA 小数/字符串平均句长宽容解析、训练页常驻状态横幅、全局任务 toast「查看任务」聚焦具体任务行。Rust **2085/17**，Vitest **703/3**，Playwright **144/5**。**未关闭**：安装升级后真机复测训练报告落库。）
 
 > 最后更新: 2026-11-09（v0.93.11：CI protoc 下载 504 重试——两步安装补外层重试并验证二进制。Rust **2083/17**，Vitest **701/3**，Playwright **144/5**。**未关闭**：v0.93.8 错误 Release 清理待确认。）

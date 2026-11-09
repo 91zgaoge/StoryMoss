@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.93.13（2026-11-09）
+
+**CI 加固补充：Linux AppImage 打包工具预热，修 GitHub 504 连累构建。**
+
+- **诊断**：v0.93.10 的 Linux tauri-build 红在 AppImage 打包——`tauri-bundler` 运行时从 GitHub Releases 下载 `AppRun-x86_64` 得到 504，bundler 自身无重试；与仓库代码无关，但会让整条 tag 构建和官网同步失败。
+- **修复**：tauri-build 在 Ubuntu 上新增「Prefetch AppImage bundler tools」步骤，用 curl 多轮重试（`--retry 5` × 5 轮）预热 `~/.cache/tauri/` 的 AppRun、linuxdeploy 与两个插件脚本，并 chmod 770；命中缓存后 bundler 不再联网。预热失败只告警，交由 bundler 自行兜底。
+- **验证**：workflow YAML 解析通过；v0.93.13 tag 构建实测 Linux AppImage 打包路径。
+- **未关闭**：v0.93.8 错误 Release（含 0.93.7 产物）清理待确认。
+
 ## v0.93.12（2026-11-09）
 
 **续写训练失败根修：修订轮熔断不再判死整条管线 + StyleDNA 小数解析 + 任务状态可见性与「查看任务」跳转。**
