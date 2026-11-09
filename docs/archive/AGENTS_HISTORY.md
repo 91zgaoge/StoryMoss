@@ -1,3 +1,13 @@
+<!-- 2026-11-09（v0.93.7）：自 AGENTS.md 归档 v0.93.2 摘要。 -->
+
+### v0.93.2 - 续写训练任务与任务系统融合收敛
+
+**为什么**：用户指出「续写训练生成的任务应与既有任务功能融合，不能又起相似进程浪费」。查证：训练调度本就走 task_system 单一路径（无第二调度器），真正的浪费是四处细节——①训练取消监听协程从不 abort（每轮训练泄漏一个 5s 轮询）；②三个执行器各自实现同型取消监听；③`run_task_internal` 每次 new 锁表，手动/cron 互斥失效（同任务可并发两轮）；④「立即跑」每次建 once 行 + 训练页私有计划列表与任务页重复。
+
+**改动**：①`task_system::executor::spawn_cancel_monitor`（500ms 轮询 `is_cancelled` 同口径，`CancelMonitor` Drop 自动 abort，覆盖提前返回与墙钟超时路径），训练/拆书/指导书三执行器收敛共用；训练取消感知 5s→500ms。②`run_task_internal` 增共享 scheduler 参数，cron/daily/weekly 前置 try_lock 移除，互斥单点收敛到 run_task_internal（try_lock 失败写日志跳过不排队）。③`UpdateTaskRequest`/`update_task`/前端 `UpdateTaskInput` 增加 payload；训练页「立即跑」改 upsert+trigger（同书名计划同步配置后触发，无计划才建 once），「创建定时训练」同书名自动更新。④删除训练页「训练计划」卡片与常驻 5s 轮询；任务页加 `TASK_TYPE_LABELS`（8 类中文标签），训练任务详情显示配置摘要 + 「查看训练报告」跳转（result 含 report_id）。
+
+**验证**：Rust **2058 / 17**（+3：取消监听置位/共享锁互斥/payload 更新）；tsc 0；Vitest **699 / 3**；Playwright **135 / 5** 基线不变；fmt/clippy/check/guard 全绿；detect_changes 13 文件 22 符号全在预期范围。**未关闭**：原生安装包真机复测「创建计划→任务页触发→取消传播→报告跳转」全路径。
+
 <!-- 2026-11-09（v0.93.5）：自 AGENTS.md 归档 v0.93.0 摘要。 -->
 
 ### v0.93.0 - MCP 自动连接与幕后界面简化

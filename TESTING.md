@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.93.6)
+# 🧪 StoryMoss 自动化测试环境 (v0.93.7)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.93.7 变更说明
+
+- **StyleDNA 宽容解析**：新增 2 项 Rust 测试（缺 `temporal_quality` 等字段回退默认、缺整块 profile 回退默认——对照真机 `missing field 'temporal_quality'` 失败样本）；TrainingLab「立即跑」复用同书 once 行（逻辑改动，无契约变更）。
+- **结果**：Rust **2083 passed / 17 ignored**（+2）；Vitest **699 / 3**；Playwright **138 / 5**；tsc/fmt/clippy/guard 全绿。
+- **未关闭**：真机下一轮训练验证 DNA 生效与 overall 回升。
 
 ### v0.93.5 变更说明
 

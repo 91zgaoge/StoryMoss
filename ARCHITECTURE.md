@@ -1,4 +1,6 @@
-# StoryMoss v0.93.6 架构文档
+# StoryMoss v0.93.7 架构文档
+
+> **v0.93.7**：**StyleDNA 宽容解析**——`domain/style.rs` 的 `StyleDNA` 与七个子 profile 加容器级 `#[serde(default)]`：LLM 返回缺字段/缺整块 profile 回退默认而非整份解析报废（真机根因：缺 `temporal_quality` → `missing field` → 风格 DNA 静默失效）；训练「立即跑」按书名+调度类型双向复用任务行。
 
 > **v0.93.5**：**续写承接与风格锚点**——`coordinator.rs::CONTINUITY_HARD_RULE` 注入三处续写 writer 指令（紧接【前文】末尾现场/未完结事件先落地/禁止跳切）；`continuation_training.rs::build_style_anchor` 在风格 DNA 失败时取真实章节末尾节选做 few-shot 锚点；src-server 日志上传限流 SQL `COALESCE(...) AS "n: i64"` 修 sqlx 可空推断（本地无 PG 编译不到，CI Docker 暴露）。
 

@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.93.6 项目完成状态
+# StoryMoss (草苔) v0.93.7 项目完成状态
+
+> 最后更新: 2026-11-09（**v0.93.7：StyleDNA 宽容解析 + 训练任务行复用**——二轮分析抓到 DNA 失效真根因（LLM 漏 `temporal_quality` 字段即整份解析报废），八个结构体加容器级 serde default；「立即跑」双向复用同书任务行。Rust **2083/17**（+2），Vitest **699/3**，Playwright **138/5**。**未关闭**：真机下一轮训练验证 DNA 生效与 overall 回升。）
 
 > 最后更新: 2026-11-09（**v0.93.5：续写质量评估落地 + deploy-server 编译修复**——《阴脉先生》评估实锤承接断裂与风格 DNA 静默失效；三处续写指令注入 `CONTINUITY_HARD_RULE` 硬承接约束；`build_style_anchor` DNA 失败时用原文末尾节选做 few-shot 锚点；src-server 限流 SQL `COALESCE` 非空覆盖修 CI E0308。Rust **2081/17**（+3），Vitest **699/3**，Playwright **138/5**（前端零改动）。**未关闭**：真机下一轮训练对比回升幅度。）
 

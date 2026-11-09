@@ -119,6 +119,9 @@ pub struct NgramFingerprint {
 
 /// 风格 DNA（完整的风格量化描述）
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+// v0.93.7: 容器级 serde default——LLM 返回的 JSON 缺任何字段/子块时回退默认值，不再整份 DNA
+// 解析报废（真机：缺 temporal_quality 即失败）
+#[serde(default)]
 pub struct StyleDNA {
     pub meta: StyleMeta,
     pub vocabulary: VocabularyProfile,
@@ -131,6 +134,9 @@ pub struct StyleDNA {
 
 /// 风格元信息
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+// v0.93.7: 容器级 serde default——LLM 返回的 JSON 缺任何字段/子块时回退默认值，不再整份 DNA
+// 解析报废（真机：缺 temporal_quality 即失败）
+#[serde(default)]
 pub struct StyleMeta {
     pub name: String,
     pub author: Option<String>, // 来源作家（如"金庸"）
@@ -140,6 +146,9 @@ pub struct StyleMeta {
 
 /// 词汇特征
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+// v0.93.7: 容器级 serde default——LLM 返回的 JSON 缺任何字段/子块时回退默认值，不再整份 DNA
+// 解析报废（真机：缺 temporal_quality 即失败）
+#[serde(default)]
 pub struct VocabularyProfile {
     /// 词汇密度: low / medium / high
     pub density: String,
@@ -157,6 +166,9 @@ pub struct VocabularyProfile {
 
 /// 句法特征
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+// v0.93.7: 容器级 serde default——LLM 返回的 JSON 缺任何字段/子块时回退默认值，不再整份 DNA
+// 解析报废（真机：缺 temporal_quality 即失败）
+#[serde(default)]
 pub struct SyntaxProfile {
     /// 平均句长（中文字符数）
     pub avg_sentence_length: u32,
@@ -174,6 +186,9 @@ pub struct SyntaxProfile {
 
 /// 修辞偏好
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+// v0.93.7: 容器级 serde default——LLM 返回的 JSON 缺任何字段/子块时回退默认值，不再整份 DNA
+// 解析报废（真机：缺 temporal_quality 即失败）
+#[serde(default)]
 pub struct RhetoricProfile {
     /// 比喻密度（每千字）
     pub metaphor_density: f32,
@@ -189,6 +204,9 @@ pub struct RhetoricProfile {
 
 /// 视角规范
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+// v0.93.7: 容器级 serde default——LLM 返回的 JSON 缺任何字段/子块时回退默认值，不再整份 DNA
+// 解析报废（真机：缺 temporal_quality 即失败）
+#[serde(default)]
 pub struct PerspectiveProfile {
     /// POV 类型: first_person / close_third / omniscient / multiple
     pub pov_type: String,
@@ -204,6 +222,9 @@ pub struct PerspectiveProfile {
 
 /// 情感表达
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+// v0.93.7: 容器级 serde default——LLM 返回的 JSON 缺任何字段/子块时回退默认值，不再整份 DNA
+// 解析报废（真机：缺 temporal_quality 即失败）
+#[serde(default)]
 pub struct EmotionProfile {
     /// 外露程度: restrained / balanced / expressive / melodramatic
     pub expressiveness: String,
@@ -219,6 +240,9 @@ pub struct EmotionProfile {
 
 /// 对话风格
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+// v0.93.7: 容器级 serde default——LLM 返回的 JSON 缺任何字段/子块时回退默认值，不再整份 DNA
+// 解析报废（真机：缺 temporal_quality 即失败）
+#[serde(default)]
 pub struct DialogueProfile {
     /// 对话比例（对话占总文本的比例）
     pub dialogue_ratio: f32,

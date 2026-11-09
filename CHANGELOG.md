@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.93.7（2026-11-09）
+
+**续写训练二轮分析修复：StyleDNA 宽容解析（DNA 失效真根因）+ 训练任务行复用。**
+
+- **二轮分析**：应用内两个训练实例（沙盒 1108-1821 / 1109-0249）+ 一次修订失败 run。任务日志抓到风格 DNA 失效的**真正根因**——`风格分析失败：JSON 解析失败: missing field 'temporal_quality'`：LLM 返回的 DNA JSON 只漏了一个字段，`StyleDNA` 八个结构体（无 serde default）整份解析报废。此失败与 LLM 故障无关、可复现——v0.93.5 的锚点降级只是兜底，本版根修。
+- **StyleDNA 宽容解析**：`domain/style.rs` 的 `StyleDNA` + 七个子 profile（Meta/Vocabulary/Syntax/Rhetoric/Perspective/Emotion/Dialogue）加容器级 `#[serde(default)]`——LLM 缺任何字段/整块 profile 都回退默认值，不再整份作废。存量 DB 存量 DNA 含全字段，行为不变。
+- **训练「立即跑」复用同书一次性任务行**：v0.93.2 的 upsert 只认 cron 计划——无计划时每次「立即跑」仍新建 once 行堆积（真机已有一条 legacy「（手动）」行永远不会被复用）。现 `findTrainingTaskByBook(title, schedule)` 按书名+调度类型双向复用：有 cron 计划同步配置触发；无计划先找同书 once 行（update payload 后 trigger，历史日志聚合）；都没有才新建。
+- **验证**：Rust **2083 passed / 17 ignored**（+2：缺字段回退默认/缺整块 profile 回退默认）；tsc 0；Vitest **699 / 3**；Playwright **138 / 5**；fmt/clippy/check/guard 全绿。
+- **未关闭**：真机下一轮训练验证 style_dna_applied=1 且 overall 回升（v0.93.5 承接约束+锚点与本版 DNA 根修叠加生效）。
+
 ## v0.93.6（2026-11-09）
 
 **deploy-server 编译根修：日志上传限流 SQL 改非宏 query_scalar。**

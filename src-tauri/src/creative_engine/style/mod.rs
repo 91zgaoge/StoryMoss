@@ -459,6 +459,43 @@ impl StyleChecker {
     }
 }
 
+/// v0.93.7: StyleDNA 宽容解析回归——LLM 返回的 JSON 缺字段/缺整块时不得
+/// 整份报废（真机《阴脉先生》训练：模型漏 `VocabularyProfile.temporal_quality`
+/// 即 `missing field` 解析失败，风格 DNA 静默失效 → style/voice 掉到 2/10）。
+#[cfg(test)]
+mod lenient_dna_parse_tests {
+    use crate::domain::style::StyleDNA;
+
+    #[test]
+    fn missing_inner_field_still_parses_with_default() {
+        let raw = r#"{
+            "meta": {"name": "测试", "description": "d"},
+            "vocabulary": {"density": "medium"},
+            "syntax": {"avg_sentence_length": 18},
+            "rhetoric": {},
+            "perspective": {},
+            "emotion": {},
+            "dialogue": {}
+        }"#;
+        let dna: StyleDNA = serde_json::from_str(raw)
+            .expect("缺 temporal_quality 等字段必须回退默认而不是解析失败");
+        assert_eq!(dna.meta.name, "测试");
+        assert_eq!(dna.vocabulary.density, "medium");
+        assert_eq!(dna.vocabulary.temporal_quality, "", "缺失字段回退默认");
+        assert_eq!(dna.syntax.avg_sentence_length, 18);
+    }
+
+    #[test]
+    fn missing_whole_section_still_parses_with_default() {
+        let raw = r#"{"meta": {"name": "极简"}}"#;
+        let dna: StyleDNA =
+            serde_json::from_str(raw).expect("缺整块 profile 必须回退默认而不是解析失败");
+        assert_eq!(dna.meta.name, "极简");
+        assert!(dna.vocabulary.preferred_categories.is_empty());
+        assert!(dna.dialogue.signature_patterns.is_empty());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{classic_styles::jin_yong, *};

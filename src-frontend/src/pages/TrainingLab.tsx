@@ -119,12 +119,16 @@ export default function TrainingLab() {
   });
   const reports = reportsQuery.data ?? [];
 
-  // 现查任务列表找同书名的既有定时计划（v0.93.2 融合：计划管理统一在任务页，
-  // 训练页不再常驻轮询任务列表）。只认 cron 计划——once 行无法改为定时语义。
-  const findPlanByBook = async (title: string): Promise<Task | null> => {
+  // 现查任务列表找同书名的既有训练任务（v0.93.2 融合：计划管理统一在任务页，
+  // 训练页不再常驻轮询任务列表）。v0.93.7：cron 计划与一次性任务都按书名
+  // 复用——同书任务始终只有一行，历史日志聚合在一处。
+  const findTrainingTaskByBook = async (
+    title: string,
+    scheduleType: 'cron' | 'once'
+  ): Promise<Task | null> => {
     const all = await loggedInvoke<Task[]>('list_tasks', { status_filter: null });
     const hit = all.find(t => {
-      if (t.task_type !== 'continuation_training' || t.schedule_type !== 'cron') return false;
+      if (t.task_type !== 'continuation_training' || t.schedule_type !== scheduleType) return false;
       try {
         return (JSON.parse(t.payload ?? '{}') as { book_title?: string }).book_title === title;
       } catch {
@@ -194,7 +198,7 @@ export default function TrainingLab() {
     try {
       const payload = JSON.stringify(buildPayload());
       const cronPattern = cron.trim() || DEFAULT_CRON;
-      const existing = await findPlanByBook(bookTitle.trim());
+      const existing = await findTrainingTaskByBook(bookTitle.trim(), 'cron');
       if (existing) {
         await updateTask.mutateAsync({
           id: existing.id,
@@ -225,7 +229,7 @@ export default function TrainingLab() {
     try {
       const payload = JSON.stringify(buildPayload());
       const cronPattern = cron.trim() || DEFAULT_CRON;
-      const existing = await findPlanByBook(bookTitle.trim());
+      const existing = await findTrainingTaskByBook(bookTitle.trim(), 'cron');
       if (existing) {
         await updateTask.mutateAsync({
           id: existing.id,
@@ -234,17 +238,29 @@ export default function TrainingLab() {
         await triggerTask.mutateAsync(existing.id);
         toast.success('已按当前配置触发训练（计划与运行历史见「任务」页）');
       } else {
-        await createTask.mutateAsync({
-          name: `续写训练 · ${bookTitle.trim()}（手动）`,
-          description: '手动触发一轮训练',
-          task_type: 'continuation_training',
-          schedule_type: 'once',
-          payload,
-          enabled: true,
-          max_retries: 0,
-          heartbeat_timeout_seconds: 3600,
-        });
-        toast.success('训练任务已排队（取章→灌沙盒→续写→对比，约需几分钟）');
+        // v0.93.7: 无 cron 计划时也复用同书一次性任务行（此前每次「立即跑」
+        // 都新建一行堆积）；once 行无法改定时语义，只同步配置后触发
+        const onceRow = await findTrainingTaskByBook(bookTitle.trim(), 'once');
+        if (onceRow) {
+          await updateTask.mutateAsync({
+            id: onceRow.id,
+            input: { payload, enabled: true },
+          });
+          await triggerTask.mutateAsync(onceRow.id);
+          toast.success('已按当前配置触发训练（复用既有任务行，历史见「任务」页）');
+        } else {
+          await createTask.mutateAsync({
+            name: `续写训练 · ${bookTitle.trim()}（手动）`,
+            description: '手动触发一轮训练',
+            task_type: 'continuation_training',
+            schedule_type: 'once',
+            payload,
+            enabled: true,
+            max_retries: 0,
+            heartbeat_timeout_seconds: 3600,
+          });
+          toast.success('训练任务已排队（取章→灌沙盒→续写→对比，约需几分钟）');
+        }
       }
     } catch (e) {
       toast.error((e as Error).message);
