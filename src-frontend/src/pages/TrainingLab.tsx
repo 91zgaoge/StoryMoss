@@ -30,6 +30,7 @@ import {
   type Task,
 } from '@/hooks/useTasks';
 import { focusTaskInAllTasks, showTaskToast } from '@/utils/taskToast';
+import { formatLocalDateTime } from '@/utils/datetime';
 import { useAppStore } from '@/stores/appStore';
 import {
   bareMcpToolName,
@@ -405,7 +406,7 @@ export default function TrainingLab() {
                     )}
                     <span className="text-[11px] text-ai-ink-3">
                       {book ? `《${book}》 · ` : ''}
-                      {statusTask.name}
+                      {statusTask.name} · 更新 {formatLocalDateTime(statusTask.updated_at)}
                     </span>
                   </div>
                   {failed && statusTask.error_message && (
@@ -423,7 +424,8 @@ export default function TrainingLab() {
                   )}
                   {running && latestStatusLogs.length > 0 && (
                     <p className="mt-1 truncate text-[11px] text-ai-ink-3">
-                      最新日志：{latestStatusLogs[0].message}
+                      最新日志 {formatLocalDateTime(latestStatusLogs[0].created_at)}：
+                      {latestStatusLogs[0].message}
                     </p>
                   )}
                   {completed && (
@@ -698,7 +700,9 @@ export default function TrainingLab() {
                       >
                         {r.overall != null ? r.overall.toFixed(2) : '—'}
                       </span>
-                      <span className="text-[10px] text-ai-ink-3">{r.created_at}</span>
+                      <span className="text-[10px] text-ai-ink-3">
+                        {formatLocalDateTime(r.created_at)}
+                      </span>
                     </button>
                   ))}
                 </div>

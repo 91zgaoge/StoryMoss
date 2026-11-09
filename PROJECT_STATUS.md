@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.93.13 项目完成状态
+# StoryMoss (草苔) v0.93.14 项目完成状态
+
+> 最后更新: 2026-11-09（**v0.93.14：任务进度/日志时间统一**——`record_progress` 一次写入进度、日志、心跳同毫秒 now；任务事件带 timestamp；前端统一本地日期时间格式化并清除诊断页 raw slice。Rust **2086/17**（+1），Vitest **706/3**（+3），Playwright **144/5**。**未关闭**：真机 Tasks 页核对同一时间链。）
 
 > 最后更新: 2026-11-09（**v0.93.13：CI AppImage 打包工具预热**——Ubuntu tauri-build 前置多轮重试预热 `~/.cache/tauri`（AppRun/linuxdeploy/插件脚本），修 GitHub Releases 504 导致 Linux 打包失败；测试基线不变 Rust **2085/17**、Vitest **703/3**、Playwright **144/5**。）
 

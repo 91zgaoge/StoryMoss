@@ -7,6 +7,7 @@ import { AiDiffTable } from '@/components/ui/ai/AiDiffTable';
 import { AiInsightCards } from '@/components/ui/ai/AiInsightCards';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { AiRecordsTable, type AiRecordsSort } from '@/components/ui/ai/AiRecordsTable';
+import { formatLocalDateTime } from '@/utils/datetime';
 
 /** 解析 checkpoint metrics_json；key 与后端 agency/coordinator.rs compare_checkpoints 对齐
  *  （words_total / chapters_done / tokens_used / gate_scores 末条 weighted）。解析失败回退 null。 */
@@ -121,7 +122,7 @@ function CheckpointCompare({ storyId }: { storyId: string }) {
             <option key={c.id} value={c.id}>
               {c.milestone}
               {c.chapter_number != null ? ` · 第${c.chapter_number}章` : ''} ·{' '}
-              {c.created_at.slice(0, 16)}
+              {formatLocalDateTime(c.created_at)}
             </option>
           ))}
         </select>
@@ -135,7 +136,7 @@ function CheckpointCompare({ storyId }: { storyId: string }) {
             <option key={c.id} value={c.id}>
               {c.milestone}
               {c.chapter_number != null ? ` · 第${c.chapter_number}章` : ''} ·{' '}
-              {c.created_at.slice(0, 16)}
+              {formatLocalDateTime(c.created_at)}
             </option>
           ))}
         </select>
@@ -303,7 +304,11 @@ export default function AgencyEval() {
             {
               key: 'time',
               label: '时间',
-              render: g => <span className="text-ai-ink-3">{g.created_at.slice(0, 16)}</span>,
+              render: g => (
+                <span className="text-ai-ink-3 tabular-nums">
+                  {formatLocalDateTime(g.created_at)}
+                </span>
+              ),
             },
           ]}
         />

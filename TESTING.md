@@ -1,8 +1,17 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.93.13)
+# 🧪 StoryMoss 自动化测试环境 (v0.93.14)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.93.14 变更说明
+
+- **任务进度/日志时间统一**：
+  - Rust +1：`test_record_progress_aligns_progress_log_and_heartbeat_time`——`record_progress` 写入后 tasks.progress/updated_at、last_heartbeat_at 与 task_logs.created_at 必须完全相等。
+  - Vitest +3：`datetime.test.ts`——SQLite 本地串原样展示（含日期）、RFC3339 UTC 串按浏览器本地时区换算、非法串回退。
+  - Playwright 基线不变（视口/功能复跑通过）；Tasks/TrainingLab/AgencyLearning/AgencyEval/Maintenance 的时间显示走同一格式化入口。
+- **结果**：Rust **2086 passed / 17 ignored**（+1）；tsc 0；Vitest **706 / 3**（+3）；Playwright **144 / 5**；fmt/clippy/guard 全绿。
+- **未关闭**：真机升级后对照 Tasks 页「最近更新/心跳/日志」应为同一毫秒时间链。
 
 ### v0.93.13 变更说明
 

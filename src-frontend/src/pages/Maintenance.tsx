@@ -20,6 +20,7 @@ import { AiToolChips } from '@/components/ui/ai/AiToolChips';
 import { AiInsightCards } from '@/components/ui/ai/AiInsightCards';
 import { ChapterOutlineReplanDialog } from '@/components/ChapterOutlineReplanDialog';
 import { useAppStore } from '@/stores/appStore';
+import { formatLocalDateTime } from '@/utils/datetime';
 import {
   useDismissStaleMaterial,
   useGenerateVolumePlan,
@@ -255,7 +256,9 @@ function StaleSection({ storyId }: SectionProps) {
               {STALE_KIND_LABELS[item.kind] ?? item.kind}
             </span>
             <span className="text-xs text-ai-ink-2">自第 {item.from_chapter} 章起失效</span>
-            <span className="text-[11px] text-ai-ink-3">{item.updated_at.slice(0, 16)}</span>
+            <span className="text-[11px] text-ai-ink-3 tabular-nums">
+              {formatLocalDateTime(item.updated_at)}
+            </span>
             {item.kind === 'chapter_outline' && (
               <span className="ml-auto flex items-center gap-2">
                 <ActionButton

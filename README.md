@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.13-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.14-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.93.14 · 任务进度和日志时间终于对齐了
+
+任务页此前会出现「进度已经更新，日志时间却停在几分钟前」的情况：进度、日志、心跳分三处独立写入。现在每次进度更新会用同一个时间戳同时写入进度、心跳与一条日志，毫秒级一致。界面上的最近更新、上次运行、心跳与每条日志也都改成完整本地日期时间，诊断页不再直接截取 UTC 字符串。风格学习与训练报告页同步受益。
 
 ### v0.93.13 · Linux AppImage 打包不再被外部下载拖垮
 

@@ -151,6 +151,38 @@ fn test_repository_update_heartbeat() {
     assert!(updated.last_heartbeat_at.is_some());
 }
 
+/// v0.93.14: 进度时间、日志时间、心跳时间必须来自同一个 now——
+/// 真机反复报「任务进度时间与日志时间不一致」，根因是三者分开写入。
+#[test]
+fn test_record_progress_aligns_progress_log_and_heartbeat_time() {
+    let pool = create_test_pool().unwrap();
+    let repo = TaskRepository::new(pool);
+
+    let task = repo
+        .create(&create_test_task_req("进度时间一致", "custom", "once"))
+        .unwrap();
+    let now = "2026-11-09T14:34:47.825275+08:00";
+
+    repo.record_progress(&task.id, 42, "正在续写下一章", now)
+        .unwrap();
+
+    let updated = repo.get_by_id(&task.id).unwrap().unwrap();
+    assert_eq!(updated.status, TaskStatus::Running);
+    assert_eq!(updated.progress, 42);
+    assert_eq!(updated.updated_at, now, "进度更新时间必须与写入时间一致");
+    assert_eq!(
+        updated.last_heartbeat_at.as_deref(),
+        Some(now),
+        "心跳时间必须与进度时间一致"
+    );
+
+    let logs = repo.list_logs(&task.id).unwrap();
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].created_at, now, "日志时间必须与进度时间一致");
+    assert!(logs[0].message.contains("进度 42%"));
+    assert!(logs[0].message.contains("正在续写下一章"));
+}
+
 #[test]
 fn test_repository_retry_logic() {
     let pool = create_test_pool().unwrap();

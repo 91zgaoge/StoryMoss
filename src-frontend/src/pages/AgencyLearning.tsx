@@ -14,6 +14,7 @@ import {
 } from '@/services/api/agency';
 import type { Instinct } from '@/services/api/agency';
 import { AiRecordsTable } from '@/components/ui/ai/AiRecordsTable';
+import { formatLocalDateTime } from '@/utils/datetime';
 
 function ConfidenceBar({ value }: { value: number }) {
   const pct = Math.round(value * 100);
@@ -222,7 +223,9 @@ export default function AgencyLearning() {
             {
               key: 'ts',
               label: '时间',
-              render: o => <span className="text-ai-ink-3">{o.ts.slice(5, 16)}</span>,
+              render: o => (
+                <span className="text-ai-ink-3 tabular-nums">{formatLocalDateTime(o.ts)}</span>
+              ),
             },
             { key: 'kind', label: '类型', render: o => o.kind },
             { key: 'actor', label: '角色', render: o => o.actor },

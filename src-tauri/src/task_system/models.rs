@@ -203,6 +203,8 @@ pub struct TaskProgressEvent {
     pub step: String,
     pub progress: i32,
     pub message: String,
+    /// v0.93.14: 事件时间与 task_logs/heartbeat 同一本地时间源，UI 可直接对齐。
+    pub timestamp: String,
 }
 
 /// 心跳事件
@@ -219,4 +221,6 @@ pub struct TaskStatusChangedEvent {
     pub status: String,
     pub progress: i32,
     pub message: Option<String>,
+    /// v0.93.14: 终态事件也带本地时间，前端统一显示。
+    pub timestamp: String,
 }

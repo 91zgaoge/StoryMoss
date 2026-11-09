@@ -255,6 +255,7 @@ impl<R: Runtime> TaskService<R> {
             status: "cancelled".to_string(),
             progress: task.progress,
             message: Some("任务已取消".to_string()),
+            timestamp: chrono::Local::now().to_rfc3339(),
         };
         let _ = self.app_handle.emit("task-status-changed", &event);
         StateSync::emit_task_updated(&self.app_handle, id, "cancelled");

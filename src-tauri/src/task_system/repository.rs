@@ -329,6 +329,39 @@ impl TaskRepository {
         Ok(())
     }
 
+    /// v0.93.14: 进度写入与日志/心跳共用同一时间源。
+    ///
+    /// 此前 `update_progress` 只改 tasks.progress/updated_at，`task_logs` 另写
+    /// 自己的 created_at，`last_heartbeat_at` 又要等执行器下一次主动 heartbeat
+    /// ——三处时间可相差分钟级，UI 上「进度时间」与「日志时间」永远对不上。
+    /// 现在同一次进度更新把三处都写成同一个 `now`（毫秒级一致）。
+    pub fn record_progress(
+        &self,
+        id: &str,
+        progress: i32,
+        message: &str,
+        now: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "UPDATE tasks SET status = ?1, progress = ?2, updated_at = ?3, \
+             last_heartbeat_at = ?3 WHERE id = ?4",
+            params![TaskStatus::Running.to_string(), progress, now, id],
+        )?;
+        conn.execute(
+            "INSERT INTO task_logs (id, task_id, log_level, message, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                Uuid::new_v4().to_string(),
+                id,
+                "info",
+                format!("进度 {progress}% · {message}"),
+                now,
+            ],
+        )?;
+        Ok(())
+    }
+
     pub fn update_next_run_at(
         &self,
         id: &str,

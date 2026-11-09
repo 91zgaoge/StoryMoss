@@ -24,6 +24,7 @@ import {
 } from '@/hooks/useTasks';
 import toast from 'react-hot-toast';
 import { useAppStore } from '@/stores/appStore';
+import { formatLocalDateTime } from '@/utils/datetime';
 
 type StatusFilter = 'all' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 
@@ -427,10 +428,13 @@ function TaskDetail({ task }: { task: Task }) {
       <div className="grid grid-cols-2 gap-2 mt-2 text-xs text-gray-500">
         <div>类型: {TASK_TYPE_LABELS[task.task_type] || task.task_type}</div>
         <div>调度: {scheduleTypeLabels[task.schedule_type] || task.schedule_type}</div>
-        {task.last_run_at && <div>上次运行: {new Date(task.last_run_at).toLocaleString()}</div>}
-        {task.next_run_at && <div>下次运行: {new Date(task.next_run_at).toLocaleString()}</div>}
+        {/* v0.93.14: 任务进度/心跳/日志统一按本地时间显示（含日期），
+            不再出现「进度时间与日志时间不一致」的错位。 */}
+        <div>最近更新: {formatLocalDateTime(task.updated_at)}</div>
+        {task.last_run_at && <div>上次运行: {formatLocalDateTime(task.last_run_at)}</div>}
+        {task.next_run_at && <div>下次运行: {formatLocalDateTime(task.next_run_at)}</div>}
         {task.last_heartbeat_at && (
-          <div>最后心跳: {new Date(task.last_heartbeat_at).toLocaleString()}</div>
+          <div>最后心跳: {formatLocalDateTime(task.last_heartbeat_at)}</div>
         )}
         <div>超时阈值: {formatDuration(task.heartbeat_timeout_seconds)}</div>
       </div>
@@ -512,8 +516,8 @@ function TaskDetail({ task }: { task: Task }) {
                   {log.log_level}
                 </span>
                 <span className="text-gray-400">{log.message}</span>
-                <span className="text-gray-600 ml-auto flex-shrink-0">
-                  {new Date(log.created_at).toLocaleTimeString()}
+                <span className="text-gray-600 ml-auto flex-shrink-0 tabular-nums">
+                  {formatLocalDateTime(log.created_at)}
                 </span>
               </div>
             ))}

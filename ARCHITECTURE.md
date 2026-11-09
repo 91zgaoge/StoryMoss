@@ -1,4 +1,6 @@
-# StoryMoss v0.93.13 架构文档
+# StoryMoss v0.93.14 架构文档
+
+> **v0.93.14**：**任务时间口径统一**——`TaskRepository::record_progress` 用同一个 `now` 同时写 `tasks.progress/updated_at/last_heartbeat_at` 与 `task_logs.created_at`（进度日志同条落库）；`TaskProgressEvent`/`TaskStatusChangedEvent` 增 `timestamp`；前端 `utils/datetime.ts` 统一本地时间格式化（SQLite 本地串归一、UTC ISO 经 Date 转本地），Tasks/TrainingLab/AgencyLearning/AgencyEval/Maintenance 全部改用，禁止 raw slice。
 
 > **v0.93.13**：**CI 外部工具预热**——Ubuntu tauri-build 在打包前用 curl（`--retry 5` × 5 轮）预热 `~/.cache/tauri`：`AppRun-x86_64`、`linuxdeploy-x86_64.AppImage`、gtk/gstreamer 插件脚本（770 权限）；`tauri-bundler` 命中缓存后跳过 GitHub Releases 下载，504 抖动不再让 AppImage 打包失败。
 

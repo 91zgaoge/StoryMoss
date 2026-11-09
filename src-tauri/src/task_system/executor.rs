@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use chrono::Local;
 use tauri::{Emitter, Runtime};
 
 use super::{models::*, repository::TaskRepository};
@@ -103,13 +104,10 @@ impl<R: Runtime> TaskExecutionContext<R> {
         self.progress
             .store(progress, std::sync::atomic::Ordering::Relaxed);
         let repo = TaskRepository::new(self.pool.clone());
-        if let Err(e) = repo.update_status(
-            &self.task_id,
-            &TaskStatus::Running,
-            Some(progress),
-            None,
-            None,
-        ) {
+        // v0.93.14: 进度、日志、心跳共用同一个 now（毫秒级一致），
+        // 修「任务进度时间与日志时间不一致」的循环复现口径。
+        let now = Local::now().to_rfc3339();
+        if let Err(e) = repo.record_progress(&self.task_id, progress, message, &now) {
             log::warn!("[TaskExecution] Failed to update progress: {}", e);
         }
 
@@ -118,6 +116,7 @@ impl<R: Runtime> TaskExecutionContext<R> {
             step: step.to_string(),
             progress,
             message: message.to_string(),
+            timestamp: now,
         };
         let _ = self.app_handle.emit("task-progress", &event);
     }
@@ -128,6 +127,9 @@ impl<R: Runtime> TaskExecutionContext<R> {
         if let Err(e) = repo.create_log(&self.task_id, level, message) {
             log::warn!("[TaskExecution] Failed to create log: {}", e);
         }
+        // v0.93.14: 日志也是存活信号——同步刷新心跳，避免「日志刚写、
+        // 心跳却显示几分钟前」的错位（日志时间仍以 create_log 为准）。
+        let _ = repo.update_heartbeat(&self.task_id);
     }
 
     /// 完成任务
@@ -176,6 +178,7 @@ impl<R: Runtime> TaskExecutionContext<R> {
             status: status.to_string(),
             progress,
             message,
+            timestamp: Local::now().to_rfc3339(),
         };
         let _ = self.app_handle.emit("task-status-changed", &event);
     }

@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.93.14（2026-11-09）
+
+**任务进度/日志时间统一：进度、日志、心跳共用同一时间源；UI 全量本地日期时间显示。**
+
+- **反复复现的根因**：进度更新（tasks.progress/updated_at）、任务日志（task_logs.created_at）与心跳（last_heartbeat_at）此前分三次独立写入，毫秒/分钟级错位；前端日志只显示时分秒，跨天/跨轮聚合时与「上次运行」的完整日期不一致；诊断页多处直接 `slice` 原始 UTC ISO 串，比本地时间差 8 小时（同类于 v0.73.7 日志本地时间修复）。
+- **后端**：新增 `TaskRepository::record_progress`——一次进度更新把 `progress/updated_at/last_heartbeat_at/task_logs.created_at` 写成同一个 `now`，并同条落进度日志；`TaskProgressEvent`/`TaskStatusChangedEvent` 增加 `timestamp`；`TaskExecutionContext::log` 同步刷新心跳（日志也是存活信号）。
+- **前端**：新增 `utils/datetime.ts`（`formatLocalDateTime`/`formatLocalTime`，SQLite 本地串归一 + Date 本地时区解析）；Tasks 页「最近更新/上次运行/心跳/每条日志」改完整本地日期时间；TrainingLab 状态横幅显示更新时间与最新日志时间；AgencyLearning/AgencyEval/Maintenance 移除 raw slice。
+- **永久记忆**：任务 DB 时间 = Local；应用日志/workflow/traces = UTC；UI 与诊断报告禁止 slice，必须 Date 解析后按本地时间显示。
+- **验证**：Rust **2086 passed / 17 ignored**（+1：三时间一致）；tsc 0；Vitest **706 / 3**（+3：SQLite/UTC/非法串格式化）；Playwright **144 / 5**；fmt/clippy/guard 全绿。
+- **未关闭**：真机升级后核对 Tasks 页「最近更新/心跳/日志」同一时间链。
+
 ## v0.93.13（2026-11-09）
 
 **CI 加固补充：Linux AppImage 打包工具预热，修 GitHub 504 连累构建。**
