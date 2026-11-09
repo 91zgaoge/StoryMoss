@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.11-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.12-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.93.12 · 续写训练失败不再「白跑」+ 任务状态一眼可见
+
+续写训练连续成功若干轮后，真机出现一种失败：质量门要求修订，主创在修订轮多轮未完成（LLM 熔断），整条管线把首轮草稿一起判死。现在修订轮熔断会保留首轮草稿继续装配，并在「查看任务」里留下完整日志；训练页新增常驻状态横幅——执行中显示进度与最新日志，失败显示错误全文，旁边带「重试」和「查看任务」。任务完成/失败/创建也不再只在任务页才弹提示：全局 toast 带「查看任务」按钮，一键跳到「全部任务」并展开、高亮对应任务行。另修复风格学习偶发整份作废：模型把平均句长写成小数（`22.6`）也会被宽容解析。
 
 ### v0.93.11 · 外部下载抖动不再误红构建
 

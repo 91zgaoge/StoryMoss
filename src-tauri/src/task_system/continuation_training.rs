@@ -498,9 +498,11 @@ impl ContinuationTrainingExecutor {
             return Ok(preferred.to_string());
         }
         let connections = crate::MCP_CONNECTIONS.lock().await;
-        let client = connections
-            .get(server_id)
-            .ok_or_else(|| format!("MCP 服务器 {server_id} 未连接"))?;
+        let client = connections.get(server_id).ok_or_else(|| {
+            format!(
+                "MCP 服务器 {server_id} 未连接：请确认栗子读书等源已启动，并在 MCP 页连接该服务器后重试"
+            )
+        })?;
         Self::pick_chapter_tool_from_tools(client.get_tools()).ok_or_else(|| {
             format!("MCP 服务器 {server_id} 未提供章节正文工具；请在 MCP 页确认工具列表")
         })

@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Dumbbell, Play } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Dumbbell, Loader2, Play, RotateCcw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -21,7 +21,15 @@ import { AiInsightCards } from '@/components/ui/ai/AiInsightCards';
 import { loggedInvoke } from '@/services/tauri';
 import { mcpListSavedServers, type SavedMcpServer } from '@/services/api/skills';
 import { useMcpTools } from '@/hooks/useMcpTools';
-import { useCreateTask, useTriggerTask, useUpdateTask, type Task } from '@/hooks/useTasks';
+import {
+  useCreateTask,
+  useTriggerTask,
+  useUpdateTask,
+  useTasks,
+  useTaskLogs,
+  type Task,
+} from '@/hooks/useTasks';
+import { focusTaskInAllTasks, showTaskToast } from '@/utils/taskToast';
 import { useAppStore } from '@/stores/appStore';
 import {
   bareMcpToolName,
@@ -54,6 +62,44 @@ interface TrainingReportDetail {
 }
 
 const DEFAULT_CRON = '0 9 * * *';
+
+/** v0.93.12: 训练任务状态面板用——读取 payload 里的书名聚合键 */
+function payloadBookTitle(task: Task): string | null {
+  try {
+    const parsed = JSON.parse(task.payload ?? '{}') as { book_title?: string };
+    return parsed.book_title?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+const TRAINING_STATUS_LABEL: Record<string, string> = {
+  running: '执行中',
+  failed: '失败',
+  completed: '已完成',
+  pending: '等待执行',
+  cancelled: '已取消',
+};
+
+/** 状态色令牌（tint 走 color-mix，避免 tailwind /N 在纯 var() 上失效） */
+function trainingStatusTone(status: string): { color: string; tint: string } {
+  if (status === 'failed') {
+    return {
+      color: 'text-ai-red',
+      tint: 'color-mix(in srgb, var(--ai-red) 12%, transparent)',
+    };
+  }
+  if (status === 'completed') {
+    return {
+      color: 'text-ai-green',
+      tint: 'color-mix(in srgb, var(--ai-green) 12%, transparent)',
+    };
+  }
+  if (status === 'running') {
+    return { color: 'text-ai-accent-ink', tint: 'var(--ai-accent-tint)' };
+  }
+  return { color: 'text-ai-ink-2', tint: 'var(--ai-hover)' };
+}
 
 export default function TrainingLab() {
   const currentStory = useAppStore(s => s.currentStory);
@@ -118,6 +164,23 @@ export default function TrainingLab() {
     refetchInterval: 15_000,
   });
   const reports = reportsQuery.data ?? [];
+
+  // v0.93.12: 训练任务状态面板（此前训练页只有报告，没有任务运行/失败状态；
+  // 真机 2026-11-09 14:37 run 917dd138 失败后用户停留在训练页完全无感）。
+  const tasksQuery = useTasks();
+  const trainingTasks = useMemo(
+    () => (tasksQuery.data ?? []).filter(t => t.task_type === 'continuation_training'),
+    [tasksQuery.data]
+  );
+  const statusTask = useMemo(() => {
+    const input = bookTitle.trim();
+    const sorted = [...trainingTasks].sort((a, b) =>
+      (b.updated_at ?? '').localeCompare(a.updated_at ?? '')
+    );
+    return (input ? sorted.find(t => payloadBookTitle(t) === input) : undefined) ?? sorted[0];
+  }, [trainingTasks, bookTitle]);
+  const statusLogs = useTaskLogs(statusTask?.id);
+  const latestStatusLogs = (statusLogs.data ?? []).slice(0, 2);
 
   // 现查任务列表找同书名的既有训练任务（v0.93.2 融合：计划管理统一在任务页，
   // 训练页不再常驻轮询任务列表）。v0.93.7：cron 计划与一次性任务都按书名
@@ -217,8 +280,23 @@ export default function TrainingLab() {
           max_retries: 1,
           heartbeat_timeout_seconds: 3600,
         });
-        toast.success('训练计划已创建，到点自动执行');
+        // 创建成功的通知由 App 顶层 task-created 监听统一弹出（带「查看任务」）
       }
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+
+  // v0.93.12: 训练任务失败时的就地重试（无需先去「全部任务」页）
+  const handleRetryTask = async (task: Task) => {
+    try {
+      await triggerTask.mutateAsync(task.id);
+      showTaskToast({
+        taskId: task.id,
+        title: '已重新触发训练任务',
+        message: '进度与日志见「查看任务」',
+        tone: 'info',
+      });
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -236,7 +314,12 @@ export default function TrainingLab() {
           input: { cron_pattern: cronPattern, payload, enabled: true },
         });
         await triggerTask.mutateAsync(existing.id);
-        toast.success('已按当前配置触发训练（计划与运行历史见「任务」页）');
+        showTaskToast({
+          taskId: existing.id,
+          title: '训练已触发',
+          message: '按当前配置执行一轮训练，进度与日志见「查看任务」',
+          tone: 'info',
+        });
       } else {
         // v0.93.7: 无 cron 计划时也复用同书一次性任务行（此前每次「立即跑」
         // 都新建一行堆积）；once 行无法改定时语义，只同步配置后触发
@@ -247,7 +330,12 @@ export default function TrainingLab() {
             input: { payload, enabled: true },
           });
           await triggerTask.mutateAsync(onceRow.id);
-          toast.success('已按当前配置触发训练（复用既有任务行，历史见「任务」页）');
+          showTaskToast({
+            taskId: onceRow.id,
+            title: '训练已触发',
+            message: '按当前配置执行一轮训练，进度与日志见「查看任务」',
+            tone: 'info',
+          });
         } else {
           await createTask.mutateAsync({
             name: `续写训练 · ${bookTitle.trim()}（手动）`,
@@ -259,7 +347,7 @@ export default function TrainingLab() {
             max_retries: 0,
             heartbeat_timeout_seconds: 3600,
           });
-          toast.success('训练任务已排队（取章→灌沙盒→续写→对比，约需几分钟）');
+          // 创建成功的通知由 App 顶层 task-created 监听统一弹出（带「查看任务」）
         }
       }
     } catch (e) {
@@ -276,6 +364,97 @@ export default function TrainingLab() {
         title="续写训练"
         meta="取原书章节 → 沙盒续写 → 与真实后续章五维对比 → 改进建议自动注入下一轮"
       />
+
+      {/* v0.93.12: 常驻训练任务状态（完成/失败/执行中）——此前训练页只有报告，
+          任务失败时用户停留在本页完全无感，也没有跳到具体任务的入口。 */}
+      {statusTask &&
+        (() => {
+          const tone = trainingStatusTone(statusTask.status);
+          const label = TRAINING_STATUS_LABEL[statusTask.status] ?? statusTask.status;
+          const book = payloadBookTitle(statusTask);
+          const running = statusTask.status === 'running';
+          const failed = statusTask.status === 'failed';
+          const completed = statusTask.status === 'completed';
+          return (
+            <Card data-testid="training-status-card">
+              <CardContent className="flex flex-wrap items-start gap-3 p-4">
+                <span
+                  className="flex size-8 shrink-0 items-center justify-center rounded-full"
+                  style={{ background: tone.tint }}
+                  aria-hidden
+                >
+                  {failed ? (
+                    <AlertTriangle className={cn('h-4 w-4', tone.color)} />
+                  ) : running ? (
+                    <Loader2 className={cn('h-4 w-4 animate-spin', tone.color)} />
+                  ) : (
+                    <CheckCircle2 className={cn('h-4 w-4', tone.color)} />
+                  )}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-sm font-semibold text-ai-ink">训练任务状态</h3>
+                    <span
+                      className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                      style={{ background: tone.tint }}
+                    >
+                      <span className={tone.color}>{label}</span>
+                    </span>
+                    {running && statusTask.progress > 0 && (
+                      <span className="text-[11px] text-ai-ink-3">进度 {statusTask.progress}%</span>
+                    )}
+                    <span className="text-[11px] text-ai-ink-3">
+                      {book ? `《${book}》 · ` : ''}
+                      {statusTask.name}
+                    </span>
+                  </div>
+                  {failed && statusTask.error_message && (
+                    <div
+                      className="mt-2 rounded-[8px] p-2 text-xs leading-5"
+                      style={{
+                        background: 'color-mix(in srgb, var(--ai-red) 10%, transparent)',
+                      }}
+                    >
+                      <p className="text-ai-red">{statusTask.error_message}</p>
+                      <p className="mt-1 text-ai-ink-3">
+                        可在「全部任务」查看完整执行日志并重试；训练页下方报告只反映成功轮次。
+                      </p>
+                    </div>
+                  )}
+                  {running && latestStatusLogs.length > 0 && (
+                    <p className="mt-1 truncate text-[11px] text-ai-ink-3">
+                      最新日志：{latestStatusLogs[0].message}
+                    </p>
+                  )}
+                  {completed && (
+                    <p className="mt-1 text-[11px] text-ai-ink-3">
+                      训练完成；报告见下方列表，点击「查看任务」可看执行结果与日志。
+                    </p>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {failed && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => void handleRetryTask(statusTask)}
+                      isLoading={triggerTask.isPending}
+                    >
+                      <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                      重试
+                    </Button>
+                  )}
+                  <Button
+                    variant="secondary"
+                    onClick={() => focusTaskInAllTasks(statusTask.id)}
+                    data-testid="training-status-open-task"
+                  >
+                    查看任务
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
         {/* 配置列 */}

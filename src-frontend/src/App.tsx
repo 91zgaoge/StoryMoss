@@ -48,6 +48,7 @@ import {
 } from '@/stores/agencyActivityStore';
 import type { ViewType, Story } from '@/types';
 import toast from 'react-hot-toast';
+import { showTaskToast } from '@/utils/taskToast';
 
 const FULL_HEIGHT_VIEWS = new Set<ViewType>([
   'dashboard',
@@ -393,6 +394,70 @@ function App() {
       unCrew?.();
       unLease?.();
       unDirector?.();
+    };
+  }, [queryClient]);
+
+  // v0.93.12: 后台任务通知提升为全局（此前只有 Tasks 页挂载时才有 toast，
+  // 用户停留在续写训练/拆书等页面时任务完成或失败完全无感）。所有 toast
+  // 带「查看任务」→ 全部任务页聚焦该任务行。
+  useEffect(() => {
+    let unCreated: (() => void) | undefined;
+    let unStatus: (() => void) | undefined;
+    const setup = async () => {
+      try {
+        unCreated = await listen<{ task_id?: string; name?: string }>('task-created', e => {
+          const taskId = e.payload?.task_id;
+          if (!taskId) return;
+          queryClient.invalidateQueries({ queryKey: ['tasks'] });
+          showTaskToast({
+            taskId,
+            title: '后台任务已创建',
+            message: e.payload?.name ? `${e.payload.name}（可在「全部任务」查看进度）` : undefined,
+            tone: 'info',
+          });
+        });
+        unStatus = await listen<{
+          task_id?: string;
+          status?: string;
+          message?: string;
+        }>('task-status-changed', e => {
+          const taskId = e.payload?.task_id;
+          const status = e.payload?.status;
+          if (!taskId || !status) return;
+          queryClient.invalidateQueries({ queryKey: ['tasks'] });
+          queryClient.invalidateQueries({ queryKey: ['task_logs', taskId] });
+          if (status === 'completed') {
+            showTaskToast({
+              taskId,
+              title: '后台任务已完成',
+              message: '点击「查看任务」查看执行结果与日志',
+              tone: 'success',
+            });
+          } else if (status === 'failed') {
+            showTaskToast({
+              taskId,
+              title: '后台任务失败',
+              message: e.payload?.message || '点击「查看任务」查看错误日志并重试',
+              tone: 'error',
+              duration: 14_000,
+            });
+          } else if (status === 'cancelled') {
+            showTaskToast({
+              taskId,
+              title: '后台任务已取消',
+              message: e.payload?.message,
+              tone: 'info',
+            });
+          }
+        });
+      } catch (e) {
+        createLogger('ui:App').error('Failed to setup task event listeners', { error: e });
+      }
+    };
+    setup();
+    return () => {
+      unCreated?.();
+      unStatus?.();
     };
   }, [queryClient]);
 

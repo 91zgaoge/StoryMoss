@@ -1,8 +1,17 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.93.11)
+# 🧪 StoryMoss 自动化测试环境 (v0.93.12)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.93.12 变更说明
+
+- **续写训练修复与任务状态可见性**：
+  - Rust +2：`lenient_dna_parse_tests::float_sentence_length_parses_leniently`（22.6 → 23）、`string_sentence_length_parses_leniently`（"18.4" → 18）。
+  - Vitest +2：`taskToast.test.tsx`——`focusTaskInAllTasks` 写入 `pendingTaskFocusId` 并切到全部任务页；`showTaskToast` 点击「查看任务」后 dismiss toast 并聚焦任务。
+  - `handle_gate` 修订轮熔断兜底与 TrainingLab/Tasks 状态横幅由上述契约 + 视口验收覆盖；Playwright 基线不变。
+- **结果**：Rust **2085 passed / 17 ignored**（+2）；tsc 0；Vitest **703 / 3**（+2）；Playwright **144 / 5**（`backstage-viewport-acceptance` 75 用例复跑通过）；fmt/clippy/guard 全绿。
+- **未关闭**：安装升级后真机复测《阴脉先生》训练任务（任务 `0f3ca151`）应完成并写出报告。
 
 ### v0.93.11 变更说明
 

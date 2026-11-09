@@ -164,13 +164,75 @@ pub struct VocabularyProfile {
     pub avoided_patterns: Vec<String>,
 }
 
+/// v0.93.12: 平均句长宽容解析——LLM 常返回小数（`22.6`）或数字字符串，
+/// 严格 u32 会让整份 StyleDNA 解析失败（真机《阴脉先生》训练：`invalid type:
+/// floating point 22.6, expected u32`）。小数四舍五入，负数/非数字回退 0。
+fn deserialize_lenient_u32<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+
+    struct LenientU32;
+    impl<'de> Visitor<'de> for LenientU32 {
+        type Value = u32;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("非负整数、小数或数字字符串")
+        }
+
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<u32, E> {
+            Ok(v.min(u32::MAX as u64) as u32)
+        }
+
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<u32, E> {
+            Ok(v.clamp(0, u32::MAX as i64) as u32)
+        }
+
+        fn visit_f64<E: de::Error>(self, v: f64) -> Result<u32, E> {
+            Ok(Self::from_f64(v))
+        }
+
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<u32, E> {
+            let trimmed = v.trim();
+            if let Ok(n) = trimmed.parse::<f64>() {
+                return Ok(Self::from_f64(n));
+            }
+            trimmed.parse::<u32>().map_err(|_| {
+                de::Error::invalid_value(de::Unexpected::Str(v), &"非负整数、小数或数字字符串")
+            })
+        }
+
+        fn visit_unit<E: de::Error>(self) -> Result<u32, E> {
+            Ok(0)
+        }
+
+        fn visit_none<E: de::Error>(self) -> Result<u32, E> {
+            Ok(0)
+        }
+    }
+
+    impl LenientU32 {
+        fn from_f64(v: f64) -> u32 {
+            if !v.is_finite() || v <= 0.0 {
+                return 0;
+            }
+            v.round().min(u32::MAX as f64) as u32
+        }
+    }
+
+    deserializer.deserialize_any(LenientU32)
+}
+
 /// 句法特征
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 // v0.93.7: 容器级 serde default——LLM 返回的 JSON 缺任何字段/子块时回退默认值，不再整份 DNA
 // 解析报废（真机：缺 temporal_quality 即失败）
+// v0.93.12: avg_sentence_length 再放宽数字形态（小数/字符串）
 #[serde(default)]
 pub struct SyntaxProfile {
-    /// 平均句长（中文字符数）
+    /// 平均句长（中文字符数；小数输入四舍五入）
+    #[serde(default, deserialize_with = "deserialize_lenient_u32")]
     pub avg_sentence_length: u32,
     /// 从句复杂度: simple / moderate / complex
     pub clause_complexity: String,

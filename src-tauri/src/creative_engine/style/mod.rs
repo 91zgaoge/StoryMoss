@@ -485,6 +485,26 @@ mod lenient_dna_parse_tests {
         assert_eq!(dna.syntax.avg_sentence_length, 18);
     }
 
+    /// v0.93.12: LLM 常把平均句长写成小数（真机《阴脉先生》`22.6`）；
+    /// 严格 u32 曾让整份 DNA 解析失败，小数应四舍五入而不是报废。
+    #[test]
+    fn float_sentence_length_parses_leniently() {
+        let raw = r#"{
+            "syntax": {"avg_sentence_length": 22.6, "rhythm_pattern": "短句为主"}
+        }"#;
+        let dna: StyleDNA =
+            serde_json::from_str(raw).expect("小数平均句长必须宽容解析而不是整份 DNA 失败");
+        assert_eq!(dna.syntax.avg_sentence_length, 23, "22.6 应四舍五入为 23");
+        assert_eq!(dna.syntax.rhythm_pattern, "短句为主");
+    }
+
+    #[test]
+    fn string_sentence_length_parses_leniently() {
+        let raw = r#"{"syntax": {"avg_sentence_length": "18.4"}}"#;
+        let dna: StyleDNA = serde_json::from_str(raw).expect("数字字符串平均句长必须宽容解析");
+        assert_eq!(dna.syntax.avg_sentence_length, 18);
+    }
+
     #[test]
     fn missing_whole_section_still_parses_with_default() {
         let raw = r#"{"meta": {"name": "极简"}}"#;

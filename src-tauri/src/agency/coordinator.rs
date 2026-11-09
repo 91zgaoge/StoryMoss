@@ -6900,8 +6900,7 @@ impl AgencyCoordinator {
         } = artifacts;
         let final_verdict = match outcome {
             GateOutcome::Passed { verdict } => verdict,
-            GateOutcome::RevisionRequired { issues, .. } if !revised => {
-                revised = true;
+            GateOutcome::RevisionRequired { issues, verdict } if !revised => {
                 // 总线：修订提案（P5 时间线/学习中心数据源）
                 let pool = self.pool.clone();
                 let rid = run_id.to_string();
@@ -6934,7 +6933,10 @@ impl AgencyCoordinator {
                     emotion.as_ref(),
                     contract.as_ref(),
                 );
-                let revise_out = self
+                // v0.93.12: 修订轮不再把整条管线判死——续写训练 run 917dd138
+                // 正是在这里「第二道主创熔断」后整轮失败，而首轮草稿其实可用。
+                // 调用失败/熔断时保留首轮草稿，采用首道 gate 裁决继续装配。
+                let revise_out = match self
                     .run_role_with_llm_and_budget(
                         budget,
                         AgentRole::LeadWriter,
@@ -6946,46 +6948,91 @@ impl AgencyCoordinator {
                         &task,
                     )
                     .await
-                    .map_err(|e| AppError::from(format!("修订阶段失败: {}", e)))?;
-                if revise_out.aborted {
-                    return Err(AppError::from(circuit_break_message(
-                        "主创 Agent",
-                        "修订轮未完成",
-                        circuit_break_reason(&revise_out),
-                    )));
-                }
-                // 修订后按本章 key 取回草稿：并行循环中 draft
-                // 区可能已有后续章节草稿
-                draft = self
-                    .latest_draft_by_key(board, run_id, &draft.key, "修订后未取回本章草稿")
-                    .await?;
-                self.check_cancel(cancel)?;
-                let second = self
-                    .evaluate_gate(
-                        budget,
-                        board,
-                        registry,
-                        run_id,
-                        story_id,
-                        premise,
-                        &draft,
-                        2,
-                        emotion.as_ref(),
-                        contract.as_ref(),
-                    )
-                    .await?;
-                match second {
-                    GateOutcome::Passed { verdict } => verdict,
-                    GateOutcome::RevisionRequired { verdict, .. } => verdict,
-                    GateOutcome::Failed { reason } => {
-                        // v0.30.30：editor 完全失败时降级放行 substantive
-                        // 草稿保产出
-                        if let Some(v) = Self::salvage_failed_gate(&draft, &reason) {
-                            v
-                        } else {
-                            return Err(AppError::from(format!("质量门未通过: {}", reason)));
+                {
+                    Ok(out) => Some(out),
+                    Err(e) => {
+                        log::warn!(
+                            "agency: 修订阶段调用失败（{}），保留首轮草稿继续装配 run={}",
+                            e,
+                            run_id
+                        );
+                        None
+                    }
+                };
+                let revision_done = revise_out.as_ref().map(|out| !out.aborted).unwrap_or(false);
+                if revision_done {
+                    revised = true;
+                    // 修订后按本章 key 取回草稿：并行循环中 draft
+                    // 区可能已有后续章节草稿。取不回时保留首轮草稿，
+                    // 不让取稿失败吞掉整轮产出。
+                    match self
+                        .latest_draft_by_key(board, run_id, &draft.key, "修订后未取回本章草稿")
+                        .await
+                    {
+                        Ok(d) => draft = d,
+                        Err(e) => log::warn!(
+                            "agency: 修订后取回本章草稿失败（{}），保留首轮草稿 run={}",
+                            e,
+                            run_id
+                        ),
+                    }
+                    self.check_cancel(cancel)?;
+                    let second = self
+                        .evaluate_gate(
+                            budget,
+                            board,
+                            registry,
+                            run_id,
+                            story_id,
+                            premise,
+                            &draft,
+                            2,
+                            emotion.as_ref(),
+                            contract.as_ref(),
+                        )
+                        .await?;
+                    match second {
+                        GateOutcome::Passed { verdict } => verdict,
+                        GateOutcome::RevisionRequired { verdict, .. } => verdict,
+                        GateOutcome::Failed { reason } => {
+                            // v0.30.30：editor 完全失败时降级放行 substantive
+                            // 草稿保产出
+                            if let Some(v) = Self::salvage_failed_gate(&draft, &reason) {
+                                v
+                            } else {
+                                return Err(AppError::from(format!("质量门未通过: {}", reason)));
+                            }
                         }
                     }
+                } else {
+                    let reason = revise_out
+                        .as_ref()
+                        .map(circuit_break_reason)
+                        .unwrap_or("调用失败");
+                    log::warn!(
+                        "agency: 修订轮主创未完成（{}），保留首轮草稿继续装配 run={}",
+                        reason,
+                        run_id
+                    );
+                    self.emit_progress(
+                        run_id,
+                        "revision",
+                        "skipped",
+                        "修订轮未完成（模型熔断），保留首轮草稿继续装配",
+                    );
+                    // 模型可能已把新稿写到别的 key；有更完整的新稿则采用。
+                    if let Ok(d) = self.latest_draft(board, run_id).await {
+                        if d.content.chars().count() >= 200 && d.key != draft.key {
+                            log::warn!(
+                                "agency: 修订熔断后采用黑板新稿「{}」（{} 字）run={}",
+                                d.key,
+                                d.content.chars().count(),
+                                run_id
+                            );
+                            draft = d;
+                        }
+                    }
+                    verdict
                 }
             }
             GateOutcome::RevisionRequired { verdict, .. } => verdict,

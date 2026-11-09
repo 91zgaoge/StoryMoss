@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.93.12（2026-11-09）
+
+**续写训练失败根修：修订轮熔断不再判死整条管线 + StyleDNA 小数解析 + 任务状态可见性与「查看任务」跳转。**
+
+- **诊断（真机 2026-11-09 14:37 run `917dd138` / 任务 `0f3ca151`）**：训练任务失败「主创 Agent 被熔断（达到最大轮数），修订轮未完成」。日志链：首轮主创熔断 → prose 兜底取稿；编审熔断 → 散文回退；第二道主创（修订轮）熔断 → `handle_gate` 直接整轮失败，首轮草稿其实可用。同期 `invalid type: floating point 22.6, expected u32` 令 StyleDNA 整份解析失败、风格材料静默失效。
+- **修订熔断兜底**：`handle_gate` 修订轮调用失败/熔断时保留首轮草稿、采用首道 gate 裁决继续装配（对齐 v0.30.30 质检失败降级保产出）；黑板有更完整新稿则优先采用；修订后取稿失败回退保留原稿。
+- **StyleDNA 宽容解析**：`SyntaxProfile.avg_sentence_length` 接受小数（四舍五入）、数字字符串与负数/非数字回退 0，不再因一个数字形态整份 DNA 报废。
+- **训练状态可见性**：训练页新增常驻「训练任务状态」横幅（执行中进度/最新日志、失败错误全文 + 重试 + 查看任务）；App 顶层监听 `task-created` / `task-status-changed`，创建/完成/失败/取消均弹带「查看任务」的 toast；`pendingTaskFocusId` 让「全部任务」页展开、高亮并滚动到具体任务行，拆书/指导书/训练创建同样可用。
+- **MCP 提示**：训练取章遇 MCP 未连接时给出可操作提示（确认栗子读书已启动并在 MCP 页连接后重试）。
+- **验证**：Rust **2085 passed / 17 ignored**（+2：小数/数字字符串平均句长）；tsc 0；Vitest **703 / 3**（+2：任务通知跳转契约）；Playwright **144 / 5**（视口验收 training-lab 复跑通过）；fmt/clippy/guard 全绿。
+- **未关闭**：安装升级后真机复测该训练任务（同书 once 行）应完成并写出报告；LLM 连续空响应/网关超时仍会重试与兜底。
+
 ## v0.93.11（2026-11-09）
 
 **CI 加固：protoc 下载 504 重试，外部依赖抖动不再直接让 tag 构建变红。**

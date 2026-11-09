@@ -1,4 +1,6 @@
-# StoryMoss v0.93.11 架构文档
+# StoryMoss v0.93.12 架构文档
+
+> **v0.93.12**：**修订熔断兜底 + 任务状态链路**——`agency/coordinator.rs::handle_gate` 在修订轮调用失败/熔断时保留首轮草稿并采用首道 gate 裁决继续装配（黑板有新稿优先采用；取稿失败回退原稿），不再整轮失败；`domain/style.rs::SyntaxProfile.avg_sentence_length` 宽容反序列化（小数四舍五入/数字字符串/负数回退 0）；前端 `App` 顶层监听 `task-created`/`task-status-changed` → `utils/taskToast` 弹带「查看任务」的 toast → `appStore.pendingTaskFocusId` → Tasks 页展开/高亮/滚动到目标行；TrainingLab 新增常驻训练状态横幅（`training-status-card`）与失败就地重试。
 
 > **v0.93.11**：**CI 外部依赖韧性**——`rust-check` 与 `tauri-build` 的 protoc 安装（`arduino/setup-protoc@v3`）外层补两次重试：首步 `continue-on-error`、按 `outcome == 'failure'` 触发 retry 1/2，末尾 `protoc --version` 兜底验证；GitHub Release 504 不再一次抖动就让 tag 构建红。
 

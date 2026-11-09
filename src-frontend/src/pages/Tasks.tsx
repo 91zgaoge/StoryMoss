@@ -1,6 +1,5 @@
 import { confirmDialog } from '@/components/ui/confirm';
-import { useState, useEffect, type CSSProperties } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { ListChecks, Play, Square, Trash2, Loader2, Plus } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { Button } from '@/components/ui/Button';
@@ -81,10 +80,13 @@ function TaskRow({
   task,
   onToggleExpand,
   isExpanded,
+  highlighted,
 }: {
   task: Task;
   onToggleExpand: () => void;
   isExpanded: boolean;
+  /** v0.93.12: 从任务通知跳转过来时高亮该行（定位入口） */
+  highlighted?: boolean;
 }) {
   const deleteMutation = useDeleteTask();
   const triggerMutation = useTriggerTask();
@@ -221,12 +223,21 @@ function TaskRow({
   };
 
   return (
-    <AiTaskRows
-      rows={[item]}
-      expandedKey={isExpanded ? task.id : null}
-      onToggle={() => onToggleExpand()}
-      renderDetail={() => <TaskDetail task={task} />}
-    />
+    <div
+      id={`task-row-${task.id}`}
+      data-testid={`task-row-${task.id}`}
+      className={cn(
+        'rounded-[14px] transition-shadow',
+        highlighted && 'ring-2 ring-ai-accent ring-offset-1 ring-offset-ai-surface'
+      )}
+    >
+      <AiTaskRows
+        rows={[item]}
+        expandedKey={isExpanded ? task.id : null}
+        onToggle={() => onToggleExpand()}
+        renderDetail={() => <TaskDetail task={task} />}
+      />
+    </div>
   );
 }
 
@@ -528,20 +539,51 @@ export function Tasks() {
     cron_pattern: '',
   });
 
-  // Listen for task events
+  // v0.93.12: 任务事件通知已提升到 App 顶层（带「查看任务」跳转），
+  // 此处不再重复监听，避免同一事件弹两条 toast。
+
+  // v0.93.12: 从任务通知跳转过来 → 展开、高亮并滚动到具体任务行
+  const pendingTaskFocusId = useAppStore(s => s.pendingTaskFocusId);
+  const setPendingTaskFocusId = useAppStore(s => s.setPendingTaskFocusId);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const highlightTimerRef = useRef<number | null>(null);
+
   useEffect(() => {
-    const unlisten = listen('task-status-changed', (event: any) => {
-      const { task_id, status, message } = event.payload || {};
-      if (status === 'completed') {
-        toast.success(message || `任务 ${task_id} 已完成`);
-      } else if (status === 'failed') {
-        toast.error(message || `任务 ${task_id} 失败`);
+    if (!pendingTaskFocusId) return;
+    setSource('automation');
+    setFilter('all');
+    setExpandedId(pendingTaskFocusId);
+    setHighlightId(pendingTaskFocusId);
+    setPendingTaskFocusId(null);
+
+    // 等列表渲染后再滚动；最多重试 5 次（任务列表可能仍在刷新）
+    let attempt = 0;
+    const scroll = () => {
+      const el = document.getElementById(`task-row-${pendingTaskFocusId}`);
+      if (el) {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        return;
       }
-    });
-    return () => {
-      unlisten.then(f => f());
+      if (attempt < 5) {
+        attempt += 1;
+        window.setTimeout(scroll, 200);
+      }
     };
-  }, []);
+    window.setTimeout(scroll, 100);
+
+    if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = window.setTimeout(() => setHighlightId(null), 12_000);
+    // 注意：不能在 cleanup 里清掉滚动/高亮定时器——effect 依赖
+    // pendingTaskFocusId，而本 effect 会把 store 置空触发自身 cleanup。
+    // 滚动最多重试 5 次后自行停止；高亮定时器卸载时由下方 effect 清理。
+  }, [pendingTaskFocusId, setPendingTaskFocusId]);
+
+  useEffect(
+    () => () => {
+      if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
+    },
+    []
+  );
 
   const handleCreate = async () => {
     if (!newTask.name.trim()) {
@@ -740,6 +782,7 @@ export function Tasks() {
                           key={task.id}
                           task={task}
                           isExpanded={expandedId === task.id}
+                          highlighted={highlightId === task.id}
                           onToggleExpand={() =>
                             setExpandedId(expandedId === task.id ? null : task.id)
                           }
@@ -757,6 +800,7 @@ export function Tasks() {
                           key={task.id}
                           task={task}
                           isExpanded={expandedId === task.id}
+                          highlighted={highlightId === task.id}
                           onToggleExpand={() =>
                             setExpandedId(expandedId === task.id ? null : task.id)
                           }
@@ -774,6 +818,7 @@ export function Tasks() {
                           key={task.id}
                           task={task}
                           isExpanded={expandedId === task.id}
+                          highlighted={highlightId === task.id}
                           onToggleExpand={() =>
                             setExpandedId(expandedId === task.id ? null : task.id)
                           }
@@ -791,6 +836,7 @@ export function Tasks() {
                           key={task.id}
                           task={task}
                           isExpanded={expandedId === task.id}
+                          highlighted={highlightId === task.id}
                           onToggleExpand={() =>
                             setExpandedId(expandedId === task.id ? null : task.id)
                           }
@@ -806,6 +852,7 @@ export function Tasks() {
                     key={task.id}
                     task={task}
                     isExpanded={expandedId === task.id}
+                    highlighted={highlightId === task.id}
                     onToggleExpand={() => setExpandedId(expandedId === task.id ? null : task.id)}
                   />
                 ))

@@ -79,6 +79,12 @@ interface AppState {
   /** 角色页「关联场景」跳转到 Scenes 后选中的场景 ID */
   pendingSceneId: string | null;
   setPendingSceneId: (id: string | null) => void;
+  /**
+   * v0.93.12: 任务通知 → 「全部任务」页聚焦 ID。Tasks 页收到后展开、
+   * 高亮并滚动到该任务行，让完成/失败提示可一键落到具体任务。
+   */
+  pendingTaskFocusId: string | null;
+  setPendingTaskFocusId: (id: string | null) => void;
 }
 
 export const useAppStore = create<AppState>(set => ({
@@ -194,4 +200,6 @@ export const useAppStore = create<AppState>(set => ({
   setPendingQuickCreate: pending => set({ pendingQuickCreate: pending }),
   pendingSceneId: null,
   setPendingSceneId: id => set({ pendingSceneId: id }),
+  pendingTaskFocusId: null,
+  setPendingTaskFocusId: id => set({ pendingTaskFocusId: id }),
 }));
