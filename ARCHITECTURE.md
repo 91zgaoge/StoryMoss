@@ -1,4 +1,6 @@
-# StoryMoss v0.93.14 架构文档
+# StoryMoss v0.93.15 架构文档
+
+> **v0.93.15**：**续写训练网络韧性 + 判官评分闸门**——`mcp/client.rs::McpClient::call_tool` 对 Read/Network 权限工具在 `TransportError`（ECONNRESET/拒绝/断开）或 `Timeout` 时重试两次（150/400ms），Write/Private 绝不重发；`task_system/continuation_training.rs::compare_and_report` 以 `parse_judge_report` 校验五维数值（数字/数字字符串/`7/10`），判官缺失评分时重试一次，仍不可用则降级落 `{"scores":null,"overall":null,"judge_error":...}` 报告（趋势跳过、不落假 0.00）；overall 缺失按五维均值折算；报告标清沙盒/真实章号对应，闭环提示词修正「上一1轮」文案。
 
 > **v0.93.14**：**任务时间口径统一**——`TaskRepository::record_progress` 用同一个 `now` 同时写 `tasks.progress/updated_at/last_heartbeat_at` 与 `task_logs.created_at`（进度日志同条落库）；`TaskProgressEvent`/`TaskStatusChangedEvent` 增 `timestamp`；前端 `utils/datetime.ts` 统一本地时间格式化（SQLite 本地串归一、UTC ISO 经 Date 转本地），Tasks/TrainingLab/AgencyLearning/AgencyEval/Maintenance 全部改用，禁止 raw slice。
 

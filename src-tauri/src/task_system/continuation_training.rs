@@ -335,8 +335,8 @@ impl TaskExecutor for ContinuationTrainingExecutor {
 
         ctx.update_progress("done", 100, "训练完成");
         let summary = format!(
-            "训练完成：沙盒 {}，续写第 {} 章，报告 {report_id}（保留最近 {KEEP_SANDBOXES} 个沙盒）",
-            story.title, next_chapter
+            "训练完成：沙盒 {}，续写沙盒第 {} 章（对应真实第 {} 章），报告 {report_id}（保留最近 {KEEP_SANDBOXES} 个沙盒）",
+            story.title, next_chapter, truth_index
         );
         ctx.log("info", &summary);
         Ok(TaskResult {
@@ -767,11 +767,20 @@ impl ContinuationTrainingExecutor {
         if rows.is_empty() {
             return None;
         }
+        // rows 按 created_at DESC 取 2 条后反转：i=0 是更早一轮，i=1
+        // 是最近一轮。
         Some(
             rows.iter()
                 .rev()
                 .enumerate()
-                .map(|(i, r)| format!("上一{}轮训练建议：\n{r}", if i == 0 { "1" } else { "2" }))
+                .map(|(i, r)| {
+                    let label = if i == 0 {
+                        "更早一轮"
+                    } else {
+                        "最近一轮"
+                    };
+                    format!("{label}训练建议：\n{r}")
+                })
                 .collect::<Vec<_>>()
                 .join("\n\n"),
         )
@@ -789,8 +798,142 @@ impl ContinuationTrainingExecutor {
     ) -> Result<(String, String, String), String> {
         let truth_cap = Self::cap(truth);
         let gen_cap = Self::cap(generated);
-        let prompt = format!(
-            r#"你是网文编辑。下面是《{book_title}》第 {truth_chapter} 章的真实原文，以及 AI 按前文续写出的「第 {generated_chapter} 章」。请从五个维度给 AI 续写打分（1-10，10=与作者本人水准不可区分），并给出下一轮训练要落实的改进建议。
+
+        // v0.93.15：判官曾返回 {"scores":null,...}，旧代码照样落库成
+        // 总分 0.00、五维「-」的假报告。评分不可用时先重试一次；
+        // 仍不可用则降级存「评分不可用」报告（overall=null），不污染趋势。
+        let mut judge: Option<JudgeReport> = None;
+        let mut last_raw = String::new();
+        for attempt in 0..=1 {
+            let prompt = Self::judge_prompt(
+                book_title,
+                &truth_cap,
+                &gen_cap,
+                truth_chapter,
+                generated_chapter,
+                attempt > 0,
+            );
+            let resp = llm
+                .generate_for_task(
+                    crate::router::TaskType::Analysis,
+                    prompt,
+                    Some(1024),
+                    Some(0.2),
+                    Some("continuation_training_report"),
+                )
+                .await
+                .map_err(|e| format!("对比评审 LLM 调用失败：{e}"))?;
+            last_raw = resp.content.clone();
+            judge = parse_judge_report(&last_raw);
+            if judge.is_some() {
+                break;
+            }
+            log::warn!(
+                "[ContinuationTraining] 判官输出缺少可用五维评分（第 {} 次）: raw={}",
+                attempt + 1,
+                Self::preview_chars(&last_raw, 240)
+            );
+        }
+        // 质检失败降级保产出（对齐既有「质检失败不判死」口径）：判官两轮
+        // 都不可用时不落假 0.00 分，改存一条「评分不可用」报告，正文与沙盒
+        // 保留；overall 为 null，趋势图会跳过这一轮。
+        let judge = match judge {
+            Some(judge) => judge,
+            None => {
+                let message = format!(
+                    "判官未返回可用的五维评分（已重试）；输出前 240 字: {}",
+                    Self::preview_chars(&last_raw, 240)
+                );
+                log::warn!("[ContinuationTraining] 对比评审降级: {}", message);
+                let report_md = format!(
+                    "# 续写训练报告 · 《{book_title}》\n\n\
+                     - 基准：真实第 {truth_chapter} 章 ｜ AI 续写：沙盒第 {generated_chapter} 章（对应真实第 {truth_chapter} 章）\n\
+                     - **本轮评分不可用**：判官未返回可用的五维评分（已重试），不计入训练趋势。\n\n\
+                     ## 判官输出诊断\n\n{}\n",
+                    Self::preview_chars(&last_raw, 240)
+                );
+                return Ok((
+                    report_md,
+                    serde_json::json!({
+                        "scores": serde_json::Value::Null,
+                        "overall": serde_json::Value::Null,
+                        "judge_error": message,
+                    })
+                    .to_string(),
+                    String::new(),
+                ));
+            }
+        };
+
+        let report_md = format!(
+            "# 续写训练报告 · 《{book_title}》\n\n\
+             - 基准：真实第 {truth_chapter} 章 ｜ AI 续写：沙盒第 {generated_chapter} 章（对应真实第 {truth_chapter} 章）\n\
+             - 加权总分：**{:.2}**\n\n\
+             ## 五维评分\n\n\
+             - 文笔风格：{}\n\
+             - 情节推进：{}\n\
+             - 人物口吻：{}\n\
+             - 节奏密度：{}\n\
+             - 钩子悬念：{}\n\n\
+             ## 评语\n\n{}\n\n\
+             ## 下一轮改进\n\n{}\n",
+            judge.overall,
+            judge
+                .scores
+                .get("style")
+                .map(fmt_num)
+                .unwrap_or_else(|| "-".into()),
+            judge
+                .scores
+                .get("plot")
+                .map(fmt_num)
+                .unwrap_or_else(|| "-".into()),
+            judge
+                .scores
+                .get("voice")
+                .map(fmt_num)
+                .unwrap_or_else(|| "-".into()),
+            judge
+                .scores
+                .get("pacing")
+                .map(fmt_num)
+                .unwrap_or_else(|| "-".into()),
+            judge
+                .scores
+                .get("hooks")
+                .map(fmt_num)
+                .unwrap_or_else(|| "-".into()),
+            judge.comments,
+            judge.improvement,
+        );
+        Ok((
+            report_md,
+            serde_json::json!({
+                "scores": judge.scores,
+                "overall": judge.overall,
+            })
+            .to_string(),
+            judge.improvement,
+        ))
+    }
+
+    /// 判官提示词。`strict` 为二次尝试：上一次输出无法解析时，要求只给
+    /// 纯 JSON 对象，不再夹带解释文字或代码围栏。
+    fn judge_prompt(
+        book_title: &str,
+        truth_cap: &str,
+        gen_cap: &str,
+        truth_chapter: usize,
+        generated_chapter: i32,
+        strict: bool,
+    ) -> String {
+        let strict_line = if strict {
+            "上一次输出无法解析。这次严格只输出一个 JSON 对象（不要 markdown、不要解释文字、不要代码围栏）。\n\n"
+        } else {
+            ""
+        };
+        format!(
+            r#"{strict_line}你是网文编辑。下面是《{book_title}》第 {truth_chapter} 章的真实原文，以及 AI 按前文续写出的下一章（沙盒第 {generated_chapter} 章，对应真实第 {truth_chapter} 章）。请从五个维度给 AI 续写打分（1-10，10=与作者本人水准不可区分），并给出下一轮训练要落实的改进建议。
 
 【真实原文（基准）】
 {truth_cap}
@@ -800,50 +943,11 @@ impl ContinuationTrainingExecutor {
 
 仅输出 JSON：
 {{"scores":{{"style":文笔风格相似度,"plot":情节推进合理性,"voice":人物口吻一致性,"pacing":节奏密度匹配,"hooks":钩子与悬念经营}},"overall":0.0-1.0加权总分,"comments":"每维 1-2 句依据","improvement":"下一轮续写必须落实的 2-3 条具体改进（给模型看，不超过 150 字）"}}"#
-        );
-        let resp = llm
-            .generate_for_task(
-                crate::router::TaskType::Analysis,
-                prompt,
-                Some(1024),
-                Some(0.2),
-                Some("continuation_training_report"),
-            )
-            .await
-            .map_err(|e| format!("对比评审 LLM 调用失败：{e}"))?;
-        #[derive(serde::Deserialize)]
-        struct ComparisonReport {
-            #[serde(default)]
-            scores: serde_json::Value,
-            #[serde(default)]
-            overall: Option<f64>,
-            #[serde(default)]
-            comments: Option<String>,
-            #[serde(default)]
-            improvement: Option<String>,
-        }
-        let parsed: ComparisonReport = crate::agency::coordinator::parse_lenient(&resp.content)
-            .ok_or_else(|| "对比评审 JSON 解析失败（模型未返回 JSON）".to_string())?;
-        let scores = parsed.scores;
-        let overall = parsed.overall.unwrap_or(0.0);
-        let comments = parsed.comments.unwrap_or_default();
-        let improvement = parsed.improvement.unwrap_or_default();
+        )
+    }
 
-        let report_md = format!(
-            "# 续写训练报告 · 《{book_title}》\n\n\
-             - 基准：真实第 {truth_chapter} 章 ｜ AI 续写：第 {generated_chapter} 章\n\
-             - 加权总分：**{overall:.2}**\n\n## 五维评分\n\n- 文笔风格：{}\n- 情节推进：{}\n- 人物口吻：{}\n- 节奏密度：{}\n- 钩子悬念：{}\n\n## 评语\n\n{comments}\n\n## 下一轮改进\n\n{improvement}\n",
-            scores.get("style").map(fmt_num).unwrap_or_else(|| "-".into()),
-            scores.get("plot").map(fmt_num).unwrap_or_else(|| "-".into()),
-            scores.get("voice").map(fmt_num).unwrap_or_else(|| "-".into()),
-            scores.get("pacing").map(fmt_num).unwrap_or_else(|| "-".into()),
-            scores.get("hooks").map(fmt_num).unwrap_or_else(|| "-".into()),
-        );
-        Ok((
-            report_md,
-            serde_json::json!({"scores": scores, "overall": overall}).to_string(),
-            improvement,
-        ))
+    fn preview_chars(text: &str, limit: usize) -> String {
+        text.chars().take(limit).collect()
     }
 
     /// 清理同书更早的沙盒（保留最近 keep 个；级联清理走 story 删除事务）
@@ -881,6 +985,103 @@ impl ContinuationTrainingExecutor {
                 Err(e) => log::warn!("[ContinuationTraining] 清理旧沙盒 {id} 失败：{e}"),
             }
         }
+    }
+}
+
+/// 判官输出（已校验）：五维分数 + 归一化总分 + 评语/改进。
+struct JudgeReport {
+    scores: serde_json::Map<String, serde_json::Value>,
+    overall: f64,
+    comments: String,
+    improvement: String,
+}
+
+const JUDGE_DIMENSIONS: [&str; 5] = ["style", "plot", "voice", "pacing", "hooks"];
+
+#[derive(serde::Deserialize)]
+struct RawJudgeReport {
+    #[serde(default)]
+    scores: Option<serde_json::Value>,
+    #[serde(default)]
+    overall: Option<serde_json::Value>,
+    #[serde(default)]
+    comments: Option<serde_json::Value>,
+    #[serde(default)]
+    improvement: Option<serde_json::Value>,
+}
+
+/// 解析并校验判官输出：五维必须齐全且为 1-10 的数值（或数字字符串/
+/// "6/10"）；缺失任一分维度即视为不可用（返回 None），由调用方重试，
+/// 不再落库「总分 0.00、五维 -」的假报告。overall 缺失时按五维均值折算。
+fn parse_judge_report(raw: &str) -> Option<JudgeReport> {
+    let parsed: RawJudgeReport = crate::agency::coordinator::parse_lenient(raw)?;
+    let scores_obj = parsed.scores?.as_object()?.clone();
+    let mut scores = serde_json::Map::new();
+    let mut sum = 0.0;
+    for dimension in JUDGE_DIMENSIONS {
+        let score = coerce_dimension_score(scores_obj.get(dimension)?)?;
+        sum += score;
+        scores.insert(
+            dimension.to_string(),
+            if score.fract() == 0.0 {
+                serde_json::json!(score as i64)
+            } else {
+                serde_json::json!(score)
+            },
+        );
+    }
+    let mean_10 = sum / JUDGE_DIMENSIONS.len() as f64;
+    let overall = coerce_overall(parsed.overall.as_ref()).unwrap_or(mean_10 / 10.0);
+    Some(JudgeReport {
+        scores,
+        overall: overall.clamp(0.0, 1.0),
+        comments: value_as_text(parsed.comments.as_ref()).unwrap_or_default(),
+        improvement: value_as_text(parsed.improvement.as_ref()).unwrap_or_default(),
+    })
+}
+
+fn coerce_dimension_score(value: &serde_json::Value) -> Option<f64> {
+    let number = match value {
+        serde_json::Value::Number(number) => number.as_f64()?,
+        serde_json::Value::String(text) => {
+            let head = text
+                .trim()
+                .split('/')
+                .next()?
+                .trim()
+                .trim_end_matches('分')
+                .trim();
+            head.parse::<f64>().ok()?
+        }
+        _ => return None,
+    };
+    if (1.0..=10.0).contains(&number) {
+        Some(number)
+    } else {
+        None
+    }
+}
+
+fn coerce_overall(value: Option<&serde_json::Value>) -> Option<f64> {
+    let number = match value? {
+        serde_json::Value::Number(number) => number.as_f64()?,
+        serde_json::Value::String(text) => text.trim().parse::<f64>().ok()?,
+        _ => return None,
+    };
+    if (0.0..=1.0).contains(&number) {
+        Some(number)
+    } else if (0.0..=10.0).contains(&number) {
+        Some(number / 10.0)
+    } else {
+        None
+    }
+}
+
+fn value_as_text(value: Option<&serde_json::Value>) -> Option<String> {
+    match value? {
+        serde_json::Value::String(text) => Some(text.clone()),
+        serde_json::Value::Null => None,
+        other => Some(other.to_string()),
     }
 }
 
@@ -978,5 +1179,59 @@ mod tests {
         assert_eq!(template["book_url"], "$book");
         assert_eq!(template["index"], "$index");
         assert_eq!(template["fetch_online"], true);
+    }
+
+    #[test]
+    fn judge_parses_five_numeric_scores_and_computes_overall() {
+        let raw = r#"{"scores":{"style":6,"plot":7,"voice":5,"pacing":8,"hooks":9},"comments":"依据","improvement":"改进"}"#;
+        let judge = parse_judge_report(raw).expect("五维齐全应解析");
+        assert_eq!(judge.scores.len(), 5);
+        assert_eq!(judge.scores["style"], serde_json::json!(6));
+        // overall 缺失 → 五维均值 (6+7+5+8+9)/5/10 = 0.70
+        assert!((judge.overall - 0.70).abs() < 1e-9);
+        assert_eq!(judge.comments, "依据");
+        assert_eq!(judge.improvement, "改进");
+    }
+
+    #[test]
+    fn judge_rejects_null_scores_instead_of_fake_zero_report() {
+        // v0.93.15 真机事故形态：判官返回 {"scores":null,...}，旧代码落库
+        // 0.00。
+        let raw = r#"{"scores":null,"overall":0.0,"comments":"","improvement":""}"#;
+        assert!(parse_judge_report(raw).is_none());
+    }
+
+    #[test]
+    fn judge_rejects_missing_dimension() {
+        let raw = r#"{"scores":{"style":6,"plot":7,"voice":5,"pacing":8},"overall":0.7}"#;
+        assert!(parse_judge_report(raw).is_none());
+    }
+
+    #[test]
+    fn judge_accepts_string_and_ratio_scores() {
+        let raw = r#"{"scores":{"style":"6","plot":"7/10","voice":"5分","pacing":8,"hooks":9},"overall":"0.9","comments":"c","improvement":"i"}"#;
+        let judge = parse_judge_report(raw).expect("数字字符串应宽容解析");
+        assert_eq!(judge.scores["plot"], serde_json::json!(7));
+        assert!((judge.overall - 0.9).abs() < 1e-9);
+    }
+
+    #[test]
+    fn judge_overall_falls_back_to_mean_and_normalizes_ten_point_value() {
+        let raw =
+            r#"{"scores":{"style":4,"plot":4,"voice":4,"pacing":4,"hooks":4},"improvement":"i"}"#;
+        let judge = parse_judge_report(raw).unwrap();
+        assert!((judge.overall - 0.4).abs() < 1e-9);
+
+        let raw_ten = r#"{"scores":{"style":4,"plot":4,"voice":4,"pacing":4,"hooks":4},"overall":6.5,"improvement":"i"}"#;
+        let judge = parse_judge_report(raw_ten).unwrap();
+        assert!((judge.overall - 0.65).abs() < 1e-9);
+    }
+
+    #[test]
+    fn judge_prompt_names_sandbox_and_source_chapter() {
+        let prompt =
+            ContinuationTrainingExecutor::judge_prompt("阴脉先生", "真", "仿", 107, 11, false);
+        assert!(prompt.contains("沙盒第 11 章"));
+        assert!(prompt.contains("对应真实第 107 章"));
     }
 }

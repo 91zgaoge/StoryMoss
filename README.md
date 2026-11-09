@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.14-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.15-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.93.15 · 续写训练不再被一次网络抖动判死
+
+真机训练在连续取章时遇到栗子读书回环 HTTP 的一次 `Connection reset`，整条训练任务直接失败。现在只读工具调用遇到这类瞬时传输故障会自动重试两次（写工具绝不重发，避免重复副作用），单次抖动不再毁掉整轮训练。同时修复训练报告的「假 0.00」：判官返回缺失五维评分时不再落库成 0.00 假报告，而是先重试判官；仍不可用则存「评分不可用」降级报告，趋势图跳过这一轮。报告里也标清「沙盒第 N 章（对应真实第 M 章）」，不再把沙盒章号与真实章号混在一起。
 
 ### v0.93.14 · 任务进度和日志时间终于对齐了
 

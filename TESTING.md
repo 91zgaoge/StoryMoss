@@ -1,8 +1,18 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.93.14)
+# 🧪 StoryMoss 自动化测试环境 (v0.93.15)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.93.15 变更说明
+
+- **MCP 只读工具瞬时故障重试**：
+  - Rust +4：`transient_transport_errors_are_classified`、`only_read_and_network_permissions_are_retry_safe`、`read_only_tool_retries_after_connection_reset`（首次 ECONNRESET 后成功）、`write_tool_is_not_retried_after_connection_reset`（写工具不重发）。
+  - 真机探针：`LEGADO_MCP_TOKEN=... cargo test --lib live_legado_mcp_tools_list -- --ignored` 通过（本机栗子读书 11 工具、`list_groups` 调用成功）。
+- **训练判官评分校验与降级报告**：
+  - Rust +6：五维齐全解析/overall 均值折算；`{"scores":null}` 拒绝；缺维度拒绝；数字字符串与 `"7/10"` 宽容；`overall` 缺失折算与 0-10 归一；提示词标清沙盒/真实章号对应。
+- **结果**：Rust **2096 passed / 17 ignored**（+10）；fmt/clippy/guard 全绿；本版未改前端，tsc/Vitest/Playwright 基线不变（706 / 3、144 / 5）。
+- **未关闭**：安装 v0.93.15 后真机重跑《阴脉先生》第 97 章训练，确认取章不再中途失败且报告含五维评分（判官可用时）。
 
 ### v0.93.14 变更说明
 

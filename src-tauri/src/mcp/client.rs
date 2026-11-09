@@ -208,20 +208,56 @@ impl McpClient {
             check_tool_available(snapshot, contract, &bare_name)?;
         }
 
-        let request = JsonRpcRequest {
-            jsonrpc: "2.0".to_string(),
-            id: Some(serde_json::Value::String(Uuid::new_v4().to_string())),
-            method: "tools/call".to_string(),
-            params: Some(serde_json::json!({
-                "name": bare_name,
-                "arguments": arguments
-            })),
-        };
+        // v0.93.15：只读工具遇到瞬时传输故障（栗子读书回环 HTTP 偶发
+        // Connection reset）时重发；写/隐私工具绝不重试，避免重复副作用。
+        // 续写训练一次取 n+1 章，单次网络抖动曾把整条训练判死。
+        let retry_safe = permission_is_retry_safe(
+            self.mapping
+                .as_ref()
+                .and_then(|snapshot| snapshot.permission_for(&bare_name)),
+        );
+        let mut attempt = 0usize;
+        let response = loop {
+            let request = JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: Some(serde_json::Value::String(Uuid::new_v4().to_string())),
+                method: "tools/call".to_string(),
+                params: Some(serde_json::json!({
+                    "name": bare_name,
+                    "arguments": arguments.clone()
+                })),
+            };
 
-        let response = {
-            let transport = self.transport.as_mut().ok_or(McpError::NotConnected)?;
-            transport.send(request).await?;
-            transport.receive().await?
+            let outcome = {
+                let transport = self.transport.as_mut().ok_or(McpError::NotConnected)?;
+                match transport.send(request).await {
+                    Ok(()) => transport.receive().await,
+                    Err(error) => Err(error),
+                }
+            };
+
+            match outcome {
+                Ok(response) => break response,
+                Err(error)
+                    if retry_safe
+                        && attempt < TOOL_CALL_RETRY_LIMIT
+                        && is_transient_transport_error(&error) =>
+                {
+                    log::warn!(
+                        "[MCP] 只读工具调用瞬时网络故障，重试 {}/{}: tool={} error={}",
+                        attempt + 1,
+                        TOOL_CALL_RETRY_LIMIT,
+                        bare_name,
+                        error
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        TOOL_CALL_RETRY_BACKOFF_MS[attempt],
+                    ))
+                    .await;
+                    attempt += 1;
+                }
+                Err(error) => return Err(error),
+            }
         };
 
         if let Some(error) = response.error {
@@ -328,6 +364,44 @@ impl McpClient {
     }
 }
 
+/// 只读工具瞬时故障重试上限（初次 + 2 次重试）。
+const TOOL_CALL_RETRY_LIMIT: usize = 2;
+/// 重试退避：先短后长，避免连续打满本地源。
+const TOOL_CALL_RETRY_BACKOFF_MS: [u64; 2] = [150, 400];
+
+/// 瞬时传输故障判定：连接重置/拒绝/断开属于网络抖动，可重试；
+/// 协议、序列化与 RPC 错误不可重试。
+fn is_transient_transport_error(error: &McpError) -> bool {
+    match error {
+        McpError::TransportError(message) => {
+            let lower = message.to_ascii_lowercase();
+            [
+                "connection reset",
+                "connection refused",
+                "broken pipe",
+                "os error 54",
+                "os error 61",
+                "os error 32",
+                "读取响应失败",
+                "写入请求失败",
+            ]
+            .iter()
+            .any(|needle| lower.contains(needle))
+        }
+        McpError::Timeout => true,
+        _ => false,
+    }
+}
+
+/// 只读/联网工具在瞬时故障后可安全重发；写与隐私工具绝不重试，
+/// 避免连接重置后把同一副作用执行两次。
+fn permission_is_retry_safe(permission: Option<McpPermission>) -> bool {
+    matches!(
+        permission,
+        Some(McpPermission::Read) | Some(McpPermission::Network)
+    )
+}
+
 fn is_tool_missing_message(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
     lower.contains("tool not found")
@@ -338,9 +412,185 @@ fn is_tool_missing_message(message: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::{
+        collections::{HashMap, VecDeque},
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+    };
 
     use super::*;
+
+    fn fake_config() -> McpServerConfig {
+        McpServerConfig {
+            id: "fake".into(),
+            name: "fake".into(),
+            command: String::new(),
+            args: vec![],
+            env: HashMap::new(),
+            timeout_seconds: 5,
+            url: Some("http://127.0.0.1:9/mcp".into()),
+            headers: HashMap::new(),
+        }
+    }
+
+    fn fake_meta() -> McpServerMeta {
+        McpServerMeta {
+            protocol_version: "2025-06-18".into(),
+            server_info: McpServerInfo {
+                name: "fake".into(),
+                title: None,
+                version: "1.0".into(),
+            },
+            instructions: None,
+        }
+    }
+
+    fn fake_contract() -> MappingContract {
+        resolve_contract(&fake_meta()).expect("通用契约应可解析")
+    }
+
+    fn fake_snapshot(tools: Vec<McpTool>) -> MappingSnapshot {
+        let meta = fake_meta();
+        let contract = resolve_contract(&meta).unwrap();
+        build_snapshot(&contract, &meta, &tools, HashMap::new()).expect("快照应可构建")
+    }
+
+    fn fake_tool(name: &str, destructive: bool) -> McpTool {
+        McpTool {
+            name: name.into(),
+            description: String::new(),
+            parameters: serde_json::json!({ "type": "object" }),
+            annotations: Some(McpToolAnnotations {
+                read_only_hint: Some(!destructive),
+                open_world_hint: Some(false),
+                destructive_hint: Some(destructive),
+                idempotent_hint: None,
+            }),
+        }
+    }
+
+    /// 首次 send 模拟回环 HTTP 被对端重置，之后正常返回。
+    struct ResetOnceTransport {
+        attempts: Arc<AtomicUsize>,
+        pending: VecDeque<JsonRpcResponse>,
+        payload: serde_json::Value,
+    }
+
+    impl ResetOnceTransport {
+        fn new(attempts: Arc<AtomicUsize>, payload: serde_json::Value) -> Self {
+            Self {
+                attempts,
+                pending: VecDeque::new(),
+                payload,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Transport for ResetOnceTransport {
+        async fn connect(&mut self) -> Result<(), McpError> {
+            Ok(())
+        }
+
+        async fn send(&mut self, request: JsonRpcRequest) -> Result<(), McpError> {
+            let attempt = self.attempts.fetch_add(1, Ordering::SeqCst) + 1;
+            if attempt == 1 {
+                return Err(McpError::TransportError(
+                    "读取响应失败: Connection reset by peer (os error 54)".into(),
+                ));
+            }
+            self.pending.push_back(JsonRpcResponse {
+                jsonrpc: "2.0".into(),
+                id: request.id,
+                result: Some(self.payload.clone()),
+                error: None,
+            });
+            Ok(())
+        }
+
+        async fn receive(&mut self) -> Result<JsonRpcResponse, McpError> {
+            self.pending
+                .pop_front()
+                .ok_or_else(|| McpError::TransportError("no pending response".into()))
+        }
+
+        async fn close(&mut self) -> Result<(), McpError> {
+            Ok(())
+        }
+    }
+
+    fn client_with_transport(tool: McpTool, transport: ResetOnceTransport) -> McpClient {
+        let mut client = McpClient::new(fake_config());
+        client.mapping_contract = Some(fake_contract());
+        client.mapping = Some(fake_snapshot(vec![tool]));
+        client.transport = Some(Box::new(transport));
+        client
+    }
+
+    #[test]
+    fn transient_transport_errors_are_classified() {
+        assert!(is_transient_transport_error(&McpError::TransportError(
+            "读取响应失败: Connection reset by peer (os error 54)".into()
+        )));
+        assert!(is_transient_transport_error(&McpError::TransportError(
+            "写入请求失败: Broken pipe (os error 32)".into()
+        )));
+        assert!(is_transient_transport_error(&McpError::Timeout));
+        assert!(!is_transient_transport_error(
+            &McpError::SerializationError("响应不是合法 JSON-RPC".into())
+        ));
+        assert!(!is_transient_transport_error(&McpError::RpcError(
+            "tool not found".into()
+        )));
+    }
+
+    #[test]
+    fn only_read_and_network_permissions_are_retry_safe() {
+        assert!(permission_is_retry_safe(Some(McpPermission::Read)));
+        assert!(permission_is_retry_safe(Some(McpPermission::Network)));
+        assert!(!permission_is_retry_safe(Some(McpPermission::Write)));
+        assert!(!permission_is_retry_safe(Some(McpPermission::Private)));
+        assert!(!permission_is_retry_safe(None));
+    }
+
+    /// v0.93.15 回归：只读工具首次 Connection reset，重试后成功返回。
+    #[tokio::test]
+    async fn read_only_tool_retries_after_connection_reset() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let mut client = client_with_transport(
+            fake_tool("get_chapter_content", false),
+            ResetOnceTransport::new(
+                attempts.clone(),
+                serde_json::json!({ "content": [{ "text": "第1章正文" }] }),
+            ),
+        );
+
+        let result = client
+            .call_tool("get_chapter_content", serde_json::json!({ "index": 1 }))
+            .await
+            .expect("只读工具应在瞬时重置后重试成功");
+        assert_eq!(result["content"][0]["text"], "第1章正文");
+        assert_eq!(attempts.load(Ordering::SeqCst), 2, "应恰好重试一次");
+    }
+
+    /// 写工具遇到连接重置必须立即失败，不重复执行副作用。
+    #[tokio::test]
+    async fn write_tool_is_not_retried_after_connection_reset() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let mut client = client_with_transport(
+            fake_tool("fake_delete", true),
+            ResetOnceTransport::new(attempts.clone(), serde_json::json!({})),
+        );
+
+        let error = client
+            .call_tool("fake_delete", serde_json::json!({}))
+            .await
+            .expect_err("写工具不应重试");
+        assert!(matches!(error, McpError::TransportError(_)));
+        assert_eq!(attempts.load(Ordering::SeqCst), 1, "不得重发");
+    }
 
     fn live_config(token: String) -> McpServerConfig {
         McpServerConfig {
