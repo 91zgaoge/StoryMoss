@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.93.10（2026-11-09）
+
+**发布门禁修复：文档/版本校验失败时不再打包与上传官网。**
+
+- **诊断**：v0.93.6 与 v0.93.8 的 tag 构建红在 `docs-guard`（发布未更新 8 份必需文档），但 `tauri-build` / `upload-to-website` 不依赖它，失败后仍继续打包、创建 GitHub Release 并写官网。v0.93.8 更因 tag 打在未 bump 版本的清理提交上，把 **0.93.7** 的安装包与 `latest.json` 当作 v0.93.8 上传。
+- **修复**：`docs-guard` 新增 tag 与四处版本号（`Cargo.toml` / `tauri.conf.json` / `package.json` / `landing` 的 `FALLBACK_VERSION`）一致性校验；`tauri-build` 依赖 `docs-guard`（非 tag 时 skipped 放行，tag 时门禁失败即不打包），`upload-to-website` / `verify-updater-manifest` 仅在门禁 success 时执行——不会再出现「门禁红、发布照走」。
+- **验证**：本地按 v0.93.10 dry-run 版本校验通过（tag/Cargo/tauri/package/FALLBACK 全一致）；workflow YAML 解析通过（jobs/needs/if 均有效）。
+- **未关闭**：v0.93.6 / v0.93.8 的红 run 属历史记录，按规则不重写 tag；v0.93.8 的错误 Release（内含 0.93.7 产物）如需清理需另行确认。
+
 ## v0.93.9（2026-11-09）
 
 **幕后侧栏 IA：任务提升为一级菜单，拆书 / 指导书提炼 / 续写训练归入任务组。**

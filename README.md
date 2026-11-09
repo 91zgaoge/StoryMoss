@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.9-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.10-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.93.10 · 发布门禁不再「红着照发」
+
+修掉了发布流程的一个漏洞：tag 构建的文档/版本检查失败后，打包与官网上传仍会继续。v0.93.8 就曾把 0.93.7 的安装包当作新版本传上去。现在 `docs-guard` 会同时校验 tag 与四处版本号一致，失败时直接拦住打包、GitHub Release 与官网上传。
 
 ### v0.93.9 · 「任务」成了一级菜单，训练与分析工具归位
 

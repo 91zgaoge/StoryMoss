@@ -1,4 +1,6 @@
-# StoryMoss v0.93.9 架构文档
+# StoryMoss v0.93.10 架构文档
+
+> **v0.93.10**：**发布门禁链路**——`docs-guard` 在 tag 推送时校验 tag 版本与 `Cargo.toml`/`tauri.conf.json`/`package.json`/`landing FALLBACK_VERSION` 一致，并校验 8 份必需文档相对上一 tag 有更新；`tauri-build` 的 `needs` 加入 docs-guard（非 tag skipped 放行），`upload-to-website`/`verify-updater-manifest` 仅在 docs-guard success 时执行，门禁失败不再产出/发布安装包。
 
 > **v0.93.9**：**幕后侧栏 IA 调整**——`NAV_GROUPS` 五组扩为六组（创作/任务/故事资产/运维/分析/系统），「任务」提升为一级组并收纳全部任务/拆书/指导书提炼/续写训练；新增 `ViewType='guidebook-distillation'`，`App.renderView` 渲染 `<BookDeconstruction initialTab="guidebooks" />`，拆书页内页签切换同步 `appStore.currentView`，侧栏高亮与页签状态双向一致。
 

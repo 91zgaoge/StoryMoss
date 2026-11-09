@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.93.9)
+# 🧪 StoryMoss 自动化测试环境 (v0.93.10)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.93.10 变更说明
+
+- **发布门禁修复（CI 配置）**：`docs-guard` 增加 tag 与四处版本号一致性校验；`tauri-build` 依赖 `docs-guard`（非 tag skipped 放行），`upload-to-website` / `verify-updater-manifest` 仅在门禁 success 时执行，修复「文档/版本门禁失败仍打包上传」。
+- **结果**：本地 dry-run 版本校验通过、workflow YAML 解析通过；Rust **2083 passed / 17 ignored**、Vitest **701 / 3**、Playwright **144 / 5** 均不变（无应用代码改动）。
+- **未关闭**：v0.93.6 / v0.93.8 历史失败 run 不重写 tag；v0.93.8 错误 Release 是否清理待确认。
 
 ### v0.93.9 变更说明
 

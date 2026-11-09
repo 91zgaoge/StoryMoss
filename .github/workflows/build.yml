@@ -27,6 +27,32 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Verify tag version matches manifests
+        run: |
+          set -euo pipefail
+          # v0.93.9: v0.93.8 的 tag 打在未 bump 版本的清理提交上，产物/latest.json
+          # 仍是 0.93.7 却照样上传了官网。发布前先机械校验四处版本号一致，
+          # 防止 tag 与安装包版本错位（AGENTS.md 规则 3）。
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          TAG_VERSION="${TAG_VERSION%-nightly}"
+          CARGO_VERSION=$(grep -m1 -E '^version = "' src-tauri/Cargo.toml | sed -E 's/^version = "([^"]+)"/\1/')
+          TAURI_VERSION=$(python3 -c "import json;print(json.load(open('src-tauri/tauri.conf.json'))['version'])")
+          PACKAGE_VERSION=$(python3 -c "import json;print(json.load(open('src-frontend/package.json'))['version'])")
+          FALLBACK_VERSION=$(sed -n -E 's/.*FALLBACK_VERSION = "([^"]+)".*/\1/p' landing/src/hooks/useLatestRelease.ts | head -1)
+          echo "tag=${TAG_VERSION} Cargo.toml=${CARGO_VERSION} tauri.conf.json=${TAURI_VERSION} package.json=${PACKAGE_VERSION} FALLBACK_VERSION=${FALLBACK_VERSION}"
+          mismatch=""
+          for pair in "Cargo.toml:${CARGO_VERSION}" "tauri.conf.json:${TAURI_VERSION}" "package.json:${PACKAGE_VERSION}" "FALLBACK_VERSION:${FALLBACK_VERSION}"; do
+            name="${pair%%:*}"
+            value="${pair#*:}"
+            if [ "${value}" != "${TAG_VERSION}" ]; then
+              mismatch="${mismatch} ${name}=${value}"
+            fi
+          done
+          if [ -n "${mismatch}" ]; then
+            echo "::error::tag 版本 ${TAG_VERSION} 与版本清单不一致：${mismatch}"
+            exit 1
+          fi
+          echo "✅ tag 与四处版本号一致"
       - name: Verify release docs were updated
         run: |
           set -euo pipefail
@@ -243,7 +269,10 @@ jobs:
 
   # Full Tauri build (matrix build for all platforms)
   tauri-build:
-    needs: [rust-check, frontend-check]
+    needs: [rust-check, frontend-check, docs-guard]
+    # docs-guard 仅 tag 运行：非 tag 时 result=skipped，放行构建；
+    # tag 时文档/版本门禁失败必须拦住打包与 GitHub Release 创建。
+    if: ${{ always() && needs.rust-check.result == 'success' && needs.frontend-check.result == 'success' && (needs.docs-guard.result == 'success' || needs.docs-guard.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 240
     strategy:
@@ -535,8 +564,9 @@ jobs:
   # docs/archive/LESSONS_LEARNED.md）。nightly 仍留在 GitHub Release。
   # concurrency：任何剩余的镜像上传（例如两个 tag 挨得很近）串行执行。
   upload-to-website:
-    needs: [tauri-build]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: [tauri-build, docs-guard]
+    # v0.93.9: 文档/版本门禁失败时绝不允许写官网（v0.93.8 曾把 0.93.7 产物当 v0.93.8 上传）。
+    if: ${{ always() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && needs.tauri-build.result == 'success' && needs.docs-guard.result == 'success' }}
     runs-on: ubuntu-latest
     concurrency:
       group: storymoss-release-upload
@@ -589,8 +619,8 @@ jobs:
 
   # tag 发布后确认 GitHub Release 含 latest.json（应用内升级器依赖）
   verify-updater-manifest:
-    needs: [tauri-build]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: [tauri-build, docs-guard]
+    if: ${{ always() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && needs.tauri-build.result == 'success' && needs.docs-guard.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Verify latest.json on GitHub Release
