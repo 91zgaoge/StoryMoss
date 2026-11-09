@@ -31,8 +31,8 @@ test('级联中心可把改稿影响交给导演', async ({ page }) => {
 test('Tasks 页代理任务页签可重试导演派发的任务', async ({ page }) => {
   await openBackstage(page);
   const aside = page.locator('aside');
-  await aside.getByRole('button', { name: /^运维/ }).click();
-  await aside.getByRole('button', { name: /^任务/ }).click();
+  // v0.93.9: 任务提升为一级菜单，入口在「任务 → 全部任务」，不再需要展开运维组
+  await aside.getByRole('button', { name: /^全部任务/ }).click();
 
   await page.getByRole('radio', { name: '代理任务', exact: true }).click();
   const list = page.getByTestId('agency-task-list');

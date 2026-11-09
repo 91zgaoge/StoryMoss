@@ -327,6 +327,8 @@ export type ViewType =
   | 'skills'
   | 'mcp'
   | 'book-deconstruction'
+  /** v0.93.9: 指导书提炼从拆书内页签提升为独立侧栏入口（复用拆书页的 guidebooks 页签） */
+  | 'guidebook-distillation'
   | 'tasks'
   | 'foreshadowing'
   | 'narrative-analysis'

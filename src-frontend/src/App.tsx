@@ -56,6 +56,7 @@ const FULL_HEIGHT_VIEWS = new Set<ViewType>([
   'corpus',
   'knowledge-graph',
   'book-deconstruction',
+  'guidebook-distillation',
   'story-system',
   'agency-studio',
   'logs',
@@ -423,6 +424,8 @@ function App() {
         return <Settings />;
       case 'book-deconstruction':
         return <BookDeconstruction />;
+      case 'guidebook-distillation':
+        return <BookDeconstruction initialTab="guidebooks" />;
       case 'tasks':
         return <Tasks />;
       case 'cascade-center':

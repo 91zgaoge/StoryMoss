@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.7-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.9-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.93.9 · 「任务」成了一级菜单，训练与分析工具归位
+
+幕后侧栏的「任务」从运维子项提升为一级菜单，排在「创作」之后，下面直接收纳四项：全部任务、拆书、指导书提炼、续写训练。此前拆书在创作组、续写训练在分析组（还默认折叠）、指导书提炼只能进拆书页再点页签；现在四个入口一屏可见，点「指导书提炼」直接落在对应页签，页内页签切换也会同步侧栏高亮。
 
 ### v0.93.7 · 风格学习不再因小错全废
 
@@ -952,9 +956,11 @@ v0.27.0–v0.30.0 上线的多代理创作框架取代了旧 GenesisPipeline（�
 | **场景**         | 管理场景（情节单元）         |
 | **知识图谱**     | 可视化角色/地点/事件关系     |
 | **技能**         | 配置 AI 辅助技能             |
-| **MCP**          | 连接外部模型/工具            |
-| **拆书**         | 分析参考书籍结构             |
-| **任务**         | 查看后台 AI 任务队列         |
+| **MCP**          | 连接外部模型/工具（在设置 → 扩展） |
+| **全部任务**     | 查看后台 AI 任务队列（任务组） |
+| **拆书**         | 分析参考书籍结构（任务组）   |
+| **指导书提炼**   | 上传创作指导书并提炼方法论（任务组） |
+| **续写训练**     | 取原书章节续写并与真实后续章五维对比（任务组） |
 | **伏笔看板**     | 追踪伏笔埋设与回收           |
 | **叙事分析**     | 诊断故事节奏与结构           |
 | **创作评估**     | 质量门评分趋势、检查点对比与 token 用量 |
@@ -1212,7 +1218,7 @@ MCP（Model Context Protocol）让草苔连接外部模型或数据源，扩展 
 
 ### 二十一、运行维护 · 创作评估 · 学习中心（幕后三页）
 
-**运行维护**（侧栏「诊断」组）集中呈现四类「待你决策」的队列与一处计划入口：
+**运行维护**（侧栏「运维」组）集中呈现四类「待你决策」的队列与一处计划入口：
 
 - **质量债**：质检降级 / 未解决的问题（含建议回收窗口），可结清或忽略。
 - **待确认**：分析自动新增的世界观硬规则，确认后才作为硬约束。

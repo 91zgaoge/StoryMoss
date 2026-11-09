@@ -28,28 +28,57 @@ vi.mock('@/stores/appStore', () => ({
   ),
 }));
 
-describe('Sidebar IA v0.81.1（设计文档 §3.1）', () => {
+describe('Sidebar IA v0.93.9（任务提升为一级菜单）', () => {
   const onNavigate = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('应有五组导航：创作/故事资产/运维/分析/系统', () => {
-    expect(NAV_GROUPS).toHaveLength(5);
-    expect(NAV_GROUPS.map(g => g.id)).toEqual(['create', 'assets', 'ops', 'analysis', 'system']);
-    expect(NAV_GROUPS.map(g => g.label)).toEqual(['创作', '故事资产', '运维', '分析', '系统']);
+  it('应有六组导航：创作/任务/故事资产/运维/分析/系统（任务在创作之后）', () => {
+    expect(NAV_GROUPS).toHaveLength(6);
+    expect(NAV_GROUPS.map(g => g.id)).toEqual([
+      'create',
+      'tasks',
+      'assets',
+      'ops',
+      'analysis',
+      'system',
+    ]);
+    expect(NAV_GROUPS.map(g => g.label)).toEqual([
+      '创作',
+      '任务',
+      '故事资产',
+      '运维',
+      '分析',
+      '系统',
+    ]);
   });
 
-  it('条目总数 24 且 label 零改动；创作工具并入创作组', () => {
+  it('任务组收纳全部任务/拆书/指导书提炼/续写训练，且默认展开', () => {
+    const tasks = NAV_GROUPS.find(g => g.id === 'tasks')!;
+    expect(tasks.defaultCollapsed).toBeUndefined();
+    expect(tasks.items.map(i => i.label)).toEqual(['全部任务', '拆书', '指导书提炼', '续写训练']);
+    expect(tasks.items.map(i => i.id)).toEqual([
+      'tasks',
+      'book-deconstruction',
+      'guidebook-distillation',
+      'training-lab',
+    ]);
+  });
+
+  it('条目总数 25 且拆书/续写训练不再留在创作与分析组', () => {
     const items = NAV_GROUPS.flatMap(g => g.items);
-    expect(items).toHaveLength(24);
+    expect(items).toHaveLength(25);
     expect(items.map(i => i.label)).toEqual([
       '仪表盘',
       '故事',
       '代理工作室',
       '技能',
+      '全部任务',
       '拆书',
+      '指导书提炼',
+      '续写训练',
       '场景',
       '角色',
       '语料',
@@ -57,7 +86,6 @@ describe('Sidebar IA v0.81.1（设计文档 §3.1）', () => {
       '伏笔',
       '知识图谱',
       '故事合同',
-      '任务',
       '运行维护',
       '级联中心',
       '日志',
@@ -65,19 +93,14 @@ describe('Sidebar IA v0.81.1（设计文档 §3.1）', () => {
       '数据洞察',
       '叙事分析',
       '创作评估',
-      '续写训练',
       '学习中心',
       '意图诊断',
       '设置',
     ]);
     const createIds = NAV_GROUPS.find(g => g.id === 'create')!.items.map(i => i.id);
-    expect(createIds).toEqual([
-      'dashboard',
-      'stories',
-      'agency-studio',
-      'skills',
-      'book-deconstruction',
-    ]);
+    expect(createIds).toEqual(['dashboard', 'stories', 'agency-studio', 'skills']);
+    const analysisIds = NAV_GROUPS.find(g => g.id === 'analysis')!.items.map(i => i.id);
+    expect(analysisIds).not.toContain('training-lab');
   });
 
   it('运维/分析组默认折叠', () => {
@@ -93,7 +116,7 @@ describe('Sidebar IA v0.81.1（设计文档 §3.1）', () => {
     render(<Sidebar currentView="dashboard" onNavigate={onNavigate} />);
     const toggle = screen.getByRole('button', { name: '展开运维分组' });
     fireEvent.click(toggle);
-    expect(screen.getByText('任务')).toBeInTheDocument();
+    expect(screen.getByText('运行维护')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '收起运维分组' })).toBeInTheDocument();
   });
 
@@ -111,7 +134,10 @@ describe('Sidebar IA v0.81.1（设计文档 §3.1）', () => {
     render(<Sidebar currentView="dashboard" onNavigate={onNavigate} />);
 
     expect(screen.getByTestId('nav-group-create')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-group-tasks')).toBeInTheDocument();
     expect(screen.getByTestId('nav-group-assets')).toBeInTheDocument();
+    expect(screen.getByText('全部任务')).toBeInTheDocument();
+    expect(screen.getByText('指导书提炼')).toBeInTheDocument();
     expect(screen.getByText('故事合同')).toBeInTheDocument();
     expect(screen.getByText('打开幕前写作')).toBeInTheDocument();
     // 运维/分析默认折叠：任务与数据洞察不可见，直到展开或进入该组
@@ -150,6 +176,16 @@ describe('Sidebar IA v0.81.1（设计文档 §3.1）', () => {
     render(<Sidebar currentView="dashboard" onNavigate={onNavigate} />);
     fireEvent.click(screen.getByText('设置'));
     expect(onNavigate).toHaveBeenCalledWith('settings');
+  });
+
+  it('任务组四项各自跳转到独立视图（指导书提炼不再是拆书内页签）', () => {
+    render(<Sidebar currentView="tasks" onNavigate={onNavigate} />);
+    fireEvent.click(screen.getByText('拆书'));
+    expect(onNavigate).toHaveBeenCalledWith('book-deconstruction');
+    fireEvent.click(screen.getByText('指导书提炼'));
+    expect(onNavigate).toHaveBeenCalledWith('guidebook-distillation');
+    fireEvent.click(screen.getByText('续写训练'));
+    expect(onNavigate).toHaveBeenCalledWith('training-lab');
   });
 
   it('点击扩展连接应重定向到设置扩展 Tab（MCP 不在侧栏）', () => {

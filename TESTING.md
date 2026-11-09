@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.93.7)
+# 🧪 StoryMoss 自动化测试环境 (v0.93.9)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.93.9 变更说明
+
+- **侧栏 IA 重构**：Sidebar 契约测试重写为六组/25 项，新增「任务组四项契约」「四项跳转独立视图」2 个用例；视口验收探针新增 `guidebook-distillation`、`training-lab` 两页 × 三档视口（+6），agency wiring 的 Tasks 入口改为「全部任务」。
+- **结果**：Rust **2083 passed / 17 ignored**（本轮无 Rust 改动）；tsc 0；Vitest **701 / 3**（+2）；Playwright **144 / 5**（+6）；prettier/guard 全绿。
+- **未关闭**：真机升级复测六组布局与窄态（<1024px）分组展开手感。
 
 ### v0.93.7 变更说明
 

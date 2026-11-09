@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.93.9（2026-11-09）
+
+**幕后侧栏 IA：任务提升为一级菜单，拆书 / 指导书提炼 / 续写训练归入任务组。**
+
+- **侧栏五组变六组**：创作 → **任务** → 故事资产 → 运维 → 分析 → 系统。「任务」组默认展开，四项直达：全部任务、拆书、指导书提炼、续写训练。
+- **入口归位**：拆书从创作组移出；续写训练从分析组移出（此前分析组默认折叠，入口需展开才可见）；指导书提炼从拆书页内页签提升为独立侧栏入口——新增视图 `guidebook-distillation`，复用拆书页并落在 guidebooks 页签（`BookDeconstruction` 新增 `initialTab`）。
+- **页签与侧栏双向同步**：点侧栏「指导书提炼」直接落在对应页签；在拆书页内切换「书籍拆解 / 指导书提炼」会同步 `currentView`，侧栏金色高亮跟随，不再出现页内已切换、侧栏却停在另一入口的错位。
+- **去重**：运维组不再保留「任务」子项；全部任务页标题仍为「任务」。
+- **验证**：Rust **2083 passed / 17 ignored**（本轮无 Rust 改动）；tsc 0；Vitest **701 / 3**（+2：任务组四项契约、四项跳转独立视图）；Playwright **144 / 5**（+6：guidebook-distillation 与 training-lab 加入三档视口验收；agency wiring 改用新入口）；fmt/prettier/guard 全绿。
+- **未关闭**：真机升级后确认侧栏六组布局与窄态（<1024px）分组展开手感。
+
 ## v0.93.7（2026-11-09）
 
 **续写训练二轮分析修复：StyleDNA 宽容解析（DNA 失效真根因）+ 训练任务行复用。**

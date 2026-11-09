@@ -24,8 +24,15 @@ import { cn } from '@/utils/cn';
 import { extractMessage, isSubscriptionRequired } from '@/utils/errorHandler';
 import { UpgradeModal } from '@/components/UpgradeModal';
 
-export function BookDeconstruction() {
-  const [activeTab, setActiveTab] = useState<'books' | 'guidebooks'>('books');
+type DeconstructionTab = 'books' | 'guidebooks';
+
+interface BookDeconstructionProps {
+  /** v0.93.9: 侧栏「拆书」/「指导书提炼」两个入口决定初始页签 */
+  initialTab?: DeconstructionTab;
+}
+
+export function BookDeconstruction({ initialTab = 'books' }: BookDeconstructionProps) {
+  const [activeTab, setActiveTab] = useState<DeconstructionTab>(initialTab);
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showUpload, setShowUpload] = useState(false);
@@ -189,7 +196,13 @@ export function BookDeconstruction() {
         ).map(tab => (
           <button
             key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => {
+              setActiveTab(tab.key);
+              // 页签与侧栏两个入口保持同步：切到指导书时高亮侧栏「指导书提炼」
+              setCurrentView(
+                tab.key === 'books' ? 'book-deconstruction' : 'guidebook-distillation'
+              );
+            }}
             className={cn(
               'px-4 py-2 text-sm font-medium border-b-2 -mb-px',
               activeTab === tab.key

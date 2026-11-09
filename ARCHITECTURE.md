@@ -1,4 +1,6 @@
-# StoryMoss v0.93.7 架构文档
+# StoryMoss v0.93.9 架构文档
+
+> **v0.93.9**：**幕后侧栏 IA 调整**——`NAV_GROUPS` 五组扩为六组（创作/任务/故事资产/运维/分析/系统），「任务」提升为一级组并收纳全部任务/拆书/指导书提炼/续写训练；新增 `ViewType='guidebook-distillation'`，`App.renderView` 渲染 `<BookDeconstruction initialTab="guidebooks" />`，拆书页内页签切换同步 `appStore.currentView`，侧栏高亮与页签状态双向一致。
 
 > **v0.93.7**：**StyleDNA 宽容解析**——`domain/style.rs` 的 `StyleDNA` 与七个子 profile 加容器级 `#[serde(default)]`：LLM 返回缺字段/缺整块 profile 回退默认而非整份解析报废（真机根因：缺 `temporal_quality` → `missing field` → 风格 DNA 静默失效）；训练「立即跑」按书名+调度类型双向复用任务行。
 
@@ -1219,7 +1221,7 @@ function assertUnreachable(x: never): never {
 - **Gate v2 加权评分**：code 0.2 / rule 0.3 / model 0.5 加权总分，阈值 0.75，取代二元判定；gate 判定条目落黑板审查区（`item_type='gate'`，content 含 outcome + gate_score）。
 - **V110 里程碑检查点**：`agency_checkpoints` 表按里程碑采集指标快照（chapters_done/words_total/gate_scores/tokens_used/elapsed_s），`agency_compare_checkpoints` 输出现在 vs 当时差值。
 - **eval harness**（`eval_harness.rs`）：JSON 场景 + pass@k/pass^k 指标 + baseline.json 回归门，确定性模式随 `cargo test` 纳入 CI。
-- **评估仪表盘**：`agency_eval_overview` IPC 五段聚合（gate 历史 + pass_rate + checkpoints + human_signals + 按角色 token 用量）；前端 `AgencyEval` 页（侧栏诊断组「创作评估」，手绘 SVG 加权分趋势，零图表依赖）。
+- **评估仪表盘**：`agency_eval_overview` IPC 五段聚合（gate 历史 + pass_rate + checkpoints + human_signals + 按角色 token 用量）；前端 `AgencyEval` 页（侧栏分析组「创作评估」，手绘 SVG 加权分趋势，零图表依赖）。
 
 **P5（持续学习 + 代理可视化）**：
 

@@ -12,6 +12,7 @@ import {
   MonitorPlay,
   Network,
   BookMarked,
+  BookText,
   ListChecks,
   Eye,
   GitBranch,
@@ -69,7 +70,7 @@ type NavGroup = {
   items: NavItem[];
 };
 
-/** v0.81.1: 五组 IA（创作/故事资产/运维/分析/系统，设计文档 §3.1）；条目 label 不变；运维/分析默认折叠 */
+/** v0.93.9: 六组 IA（创作/任务/故事资产/运维/分析/系统）；「任务」提升为一级菜单并收纳拆书/指导书提炼/续写训练 */
 export const NAV_GROUPS: NavGroup[] = [
   {
     id: 'create',
@@ -79,7 +80,21 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'stories', label: '故事', icon: BookOpen, impact: 'hot' },
       { id: 'agency-studio', label: '代理工作室', icon: Bot, impact: 'hot' },
       { id: 'skills', label: '技能', icon: Wand2, impact: 'hot' },
+    ],
+  },
+  {
+    id: 'tasks',
+    label: '任务',
+    items: [
+      { id: 'tasks', label: '全部任务', icon: ListChecks, impact: 'warm' },
       { id: 'book-deconstruction', label: '拆书', icon: BookMarked, impact: 'warm' },
+      {
+        id: 'guidebook-distillation',
+        label: '指导书提炼',
+        icon: BookText,
+        impact: 'warm',
+      },
+      { id: 'training-lab', label: '续写训练', icon: Dumbbell, impact: 'warm' },
     ],
   },
   {
@@ -100,7 +115,6 @@ export const NAV_GROUPS: NavGroup[] = [
     label: '运维',
     defaultCollapsed: true,
     items: [
-      { id: 'tasks', label: '任务', icon: ListChecks, impact: 'warm' },
       { id: 'maintenance', label: '运行维护', icon: Wrench, impact: 'cold' },
       { id: 'cascade-center', label: '级联中心', icon: Workflow, impact: 'warm' },
       { id: 'logs', label: '日志', icon: ScrollText, impact: 'cold' },
@@ -115,7 +129,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'usage-stats', label: '数据洞察', icon: BarChart3, impact: 'cold' },
       { id: 'narrative-analysis', label: '叙事分析', icon: GitBranch, impact: 'cold' },
       { id: 'agency-eval', label: '创作评估', icon: Gauge, impact: 'warm' },
-      { id: 'training-lab', label: '续写训练', icon: Dumbbell, impact: 'warm' },
       { id: 'agency-learning', label: '学习中心', icon: Brain, impact: 'warm' },
       { id: 'intention-graph', label: '意图诊断', icon: BrainCircuit, impact: 'cold' },
     ],
