@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.93.10 项目完成状态
+# StoryMoss (草苔) v0.93.11 项目完成状态
+
+> 最后更新: 2026-11-09（**v0.93.11：CI protoc 下载重试**——rust-check/tauri-build 的 `arduino/setup-protoc` 外层三步重试 + `Verify protoc`；修复 GitHub Release 504 导致的 macOS rust-check 偶发红。测试基线不变：Rust **2083/17**，Vitest **701/3**，Playwright **144/5**。）
 
 > 最后更新: 2026-11-09（**v0.93.10：发布门禁修复**——`docs-guard` 增加 tag 与四处版本号一致性校验；`tauri-build`/官网`upload-to-website`/`verify-updater-manifest` 改为依赖 docs-guard 结果，文档或版本门禁失败时不再打包与发布。修复 v0.93.6/v0.93.8「门禁红仍上传」漏洞；v0.93.8 曾误传 0.93.7 产物。测试基线不变：Rust **2083/17**，Vitest **701/3**，Playwright **144/5**。）
 

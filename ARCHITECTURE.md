@@ -1,4 +1,6 @@
-# StoryMoss v0.93.10 架构文档
+# StoryMoss v0.93.11 架构文档
+
+> **v0.93.11**：**CI 外部依赖韧性**——`rust-check` 与 `tauri-build` 的 protoc 安装（`arduino/setup-protoc@v3`）外层补两次重试：首步 `continue-on-error`、按 `outcome == 'failure'` 触发 retry 1/2，末尾 `protoc --version` 兜底验证；GitHub Release 504 不再一次抖动就让 tag 构建红。
 
 > **v0.93.10**：**发布门禁链路**——`docs-guard` 在 tag 推送时校验 tag 版本与 `Cargo.toml`/`tauri.conf.json`/`package.json`/`landing FALLBACK_VERSION` 一致，并校验 8 份必需文档相对上一 tag 有更新；`tauri-build` 的 `needs` 加入 docs-guard（非 tag skipped 放行），`upload-to-website`/`verify-updater-manifest` 仅在 docs-guard success 时执行，门禁失败不再产出/发布安装包。
 

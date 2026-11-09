@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.93.11（2026-11-09）
+
+**CI 加固：protoc 下载 504 重试，外部依赖抖动不再直接让 tag 构建变红。**
+
+- **诊断**：v0.93.10 tag 构建的 macOS `rust-check` 红在 `arduino/setup-protoc@v3`——GitHub Release 下载 `protoc-23.4-osx-aarch_64.zip` 连续两次 504，动作内部重试耗尽后直接失败（与本仓库代码无关；重跑同一 job 即恢复）。
+- **修复**：`rust-check` 与 `tauri-build` 两处 protoc 安装改为外层三步重试（首次 `continue-on-error`，失败自动再试两次），最后 `Verify protoc` 确保二进制真正可用；任一次成功即继续，三次都失败才让 job 红。
+- **验证**：v0.93.10 重跑 macOS rust-check 的 `Install protoc` 已通过；v0.93.11 以新 tag 实测新重试路径。
+- **未关闭**：v0.93.8 错误 Release（含 0.93.7 产物）清理待确认。
+
 ## v0.93.10（2026-11-09）
 
 **发布门禁修复：文档/版本校验失败时不再打包与上传官网。**

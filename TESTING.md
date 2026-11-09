@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.93.10)
+# 🧪 StoryMoss 自动化测试环境 (v0.93.11)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.93.11 变更说明
+
+- **CI 加固**：`rust-check` / `tauri-build` 的 protoc 安装增加外层两次重试与 `Verify protoc`；修复 GitHub Release 504 导致 macOS rust-check 偶发红。应用代码与测试数量不变。
+- **结果**：Rust **2083 passed / 17 ignored**；Vitest **701 / 3**；Playwright **144 / 5**。
+- **未关闭**：v0.93.8 错误 Release 是否清理待确认。
 
 ### v0.93.10 变更说明
 

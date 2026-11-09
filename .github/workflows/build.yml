@@ -90,10 +90,28 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
+      # v0.93.11: GitHub Release 下载偶发 504（v0.93.10 的 macOS rust-check 曾红）。
+      # setup-protoc 内部重试次数有限，外层补两次重试，最后验证 protoc 可用。
       - name: Install protoc
+        id: protoc-install
+        uses: arduino/setup-protoc@v3
+        continue-on-error: true
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install protoc (retry 1)
+        id: protoc-retry-1
+        if: ${{ steps.protoc-install.outcome == 'failure' }}
+        uses: arduino/setup-protoc@v3
+        continue-on-error: true
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install protoc (retry 2)
+        if: ${{ steps.protoc-install.outcome == 'failure' && steps.protoc-retry-1.outcome == 'failure' }}
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify protoc
+        run: protoc --version
 
       - name: Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
@@ -317,10 +335,28 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # v0.93.11: GitHub Release 下载偶发 504（v0.93.10 的 macOS rust-check 曾红）。
+      # setup-protoc 内部重试次数有限，外层补两次重试，最后验证 protoc 可用。
       - name: Install protoc
+        id: protoc-install
+        uses: arduino/setup-protoc@v3
+        continue-on-error: true
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install protoc (retry 1)
+        id: protoc-retry-1
+        if: ${{ steps.protoc-install.outcome == 'failure' }}
+        uses: arduino/setup-protoc@v3
+        continue-on-error: true
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install protoc (retry 2)
+        if: ${{ steps.protoc-install.outcome == 'failure' && steps.protoc-retry-1.outcome == 'failure' }}
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify protoc
+        run: protoc --version
 
       - name: Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
