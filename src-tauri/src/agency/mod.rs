@@ -46,6 +46,7 @@ pub mod task_repository;
 pub mod technique_feedback;
 pub mod tool_loop;
 pub mod tools;
+pub mod training_assets;
 
 pub use models::*;
 

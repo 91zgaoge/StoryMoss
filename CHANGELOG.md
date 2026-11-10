@@ -2,6 +2,23 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.94.0（2026-11-10）
+
+**续写训练按真实创作流程重构：资产重建 → 续写 → 编审 → 对比 → 经验闭环。**
+
+- **训练资产重建**：新增 `agency/training_assets.rs`。训练执行器在续写前用取得的上下文章（不含末位真实基准章）重建：
+  - 世界观 `world_buildings`：concept / history / rules；
+  - 故事大纲 `story_outlines`：核心冲突 / 已发生转折点 / 下一节点；
+  - 角色卡 `characters`：姓名/背景/性格/目标 + 情感四字段；
+  - 角色关系 `character_relationships`：source/target/类型/情感纽带；
+  - 逐章梗概 `scenes.outline_content`：供章纲生成与下一节点编译使用。
+  复用既有 `CharacterRepository` / `WorldBuildingRepository` / `StoryOutlineRepository` / `SceneRepository` / `materialize::upsert_seed_relationship`；资产分析只允许使用前文实际出现的人名/地名，未接地人名一律跳过；JSON 解析失败时复用 `asset_refresh::parse_refresh_payload` salvage 世界观/大纲/角色。长章采样保留开场 + 结尾窗口，末章结尾用于 `next_node`。
+- **续写与编审**：资产就绪后仍走既有 `run_continue_batch_with_cancel`（writer → gate/revision → assembly），不再触发“创作资产为空”拒绝路径；训练指令继续携带上一章结尾硬承接锚点与重叠区间历史建议。
+- **对比与经验闭环**：判官增加「上一章结尾（衔接基准）」，专门检查 AI 是否紧接现场、人物与未完结事件；`comments`/`improvement` 必须包含承接修正。报告固定记录「资产重建 → 编审 → 对比」三段流程与本轮资产计数，下一轮继续自动注入 improvement。
+- **可见性**：训练进度新增 assets 阶段；任务日志输出世界观/大纲/角色/关系/章节梗概计数与告警。
+- **验证**：Rust **2107 passed / 17 ignored**（+6：资产重建落库全链路、资产 prompt 契约、键值散文 salvage、未接地人名过滤、逐章梗概映射、判官承接基准）；tsc 0；Vitest **706 / 3**、Playwright **144 / 5** 基线不变；fmt/clippy/guard 全绿。
+- **未关闭**：升级后真机跑第 97 章训练，确认资产重建计数、writer 不再拒绝、gate/revision 正常、报告含承接基准与真实五维分；旧沙盒被空稿覆盖的正文仍需从黑板/源章节恢复。
+
 ## v0.93.16（2026-11-10）
 
 **续写训练连贯性根修：基准章泄漏/硬承接锚点/过期建议过滤/拒绝话术/空稿覆盖。**

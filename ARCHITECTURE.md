@@ -1,4 +1,6 @@
-# StoryMoss v0.93.16 架构文档
+# StoryMoss v0.94.0 架构文档
+
+> **v0.94.0**：**续写训练资产重建 + 编审/对比闭环**——新增 `agency/training_assets.rs`：`ContinuationTrainingExecutor` 在续写前从上下文章（不含末位真实基准章）调用资产分析 LLM，重建 `world_buildings`（concept/history/rules）、`story_outlines`（核心冲突/转折点/下一节点）、`characters`（含情感四字段）、`character_relationships` 与 `scenes.outline_content` 逐章梗概；复用 `CharacterRepository`/`WorldBuildingRepository`/`StoryOutlineRepository`/`SceneRepository`/`materialize::upsert_seed_relationship`，未接地人名跳过，JSON 失败复用 `asset_refresh::parse_refresh_payload` salvage。资产就绪后仍走 `run_continue_batch_with_cancel`（writer→gate/revision→assembly）；`compare_and_report`/`judge_prompt` 新增上一章结尾衔接基准，报告固定记录「资产重建→编审→对比」三段流程。
 
 > **v0.93.16**：**续写训练连贯性与空稿守卫**——`task_system/continuation_training.rs` 新增 `context_chapters`/`build_continuity_anchor`：文风锚点与承接锚点只取上下文章，末位真实基准章禁止泄漏；训练指令注入上一章结尾原文 900 字（同地点/同批人物/同时代承接、未完结事件先落地、禁新主角/新委托/新场景），`inject_director_directive` 上限 1200→4096；`load_prior_insights` 按承接区间过滤跨区间建议；`agency/coordinator.rs` 的 batch/revision writer prompt 追加「资产缺失兜底」硬规则，`writer_prose_fallback` 在有前文时改用 `assemble_continue_prose_fallback`（带【前文】的续写 prompt，不再复用创世开篇）；`validate_generated_prose` 拒绝 `<p></p>`/空白、<300 字与拒绝话术，判分输入统一 `content_to_plain_text`；`SceneRepository::update_in_tx` 把视觉空 HTML 视为 None，幕前切书空文档不再覆盖已有正文。
 

@@ -1,8 +1,17 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.93.16)
+# 🧪 StoryMoss 自动化测试环境 (v0.94.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.94.0 变更说明
+
+- **训练资产重建链路**：
+  - Rust +4：`json_bundle_parses_and_persists_all_assets`（世界观/故事大纲/角色/关系/逐章梗概落库全链路）、`asset_rebuild_prompt_mentions_grounded_schema_and_last_chapter_window`（资产 prompt 契约与末章结尾窗口）、`labeled_prose_falls_back_to_refresh_payload`（键值散文 salvage 世界观/大纲）、`skips_ungrounded_names_in_relationships_and_characters`（未接地人名/关系端点过滤）。
+  - Rust +1：`chapter_outlines_accept_map_and_keep_last_chapter_tail_window`（逐章梗概映射 + 长章开场/结尾采样）。
+  - Rust +1：`judge_prior_baseline_uses_last_context_chapter_tail_only`（判官承接基准只用上文章尾、不含真实基准章）。
+- **结果**：Rust **2107 passed / 17 ignored**（+6）；tsc 0；Vitest **706 / 3**、Playwright **144 / 5** 基线不变；fmt/clippy/guard 全绿。
+- **未关闭**：升级到 v0.94.0 后真机跑第 97 章训练，确认资产重建计数、writer 不再拒绝、gate/revision 正常、报告含承接基准与真实五维分；旧沙盒被空稿覆盖的正文需从黑板草稿/源章节恢复。
 
 ### v0.93.16 变更说明
 

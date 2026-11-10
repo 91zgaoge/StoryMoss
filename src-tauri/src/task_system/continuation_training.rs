@@ -115,6 +115,25 @@ fn build_style_anchor(chapters: &[Chapter]) -> String {
 /// writer 在「创作资产区域为空」时拒绝写作或另起现代都市故事（陈默/铜钱），
 /// 与《阴脉先生》第 106 章的「桐人镇魇」现场完全脱节。把上一章末段直接
 /// 放进指令，模型即使没有资产可读也有可承接的具体文本。
+/// v0.94.0：判官/报告用的上一章结尾窗口（只用于判断续写是否承接，绝不能
+/// 作为“真实基准章”泄漏给 writer——writer 侧走 build_continuity_anchor）。
+const JUDGE_PRIOR_TAIL_CHARS: usize = 800;
+
+fn judge_prior_baseline(chapters: &[Chapter]) -> (usize, String) {
+    let context = context_chapters(chapters);
+    let Some((number, content)) = context.last() else {
+        return (0, String::new());
+    };
+    let text = crate::export::content::content_to_plain_text(content);
+    let total = text.chars().count();
+    let start = text
+        .char_indices()
+        .nth_back(JUDGE_PRIOR_TAIL_CHARS.saturating_sub(1))
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    (*number, text[start..].trim().to_string())
+}
+
 fn build_continuity_anchor(chapters: &[Chapter]) -> String {
     const TAIL_CHARS: usize = 900;
     let context = context_chapters(chapters);
@@ -248,6 +267,43 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             .apply_style_dna(&story.id, &payload.book_title, &chapters, &ctx)
             .await;
 
+        // ── 3.5 训练资产重建（v0.94.0）─────────────────────────
+        // 训练沙盒不是“从零创世”：先把上下文章归一为世界观/故事大纲/角色/
+        // 关系/逐章梗概，再进入既有续写与编审管线。这样 writer 拿到的资产
+        // 与正作续写同源，不再因资产区为空拒绝或另起新故事。
+        ctx.update_progress("assets", 35, "正在重建世界观/大纲/角色/故事线…");
+        let asset_llm = crate::llm::LlmService::new(self.app_handle.clone());
+        let asset_input: Vec<(usize, String)> = context_chapters(&chapters)
+            .iter()
+            .map(|(number, content)| (*number, content.clone()))
+            .collect();
+        let rebuilt = crate::agency::training_assets::rebuild_from_context(
+            &self.pool,
+            &asset_llm,
+            &story.id,
+            &payload.book_title,
+            &asset_input,
+        )
+        .await;
+        if let Some(err) = rebuilt.llm_error.as_deref() {
+            ctx.log("warn", &format!("资产重建失败（继续训练）：{err}"));
+        } else {
+            ctx.log(
+                "info",
+                &format!(
+                    "资产重建完成：世界观{}｜故事大纲{}｜角色{}｜关系{}｜章节梗概{}",
+                    if rebuilt.world { "✓" } else { "—" },
+                    if rebuilt.story_outline { "✓" } else { "—" },
+                    rebuilt.characters,
+                    rebuilt.relationships,
+                    rebuilt.chapter_outlines
+                ),
+            );
+        }
+        for warning in rebuilt.warnings.iter().take(4) {
+            ctx.log("warn", warning);
+        }
+
         // ── 4. 承接锚点 + 上轮改进建议注入（自动闭环）──────────
         // v0.93.16: 沙盒没有世界观/角色卡/大纲资产，通用管线会因「创作资产
         // 为空」拒绝写作，或把续写写成新故事开篇。训练指令必须携带上一章
@@ -377,7 +433,10 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             &chapters.last().map(|c| c.1.clone()).unwrap_or_default(),
         );
 
-        // ── 7. LLM 对比评审（五维）─────────────────────────────
+        // ── 7. LLM 对比评审（五维 + 承接基准）─────────────────
+        // v0.94.0：判官除对比真实后续章，还要看到上一章结尾现场，专门检查
+        // AI 是否紧接该现场；这样 improvement 能沉淀“衔接失败”的经验。
+        let (prior_chapter, prior_tail) = judge_prior_baseline(&chapters);
         let llm = crate::llm::LlmService::new(self.app_handle.clone());
         let (report_md, scores_json, improvement_md) = self
             .compare_and_report(
@@ -387,8 +446,40 @@ impl TaskExecutor for ContinuationTrainingExecutor {
                 &generated,
                 truth_index,
                 next_chapter,
+                prior_chapter,
+                &prior_tail,
             )
             .await?;
+        // v0.94.0：报告固定记录本轮“资产重建 → 编审 → 对比”三段经验，
+        // 让下一轮注入的建议能同时优化资产管理、承接与写作。
+        let gate_verdict = batch
+            .chapters
+            .first()
+            .map(|c| c.verdict.verdict.as_str())
+            .unwrap_or("-");
+        let revised = batch.chapters.first().map(|c| c.revised).unwrap_or(false);
+        let asset_line = if let Some(err) = rebuilt.llm_error.as_deref() {
+            format!(
+                "资产重建失败（继续训练）：{}",
+                Self::preview_chars(err, 160)
+            )
+        } else {
+            format!(
+                "世界观{}｜故事大纲{}｜角色{}｜关系{}｜章节梗概{}",
+                if rebuilt.world { "✓" } else { "—" },
+                if rebuilt.story_outline { "✓" } else { "—" },
+                rebuilt.characters,
+                rebuilt.relationships,
+                rebuilt.chapter_outlines
+            )
+        };
+        let report_md = format!(
+            "{report_md}\n\n## 本轮训练流程\n\
+             - 资产重建：{asset_line}\n\
+             - 编审：质量门 verdict={gate_verdict}｜修订={revised}\n\
+             - 对比评审：五维评分 + 上一章结尾承接基准\n\
+             - 下一轮：自动注入本报告 improvement 与重叠区间历史建议\n"
+        );
         ctx.update_progress("report", 90, "正在保存训练报告…");
 
         // ── 8. 报告落库 + 清理旧沙盒 ───────────────────────────
@@ -892,6 +983,8 @@ impl ContinuationTrainingExecutor {
         generated: &str,
         truth_chapter: usize,
         generated_chapter: i32,
+        prior_chapter: usize,
+        prior_tail: &str,
     ) -> Result<(String, String, String), String> {
         let truth_cap = Self::cap(&crate::export::content::content_to_plain_text(truth));
         let gen_cap = Self::cap(&crate::export::content::content_to_plain_text(generated));
@@ -908,6 +1001,8 @@ impl ContinuationTrainingExecutor {
                 &gen_cap,
                 truth_chapter,
                 generated_chapter,
+                prior_chapter,
+                prior_tail,
                 attempt > 0,
             );
             let resp = llm
@@ -942,9 +1037,17 @@ impl ContinuationTrainingExecutor {
                     Self::preview_chars(&last_raw, 240)
                 );
                 log::warn!("[ContinuationTraining] 对比评审降级: {}", message);
+                let prior_line = if prior_chapter > 0 {
+                    format!(
+                        "- 衔接基准：原书第 {prior_chapter} 章结尾（判官据此判断是否紧接现场）\n"
+                    )
+                } else {
+                    String::new()
+                };
                 let report_md = format!(
                     "# 续写训练报告 · 《{book_title}》\n\n\
                      - 基准：真实第 {truth_chapter} 章 ｜ AI 续写：沙盒第 {generated_chapter} 章（对应真实第 {truth_chapter} 章）\n\
+                     {prior_line}\
                      - **本轮评分不可用**：判官未返回可用的五维评分（已重试），不计入训练趋势。\n\n\
                      ## 判官输出诊断\n\n{}\n",
                     Self::preview_chars(&last_raw, 240)
@@ -962,9 +1065,15 @@ impl ContinuationTrainingExecutor {
             }
         };
 
+        let prior_line = if prior_chapter > 0 {
+            format!("- 衔接基准：原书第 {prior_chapter} 章结尾（判官据此判断是否紧接现场）\n")
+        } else {
+            String::new()
+        };
         let report_md = format!(
             "# 续写训练报告 · 《{book_title}》\n\n\
              - 基准：真实第 {truth_chapter} 章 ｜ AI 续写：沙盒第 {generated_chapter} 章（对应真实第 {truth_chapter} 章）\n\
+             {prior_line}\
              - 加权总分：**{:.2}**\n\n\
              ## 五维评分\n\n\
              - 文笔风格：{}\n\
@@ -1022,6 +1131,8 @@ impl ContinuationTrainingExecutor {
         gen_cap: &str,
         truth_chapter: usize,
         generated_chapter: i32,
+        prior_chapter: usize,
+        prior_tail: &str,
         strict: bool,
     ) -> String {
         let strict_line = if strict {
@@ -1029,17 +1140,27 @@ impl ContinuationTrainingExecutor {
         } else {
             ""
         };
+        let prior_block = if prior_tail.trim().is_empty() || prior_chapter == 0 {
+            String::new()
+        } else {
+            format!(
+                "【上一章结尾（衔接基准；只用于判断续写是否紧接该现场，不是评分基准）】\n\
+                 {prior_tail}\n\n"
+            )
+        };
         format!(
             r#"{strict_line}你是网文编辑。下面是《{book_title}》第 {truth_chapter} 章的真实原文，以及 AI 按前文续写出的下一章（沙盒第 {generated_chapter} 章，对应真实第 {truth_chapter} 章）。请从五个维度给 AI 续写打分（1-10，10=与作者本人水准不可区分），并给出下一轮训练要落实的改进建议。
 
-【真实原文（基准）】
+{prior_block}【真实原文（基准）】
 {truth_cap}
 
 【AI 续写】
 {gen_cap}
 
+特别检查：AI 续写是否紧接「上一章结尾」的现场、人物与未完结事件（不得换场、新主角、新委托、新事件）。若衔接失败，comments 与 improvement 必须明确指出并从下一轮起修正。
+
 仅输出 JSON：
-{{"scores":{{"style":文笔风格相似度,"plot":情节推进合理性,"voice":人物口吻一致性,"pacing":节奏密度匹配,"hooks":钩子与悬念经营}},"overall":0.0-1.0加权总分,"comments":"每维 1-2 句依据","improvement":"下一轮续写必须落实的 2-3 条具体改进（给模型看，不超过 150 字）"}}"#
+{{"scores":{{"style":文笔风格相似度,"plot":情节推进合理性,"voice":人物口吻一致性,"pacing":节奏密度匹配,"hooks":钩子与悬念经营}},"overall":0.0-1.0加权总分,"comments":"每维 1-2 句依据（含承接判断）","improvement":"下一轮续写必须落实的 2-3 条具体改进（含承接修正，给模型看，不超过 150 字）"}}"#
         )
     }
 
@@ -1386,9 +1507,32 @@ mod tests {
 
     #[test]
     fn judge_prompt_names_sandbox_and_source_chapter() {
-        let prompt =
-            ContinuationTrainingExecutor::judge_prompt("阴脉先生", "真", "仿", 107, 11, false);
+        let prompt = ContinuationTrainingExecutor::judge_prompt(
+            "阴脉先生",
+            "真",
+            "仿",
+            107,
+            11,
+            106,
+            "桐人晃了晃栽在地。",
+            false,
+        );
         assert!(prompt.contains("沙盒第 11 章"));
         assert!(prompt.contains("对应真实第 107 章"));
+        assert!(prompt.contains("上一章结尾"));
+        assert!(prompt.contains("桐人晃了晃栽在地"));
+        assert!(prompt.contains("紧接"));
+    }
+
+    #[test]
+    fn judge_prior_baseline_uses_last_context_chapter_tail_only() {
+        let chapters: Vec<Chapter> = vec![
+            (106, "第106章结尾桐人镇魇。".into()),
+            (107, "第107章真实基准答案。".into()),
+        ];
+        let (number, tail) = judge_prior_baseline(&chapters);
+        assert_eq!(number, 106);
+        assert!(tail.contains("桐人镇魇"));
+        assert!(!tail.contains("真实基准答案"), "判官衔接基准不得含答案");
     }
 }
