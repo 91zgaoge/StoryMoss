@@ -636,12 +636,36 @@ impl SceneRepository {
         id: &str,
         updates: &SceneUpdate,
     ) -> Result<usize, rusqlite::Error> {
+        // v0.93.16：编辑器空文档判定。纯文本非空直接返回 false，只有可能含
+        // HTML 标签/实体时才走导出清洗（避免每次保存都做全量解析）。
+        fn visually_empty_content(content: &str) -> bool {
+            if content.trim().is_empty() {
+                return true;
+            }
+            if !content.contains('<') && !content.contains('&') {
+                return false;
+            }
+            crate::export::content::content_to_plain_text(content)
+                .trim()
+                .is_empty()
+        }
+
         let now = Local::now().to_rfc3339();
 
         // v0.30.46 fix: 空字符串 content 视为 None，避免静默覆盖已有正文。
         // 允许 Some("") 显式清空正文的场景不存在，正文清空应由专门操作处理。
+        // v0.93.16：tiptap 空文档是 `<p></p>`（非空字符串），旧守卫只挡得住
+        // 字面空串。真机幕前切书/编辑器挂载时的空文档曾把两个训练沙盒的
+        // 已生成正文覆盖成 7 字符空稿；这里统一按「视觉空」判定，视为 None。
         let content_param: Option<&str> = match updates.content.as_deref() {
-            Some(c) if c.trim().is_empty() => None,
+            Some(c) if visually_empty_content(c) => {
+                log::warn!(
+                    "[SceneRepository] 拒绝用视觉空正文覆盖已有正文 scene={}（len={}）",
+                    id,
+                    c.len()
+                );
+                None
+            }
             Some(c) => Some(c),
             None => None,
         };

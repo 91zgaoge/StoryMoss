@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.15-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.93.16-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,16 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.93.16 · 续写训练不再「另起新故事」，空稿不再冒充正文
+
+真机检查发现两个训练沙盒的续写与前作严重脱节：一轮写出了现代都市「陈默/铜钱」的新故事（与《阴脉先生》第 106 章的桐人镇魇现场无关），另一轮生成正文后又被幕前切书的 `<p></p>` 空文档覆盖。本版修复了根因：
+
+- **基准章泄漏**：训练指令的文风锚点此前取「最后两章」，末位是真实后续基准章（答案），会把基准章末段喂给模型；现在只用上下文章，基准章绝不进入续写指令。
+- **硬承接锚点**：训练指令始终携带上一章结尾原文（900 字），并明确「同一地点/同批人物/同一时代、未完结事件先落地，禁止新主角/新委托/新场景」；指令上限由 1200 字提高到 4096 字，锚点不再被截断。
+- **过期建议过滤**：上轮训练建议只在承接区间重叠时采用，跨章节区间（如第 1–10 章的建议）不再污染第 97 章之后的续写。
+- **资产缺失兜底**：沙盒无世界观/角色卡/大纲时，writer 不得输出「无法完成/创作资产为空」拒绝话术；续写管线的散文回退改为「带前文的续写 prompt」，不再复用创世开篇 prompt。
+- **空稿守卫**：判分前把 `<p></p>`/空白/拒绝话术判为不可用产出，任务失败且不落假报告；`update_scene` 统一把视觉空 HTML 视为 None，幕前切书空文档不再覆盖已有正文。
 
 ### v0.93.15 · 续写训练不再被一次网络抖动判死
 

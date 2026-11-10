@@ -1252,4 +1252,56 @@ mod tests {
         assert_eq!(healed.content.as_deref(), Some("<p>正文</p>"));
         assert_eq!(scene_repo.get_by_story(&story.id).unwrap().len(), 2);
     }
+
+    /// v0.93.16：幕前编辑器空文档 `<p></p>`（tiptap 序列化）不得覆盖
+    /// 已有正文。真机证据：`[训练]《阴脉先生》·1109-1821` 第 11 章与
+    /// `...·1109-1434` 第 62 章在切书/挂载后被写成 7 字符空稿。
+    #[test]
+    fn test_scene_update_rejects_visually_empty_html_overwrite() {
+        let pool = create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let scene_repo = SceneRepository::new(pool.clone());
+
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "空稿守卫测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        let scene = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
+        scene_repo
+            .update(
+                &scene.id,
+                &SceneUpdate {
+                    content: Some("<p>真正文不能被空文档覆盖。</p>".to_string()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        // 编辑器挂载/切书时常见的空文档形态
+        for empty in ["<p></p>", "<p><br></p>", "<p>  </p>", "<p>&nbsp;</p>"] {
+            let updated = scene_repo
+                .update(
+                    &scene.id,
+                    &SceneUpdate {
+                        content: Some(empty.to_string()),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            assert_eq!(updated, 1, "空稿守卫不应影响 UPDATE 命中行");
+            let after = scene_repo.get_by_id(&scene.id).unwrap().unwrap();
+            assert_eq!(
+                after.content.as_deref(),
+                Some("<p>真正文不能被空文档覆盖。</p>"),
+                "空文档 {empty} 不得覆盖已有正文"
+            );
+        }
+    }
 }

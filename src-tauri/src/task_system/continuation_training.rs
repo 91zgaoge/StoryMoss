@@ -37,6 +37,8 @@ const MAX_CHAPTER_CHARS: usize = 12_000;
 const KEEP_SANDBOXES: usize = 3;
 /// 风格分析采样上限（字符）
 const STYLE_SAMPLE_CHARS: usize = 12_000;
+/// 训练判分前正文的最低实质字数（低于此值视为空稿/拒绝话术）
+const MIN_GENERATED_CHARS: usize = 300;
 
 #[derive(Debug, Deserialize)]
 pub struct TrainingPayload {
@@ -84,13 +86,20 @@ fn default_chapter_count() -> usize {
     10
 }
 
-/// v0.93.5: 风格 DNA 失败时的降级文风锚点——取最后 2 个真实章节的末尾
-/// 各 ~600 字（合计 ≤1200），让模型直接模仿原文的遣词、句式、对话风格与
-/// 细节密度，而不是只收到一句抽象的「文风一致」。
+/// v0.93.16: 续写训练的上下文切片。`chapters` 末位是「真实后续基准章」，
+/// 只用于评分，绝不能进入续写指令——旧版 `build_style_anchor` 取末两章，
+/// 把基准章结尾泄漏给模型（训练失真，且模型可直接照抄答案）。
+fn context_chapters(chapters: &[Chapter]) -> &[Chapter] {
+    &chapters[..chapters.len().saturating_sub(1)]
+}
+
+/// v0.93.5: 风格 DNA 失败时的降级文风锚点——取最后 2 个**上下文**章的
+/// 末尾各 ~600 字（合计 ≤1200），让模型直接模仿原文的遣词、句式、对话
+/// 风格与细节密度，而不是只收到一句抽象的「文风一致」。
 fn build_style_anchor(chapters: &[Chapter]) -> String {
     const PER_CHAPTER_CHARS: usize = 600;
     let mut parts: Vec<String> = Vec::new();
-    for (_, content) in chapters.iter().rev().take(2).rev() {
+    for (_, content) in context_chapters(chapters).iter().rev().take(2).rev() {
         let start = content
             .char_indices()
             .nth_back(PER_CHAPTER_CHARS.saturating_sub(1))
@@ -99,6 +108,66 @@ fn build_style_anchor(chapters: &[Chapter]) -> String {
         parts.push(content[start..].trim().to_string());
     }
     parts.join("\n……\n")
+}
+
+/// v0.93.16: 训练指令的硬承接锚点——最后一个**上下文**章（即 `chapters` 的
+/// 倒数第二项）结尾原文。真机事故：沙盒没有世界观/角色卡/大纲资产，
+/// writer 在「创作资产区域为空」时拒绝写作或另起现代都市故事（陈默/铜钱），
+/// 与《阴脉先生》第 106 章的「桐人镇魇」现场完全脱节。把上一章末段直接
+/// 放进指令，模型即使没有资产可读也有可承接的具体文本。
+fn build_continuity_anchor(chapters: &[Chapter]) -> String {
+    const TAIL_CHARS: usize = 900;
+    let context = context_chapters(chapters);
+    let Some((number, content)) = context.last() else {
+        return String::new();
+    };
+    let start = content
+        .char_indices()
+        .nth_back(TAIL_CHARS.saturating_sub(1))
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    let tail = content[start..].trim();
+    if tail.is_empty() {
+        return String::new();
+    }
+    format!(
+        "上一章（原书第 {number} 章）结尾原文（真实前文，不是要预测的基准章）：\n\
+         {tail}\n\
+         续写必须从这段之后落笔：沿用同一地点、同一批人物、同一时代与所有未完结事件；\
+         禁止换场，禁止新主角/新委托/新事件，禁止把本章写成新故事开篇。"
+    )
+}
+
+/// v0.93.16：判分前校验「这真的是故事正文」。
+/// - 空 HTML（`<p></p>`）/纯空白 → 空稿；
+/// - 过短（<300 字）→ gate 失败或模型只给了片段；
+/// - 开头命中拒绝/元评论话术 → 不是正文（真机失败 run：writer 输出
+///   「我无法按当前输入完成这一章。原因是：提示中「创作资产」区域为空…」）。
+fn validate_generated_prose(plain: &str) -> Result<(), String> {
+    let trimmed = plain.trim();
+    let chars = trimmed.chars().count();
+    if chars == 0 {
+        return Err("正文为空（HTML 空文档或 gate 未产出）".to_string());
+    }
+    if chars < MIN_GENERATED_CHARS {
+        return Err(format!(
+            "正文过短（{chars} 字，至少 {MIN_GENERATED_CHARS} 字；gate 可能未通过）"
+        ));
+    }
+    let head: String = trimmed.chars().take(400).collect();
+    const REFUSAL_MARKERS: [&str; 5] = [
+        "无法按当前输入完成",
+        "创作资产区域为空",
+        "请提供创作资产",
+        "无法完成这一章",
+        "作为 AI",
+    ];
+    if let Some(marker) = REFUSAL_MARKERS.iter().find(|marker| head.contains(*marker)) {
+        return Err(format!(
+            "正文是模型拒绝/说明话术而非故事正文（命中「{marker}」）"
+        ));
+    }
+    Ok(())
 }
 
 pub struct ContinuationTrainingExecutor {
@@ -179,10 +248,10 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             .apply_style_dna(&story.id, &payload.book_title, &chapters, &ctx)
             .await;
 
-        // ── 4. 上轮改进建议注入（自动闭环）──────────────────────
-        // v0.93.5: 风格 DNA 失败时降级——用真实章节末尾原文节选做 few-shot
-        // 文风/口吻锚点（《阴脉先生》评估：DNA 静默失败时 style/voice 掉到
-        // 2/10，通用指令「文风一致」没有可模仿的具体材料）。
+        // ── 4. 承接锚点 + 上轮改进建议注入（自动闭环）──────────
+        // v0.93.16: 沙盒没有世界观/角色卡/大纲资产，通用管线会因「创作资产
+        // 为空」拒绝写作，或把续写写成新故事开篇。训练指令必须携带上一章
+        // 的真实结尾；且只用上下文章（末位基准章禁止泄漏）。
         let style_anchor = if style_applied {
             String::new()
         } else {
@@ -195,7 +264,14 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             }
             anchor
         };
-        let prior = self.load_prior_insights(&payload.book_title);
+        let context_start = chapters.first().map(|c| c.0).unwrap_or(0);
+        let continuity_anchor = build_continuity_anchor(&chapters);
+        if !continuity_anchor.is_empty() {
+            ctx.log("info", "已注入上一章结尾原文作为硬承接锚点");
+        }
+        // v0.93.16: 只采用与当前承接区间重叠的上轮报告；跨区间（如上一轮
+        // 训练第 1–10 章、本轮第 97–106 章）的剧情建议会直接污染续写。
+        let prior = self.load_prior_insights(&payload.book_title, context_start);
         let base_instruction = format!(
             "这是续写训练沙盒：前 {} 章是小说《{}》的真实内容。请以与原文一致的文风、\
              叙事节奏和人物口吻，自然续写下一章（不要总结、不要复述、不要写大纲）。",
@@ -210,12 +286,17 @@ impl TaskExecutor for ContinuationTrainingExecutor {
                  叙事节奏与生活细节密度，不得改换语体）】\n{style_anchor}"
             )
         };
-        let instruction = match &prior {
+        let mut instruction = match &prior {
             Some(insights) => {
                 format!("{base_instruction}\n\n历史训练结论（务必落实）：\n{insights}")
             }
             None => base_instruction,
         };
+        // 承接锚点放最后（指令 recency 最高）；旧版 style anchor 截断也
+        // 不会再把它挤掉。
+        if !continuity_anchor.is_empty() {
+            instruction = format!("{instruction}\n\n【必须承接的原文结尾】\n{continuity_anchor}");
+        }
 
         // ── 5. 走既有续写管线（含 gate/装配）────────────────────
         ctx.update_progress("continue", 40, "正在按原文风格续写下一章…");
@@ -261,7 +342,7 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         // 生成正文已装配进 scene（batch 只回 scene_id/章号），从 scene 读
         let scene_repo =
             crate::db::repositories::scene_repository::SceneRepository::new(self.pool.clone());
-        let generated = batch
+        let generated_raw = batch
             .chapters
             .first()
             .map(|c| {
@@ -273,9 +354,15 @@ impl TaskExecutor for ContinuationTrainingExecutor {
                     .unwrap_or_default()
             })
             .unwrap_or_default();
-        if generated.trim().is_empty() {
-            let msg = "续写产出为空（gate 可能未通过）".to_string();
+        // v0.93.16：空稿必须是「视觉空」而不是仅字符串空——tiptap 的空文档
+        // 序列化为 `<p></p>`（非空字符串），旧代码会把它当正文送去判官，
+        // 落出 0.0/scores:null 的假报告。拒绝话术（「创作资产区域为空」）
+        // 同样是模型元评论，不是正文。
+        let generated = crate::export::content::content_to_plain_text(&generated_raw);
+        if let Err(reason) = validate_generated_prose(&generated) {
+            let msg = format!("续写产出不可用：{reason}");
             ctx.log("error", &msg);
+            // 沙盒保留供排查；报告不落（无产出可比）
             return Ok(TaskResult {
                 success: false,
                 result_json: None,
@@ -286,7 +373,9 @@ impl TaskExecutor for ContinuationTrainingExecutor {
 
         // ── 6. 真实后续章作基准 ─────────────────────────────────
         let truth_index = chapters.last().map(|c| c.0).unwrap_or(0);
-        let truth = chapters.last().map(|c| c.1.clone()).unwrap_or_default();
+        let truth = crate::export::content::content_to_plain_text(
+            &chapters.last().map(|c| c.1.clone()).unwrap_or_default(),
+        );
 
         // ── 7. LLM 对比评审（五维）─────────────────────────────
         let llm = crate::llm::LlmService::new(self.app_handle.clone());
@@ -748,18 +837,26 @@ impl ContinuationTrainingExecutor {
         }
     }
 
-    /// 最近 2 轮报告的 improvement 建议拼成闭环提示
-    fn load_prior_insights(&self, book_title: &str) -> Option<String> {
+    /// 最近 2 轮报告的 improvement 建议拼成闭环提示。
+    ///
+    /// v0.93.16：只取与当前承接区间（`start_chapter..start+context_chapters`）
+    /// 重叠的报告。跨区间建议是具体剧情/人设（如「从包玉芹送房继续」），
+    /// 被注入到第 97 章之后的训练会直接污染续写（真机事故：现代都市陈默）。
+    fn load_prior_insights(&self, book_title: &str, start_chapter: usize) -> Option<String> {
         let conn = self.pool.get().ok()?;
         let mut stmt = conn
             .prepare(
                 "SELECT improvement_md FROM continuation_training_reports \
                  WHERE book_title = ?1 AND improvement_md IS NOT NULL AND improvement_md != '' \
+                 AND start_chapter <= ?2 \
+                 AND ?2 < start_chapter + context_chapters \
                  ORDER BY created_at DESC LIMIT 2",
             )
             .ok()?;
         let rows: Vec<String> = stmt
-            .query_map(rusqlite::params![book_title], |r| r.get::<_, String>(0))
+            .query_map(rusqlite::params![book_title, start_chapter as i64,], |r| {
+                r.get::<_, String>(0)
+            })
             .ok()?
             .filter_map(|r| r.ok())
             .collect();
@@ -796,8 +893,8 @@ impl ContinuationTrainingExecutor {
         truth_chapter: usize,
         generated_chapter: i32,
     ) -> Result<(String, String, String), String> {
-        let truth_cap = Self::cap(truth);
-        let gen_cap = Self::cap(generated);
+        let truth_cap = Self::cap(&crate::export::content::content_to_plain_text(truth));
+        let gen_cap = Self::cap(&crate::export::content::content_to_plain_text(generated));
 
         // v0.93.15：判官曾返回 {"scores":null,...}，旧代码照样落库成
         // 总分 0.00、五维「-」的假报告。评分不可用时先重试一次；
@@ -1098,12 +1195,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn style_anchor_takes_tail_of_last_two_chapters() {
+    fn style_anchor_takes_tail_of_last_two_context_chapters() {
         let chapters: Vec<Chapter> = (1..=3)
             .map(|i| (i, format!("第{i}章开头铺垫。{}", "市井细节。".repeat(200))))
             .collect();
         let anchor = build_style_anchor(&chapters);
-        // 只取最后两章
+        // 只取上下文最后两章（3 是基准章，禁止泄漏）
         assert!(!anchor.contains("第1章开头铺垫。"), "不应包含第 1 章");
         // 每章取的是末尾（含最后一句）
         assert!(anchor.contains("市井细节。"), "应包含章节末尾原文");
@@ -1114,10 +1211,70 @@ mod tests {
     }
 
     #[test]
-    fn style_anchor_handles_short_chapters() {
-        let chapters: Vec<Chapter> = vec![(1, "短章一".into()), (2, "短章二".into())];
+    fn style_anchor_excludes_truth_chapter() {
+        // v0.93.16：末位是真实后续基准章（答案），不得进入续写指令。
+        let chapters: Vec<Chapter> = vec![
+            (106, "第106章正文，末尾是桐人镇魇现场。".into()),
+            (107, "第107章真实基准，答案标记不得泄漏。".into()),
+        ];
+        let anchor = build_style_anchor(&chapters);
+        assert!(anchor.contains("桐人镇魇现场"));
+        assert!(
+            !anchor.contains("答案标记不得泄漏"),
+            "锚点泄漏基准章: {anchor}"
+        );
+    }
+
+    #[test]
+    fn style_anchor_handles_short_context_chapters() {
+        let chapters: Vec<Chapter> = vec![
+            (1, "短章一".into()),
+            (2, "短章二".into()),
+            (3, "基准章".into()),
+        ];
         let anchor = build_style_anchor(&chapters);
         assert!(anchor.contains("短章一") && anchor.contains("短章二"));
+        assert!(!anchor.contains("基准章"), "基准章不得进入锚点: {anchor}");
+    }
+
+    #[test]
+    fn continuity_anchor_uses_last_context_chapter_not_truth() {
+        // v0.93.16：承接锚点只取 chapters 倒数第二项（第 106 章），
+        // 末位第 107 章是评分基准，绝不能出现在续写指令里。
+        let chapters: Vec<Chapter> = vec![
+            (106, "桐人晃了晃栽在地。".into()),
+            (107, "扑通，扑通，扑通。基准章答案。".into()),
+        ];
+        let anchor = build_continuity_anchor(&chapters);
+        assert!(anchor.contains("第 106 章"));
+        assert!(anchor.contains("桐人晃了晃栽在地"));
+        assert!(
+            !anchor.contains("基准章答案"),
+            "承接锚点泄漏基准章: {anchor}"
+        );
+    }
+
+    #[test]
+    fn generated_prose_validation_rejects_empty_html_and_refusal() {
+        // 空稿：tiptap 空文档 <p></p> 经导出清洗后为空
+        let empty = crate::export::content::content_to_plain_text("<p></p>");
+        assert!(validate_generated_prose(&empty).is_err());
+        // 拒绝话术：真机 run 的 409 字元评论（这里重复到 ≥300 字，
+        // 确保命中拒绝判定而非先被「过短」挡住）
+        let refusal = "我无法按当前输入完成这一章。原因是：提示中「创作资产」区域为空。\
+                       请提供世界观、人物设定与大纲后再试。"
+            .repeat(6);
+        let err = validate_generated_prose(&refusal).unwrap_err();
+        assert!(err.contains("拒绝"), "err={err}");
+        // 正常正文 ≥300 字
+        let ok = "雨敲窗。他把铜钱放回掌心。\n".repeat(40);
+        assert!(
+            validate_generated_prose(&ok).is_ok(),
+            "chars={}",
+            ok.chars().count()
+        );
+        // 过短正文
+        assert!(validate_generated_prose("短正文。").is_err());
     }
 
     #[test]

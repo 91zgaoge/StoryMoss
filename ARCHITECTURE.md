@@ -1,4 +1,6 @@
-# StoryMoss v0.93.15 架构文档
+# StoryMoss v0.93.16 架构文档
+
+> **v0.93.16**：**续写训练连贯性与空稿守卫**——`task_system/continuation_training.rs` 新增 `context_chapters`/`build_continuity_anchor`：文风锚点与承接锚点只取上下文章，末位真实基准章禁止泄漏；训练指令注入上一章结尾原文 900 字（同地点/同批人物/同时代承接、未完结事件先落地、禁新主角/新委托/新场景），`inject_director_directive` 上限 1200→4096；`load_prior_insights` 按承接区间过滤跨区间建议；`agency/coordinator.rs` 的 batch/revision writer prompt 追加「资产缺失兜底」硬规则，`writer_prose_fallback` 在有前文时改用 `assemble_continue_prose_fallback`（带【前文】的续写 prompt，不再复用创世开篇）；`validate_generated_prose` 拒绝 `<p></p>`/空白、<300 字与拒绝话术，判分输入统一 `content_to_plain_text`；`SceneRepository::update_in_tx` 把视觉空 HTML 视为 None，幕前切书空文档不再覆盖已有正文。
 
 > **v0.93.15**：**续写训练网络韧性 + 判官评分闸门**——`mcp/client.rs::McpClient::call_tool` 对 Read/Network 权限工具在 `TransportError`（ECONNRESET/拒绝/断开）或 `Timeout` 时重试两次（150/400ms），Write/Private 绝不重发；`task_system/continuation_training.rs::compare_and_report` 以 `parse_judge_report` 校验五维数值（数字/数字字符串/`7/10`），判官缺失评分时重试一次，仍不可用则降级落 `{"scores":null,"overall":null,"judge_error":...}` 报告（趋势跳过、不落假 0.00）；overall 缺失按五维均值折算；报告标清沙盒/真实章号对应，闭环提示词修正「上一1轮」文案。
 

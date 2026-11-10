@@ -34,8 +34,8 @@ use crate::{
     error::AppError,
     llm::LlmService,
     prompts::assembly::{
-        assemble_continue_beat_for, assemble_genesis_first_chapter_for,
-        assemble_genesis_prose_fallback,
+        assemble_continue_beat_for, assemble_continue_prose_fallback,
+        assemble_genesis_first_chapter_for, assemble_genesis_prose_fallback,
     },
     router::TaskType,
 };
@@ -2633,8 +2633,38 @@ impl AgencyCoordinator {
         let board = self.board();
         // 读资产区构建上下文（截断防爆上下文），复用首章同款 helper
         let assets_ctx = self.build_assets_ctx_brief(run_id).await?;
-        let assembled = assemble_genesis_prose_fallback(premise, &assets_ctx)
-            .map_err(|e| AppError::from(e.to_string()))?;
+        // v0.93.16：续写回退必须带上一章真实结尾。旧版复用创世散文提示词，
+        // batch writer 熔断后会在已有前文的沙盒里写出一章「新故事开篇」
+        // （真机：现代门铃/新委托人，完全脱离《阴脉先生》第 106 章）。
+        let prior_prose = {
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            tokio::task::spawn_blocking(move || -> String {
+                let scenes = SceneRepository::new(pool)
+                    .get_by_story(&sid)
+                    .unwrap_or_default();
+                let latest = scenes
+                    .into_iter()
+                    .filter(|s| {
+                        s.content
+                            .as_deref()
+                            .map(|c| !c.trim().is_empty())
+                            .unwrap_or(false)
+                    })
+                    .max_by_key(|s| s.sequence_number)
+                    .and_then(|s| s.content)
+                    .unwrap_or_default();
+                crate::agency::continue_assets::slice_prior_prose(&latest)
+            })
+            .await
+            .unwrap_or_default()
+        };
+        let assembled = if prior_prose.trim().is_empty() {
+            assemble_genesis_prose_fallback(premise, &assets_ctx)
+        } else {
+            assemble_continue_prose_fallback(premise, &assets_ctx, &prior_prose, chapter_key)
+        }
+        .map_err(|e| AppError::from(e.to_string()))?;
         let text = llm
             .complete(
                 &assembled.system,
@@ -6598,6 +6628,8 @@ impl AgencyCoordinator {
         } else {
             writer_task
         };
+        // v0.93.16：无资产时必须直接续写，不得输出拒绝话术。
+        let writer_task = inject_assets_missing_rule(writer_task);
         let writer_out = self
             .run_role_with_llm_and_budget(
                 budget,
@@ -6805,6 +6837,8 @@ impl AgencyCoordinator {
             },
         );
         let base_task = inject_director_directive(base_task, directive);
+        // v0.93.16：资产缺失时修订也必须直接产出完整正文。
+        let base_task = inject_assets_missing_rule(base_task);
         let writer_task = format!(
             "{base_task}\n完成后用 board_write 把完整修订稿写入 draft 区（item_type=chapter, key={key}）。"
         );
@@ -9938,14 +9972,33 @@ fn inject_batch_emotion_block(task: String, block: &str) -> String {
     format!("{task}\n\n{block}")
 }
 
+/// v0.93.16：资产缺失时 writer 的硬兜底。真机 batch run：沙盒没有世界观/
+/// 角色卡/大纲，writer 输出「我无法按当前输入完成这一章。原因是：提示中
+/// 「创作资产」区域为空…」元评论，随后 gate 判死。续写训练与旧故事都
+/// 可能只有前文而无资产，必须直接续写而不是拒绝。
+const ASSETS_MISSING_HARD_RULE: &str = "【资产缺失兜底】若世界观/角色卡/大纲/伏笔为空或缺失，\
+不得拒绝、不得要求补充资产、不得只输出提纲、计划或说明；\
+以【前文】与本章大纲为唯一事实来源，直接写出完整故事正文。";
+
+fn inject_assets_missing_rule(task: String) -> String {
+    format!("{task}\n\n{ASSETS_MISSING_HARD_RULE}")
+}
+
 /// 导演派发指令块：放在「完成后用 board_write」之前（离 writer 的最终动作
 /// 最近），提示词与资产/章契约冲突时以硬约束为先。
+/// v0.93.16：上限 1200 → 4096。续写训练指令要携带上一章结尾锚点与文风
+/// 锚点；1200 会把锚点截掉大半，模型只剩抽象指令。
+const DIRECTOR_DIRECTIVE_CHAR_CAP: usize = 4096;
+
 fn inject_director_directive(task: String, directive: &str) -> String {
     let directive = directive.trim();
     if directive.is_empty() {
         return task;
     }
-    let directive: String = directive.chars().take(1200).collect();
+    let directive: String = directive
+        .chars()
+        .take(DIRECTOR_DIRECTIVE_CHAR_CAP)
+        .collect();
     let block = format!(
         "【导演派发指令（须落实到本章；不得违反世界观、本章大纲与情感契约）】\n{directive}"
     );

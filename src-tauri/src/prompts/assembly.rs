@@ -186,6 +186,73 @@ pub fn assemble_genesis_prose_fallback(
 
 pub const GENESIS_DRAMA_FIRST_CHAPTER_SYSTEM: &str = "你是短剧编剧，只输出可拍剧本。人设、世界观以下方资产区为准，不得自相矛盾。开篇须有可见行动与未解问题。场次标头含内景或外景、地点、时间。禁止镜号、景别、运镜或影片模型参数。";
 
+/// v0.93.16：续写散文回退专用系统提示词。旧版 `writer_prose_fallback`
+/// 复用创世提示词（「开篇须有可见行动与未解问题」），batch writer 工具循环
+/// 熔断后会在已有前文的沙盒里写出一章全新开篇（真机：现代门铃/新委托人
+/// 完全脱离《阴脉先生》第 106 章）。续写回退必须以【前文】末句起点，
+/// 不得换场、换主角或写序章。
+pub const CONTINUE_PROSE_FALLBACK_SYSTEM: &str =
+    "你是小说主创，只输出章节正文。你写的是【上一章之后】的下一章，不是新故事开篇。\
+     必须以【前文】末句为起点，延续同一批人物、同一地点、同一时代与所有未完结事件；\
+     禁止换主角、换场、新委托、新事件，禁止写序章式开场、总结、提纲、说明或拒绝话术。\
+     若创作资产缺失，以【前文】为唯一事实来源直接续写。\
+     禁止重复：同一段落/句子不得出现两次，不得复述前文段落。";
+
+const CONTINUE_PROSE_FALLBACK_TASK: &str =
+    "写作要求：章节正文，1500-2500 字，只输出正文，不写标题。\
+紧接【前文】最后一段之后落笔，不得重述前文；本章必须推进一个未完结事件或悬念。";
+
+/// v0.93.16：续写（batch）writer 散文回退 prompt。前文必须随 prompt 注入，
+/// 不能只喂创作资产——沙盒无资产时资产区为空，模型会拒绝或另起新故事。
+pub fn assemble_continue_prose_fallback(
+    premise: &str,
+    assets_ctx: &str,
+    prior_prose: &str,
+    chapter_key: &str,
+) -> Result<AssembledPrompt, AssembleError> {
+    assemble(&[
+        l(
+            "instruction",
+            LayerKind::Instruction,
+            Slot::System,
+            CONTINUE_PROSE_FALLBACK_SYSTEM.to_string(),
+            true,
+        ),
+        l(
+            "premise",
+            LayerKind::Context,
+            Slot::User,
+            format!("续写前提：{premise}；本章 key：{chapter_key}"),
+            true,
+        ),
+        l(
+            "assets",
+            LayerKind::Context,
+            Slot::User,
+            if assets_ctx.trim().is_empty() {
+                String::new()
+            } else {
+                format!("创作资产：\n{assets_ctx}")
+            },
+            false,
+        ),
+        l(
+            "prior",
+            LayerKind::Context,
+            Slot::User,
+            format!("【前文（上一章结尾，必须承接）】\n{prior_prose}"),
+            true,
+        ),
+        l(
+            "task",
+            LayerKind::Context,
+            Slot::User,
+            CONTINUE_PROSE_FALLBACK_TASK.to_string(),
+            true,
+        ),
+    ])
+}
+
 pub fn assemble_continue_beat(user: &str) -> Result<AssembledPrompt, AssembleError> {
     assemble_continue_beat_for(user, "novel")
 }
@@ -397,6 +464,26 @@ mod tests {
             out.user,
             "故事前提：前提\n\n创作资产：\n资产正文\n\n写作要求：章节正文，1500-2500 字，只输出正文，不写标题。故事前提是你的创作方向；创作资产（世界观/大纲/伏笔）是硬约束，须在硬约束内落实前提核心意图，不得自相矛盾。"
         );
+    }
+
+    #[test]
+    fn continue_prose_fallback_injects_prior_prose_and_forbids_genesis_opening() {
+        let out = assemble_continue_prose_fallback(
+            "续写《阴脉先生》第11章起",
+            "",
+            "桐人晃了晃栽在地。",
+            "第11章",
+        )
+        .unwrap();
+        assert!(out.system.contains("不是新故事开篇"));
+        assert!(out.system.contains("禁止换主角、换场、新委托"));
+        assert!(out.user.contains("【前文（上一章结尾，必须承接）】"));
+        assert!(out.user.contains("桐人晃了晃栽在地。"));
+        assert!(out.user.contains("第11章"));
+        // 资产区为空时不再留空片段；前文照常注入。
+        assert!(!out.user.contains("创作资产："), "空资产不应留空片段");
+        // 续写回退不得复用「开篇须有可见行动」的创世提示词
+        assert!(!out.system.contains("开篇须有可见行动"));
     }
 
     /// v0.65.1 契约：主续写路径的 system 提示词必须携带人类文笔基线准则

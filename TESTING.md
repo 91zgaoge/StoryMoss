@@ -1,8 +1,18 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.93.15)
+# 🧪 StoryMoss 自动化测试环境 (v0.93.16)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.93.16 变更说明
+
+- **续写训练连贯性根修**：
+  - Rust +4：`style_anchor_excludes_truth_chapter`、`style_anchor_handles_short_context_chapters`、`continuity_anchor_uses_last_context_chapter_not_truth`、`generated_prose_validation_rejects_empty_html_and_refusal`（`<p></p>` 空稿、拒绝话术、正常 ≥300 字正文、过短稿）。
+  - 新增 `assemble_continue_prose_fallback` 契约用例：system 明确「不是新故事开篇/禁止换主角、换场、新委托」，user 注入【前文】与本章 key，不得复用创世「开篇须有可见行动」提示词。
+- **空稿覆盖守卫**：
+  - Rust +1：`test_scene_update_rejects_visually_empty_html_overwrite`——`<p></p>`/`<p><br></p>`/`<p>  </p>`/`<p>&nbsp;</p>` 均不得覆盖已有正文。
+- **结果**：Rust **2101 passed / 17 ignored**（+5）；tsc 0；Vitest **706 / 3**、Playwright **144 / 5** 基线不变；fmt/clippy/guard 全绿。
+- **未关闭**：安装 v0.93.16 后真机重跑《阴脉先生》第 97 章训练，确认正文承接第 106 章现场、判官给出真实五维分；两个沙盒被空稿覆盖的正文需从黑板草稿/源章节恢复后复核。
 
 ### v0.93.15 变更说明
 
