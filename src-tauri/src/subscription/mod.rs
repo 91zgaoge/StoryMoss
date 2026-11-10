@@ -78,7 +78,6 @@ impl SubscriptionService {
     ///   自动续写 / 自动修改
     pub fn has_feature_access(&self, user_id: &str, feature_id: &str) -> Result<bool, AppError> {
         let status = self.get_or_create_subscription(user_id)?;
-        let is_pro = status.tier == "pro" || status.tier == "enterprise";
 
         // Free 用户可用的基础功能
         let free_features = [
@@ -94,8 +93,18 @@ impl SubscriptionService {
             return Ok(true);
         }
 
-        // 其余功能需要 Pro 订阅
-        Ok(is_pro)
+        // 其余功能需要 Pro 订阅，且订阅必须仍然有效：tier 之外还要检查
+        // status 为 active、expires_at 未过期。过期/取消的 Pro 不解锁。
+        let is_pro_tier = status.tier == "pro" || status.tier == "enterprise";
+        let is_active = status.status.trim().eq_ignore_ascii_case("active");
+        let not_expired = match status.expires_at.as_deref() {
+            None => true,
+            Some(raw) => chrono::DateTime::parse_from_rfc3339(raw)
+                .map(|expires| expires > chrono::Local::now())
+                .unwrap_or(false),
+        };
+
+        Ok(is_pro_tier && is_active && not_expired)
     }
 
     /// 记录 AI 调用日志（仅用于统计，不参与配额控制）
@@ -200,11 +209,65 @@ mod tests {
         let status = svc.upgrade_subscription("u1", "pro", Some(30)).unwrap();
         assert_eq!(status.tier, "pro");
         assert!(status.expires_at.is_some());
-        // 注意：当前 has_feature_access 不校验 expires_at 是否过期，仅按 tier
-        // 判断
+        // 30 天有效期内的 Pro 解锁 pro 功能
         assert!(svc
             .has_feature_access("u1", "guidebook_distillation")
             .unwrap());
+        assert!(svc.has_feature_access("u1", "book_deconstruction").unwrap());
+    }
+
+    #[test]
+    fn expired_pro_does_not_unlock_pro_features() {
+        let svc = service();
+        svc.upgrade_subscription("u-expired", "pro", Some(-1))
+            .unwrap();
+        assert!(
+            !svc.has_feature_access("u-expired", "book_deconstruction")
+                .unwrap(),
+            "过期的 Pro 不得解锁 pro 功能"
+        );
+        // 免费基础功能不受 Pro 过期影响
+        assert!(svc.has_feature_access("u-expired", "writer").unwrap());
+    }
+
+    #[test]
+    fn cancelled_pro_does_not_unlock_pro_features() {
+        let pool = crate::db::connection::create_test_pool().unwrap();
+        let svc = SubscriptionService::new(pool.clone());
+        svc.upgrade_subscription("u-cancelled", "pro", Some(30))
+            .unwrap();
+        pool.get()
+            .unwrap()
+            .execute(
+                "UPDATE subscriptions SET status = 'cancelled' WHERE user_id = ?1",
+                params!["u-cancelled"],
+            )
+            .unwrap();
+        assert!(
+            !svc.has_feature_access("u-cancelled", "book_deconstruction")
+                .unwrap(),
+            "取消的 Pro 不得解锁 pro 功能"
+        );
+    }
+
+    #[test]
+    fn malformed_expiry_is_conservatively_locked() {
+        let pool = crate::db::connection::create_test_pool().unwrap();
+        let svc = SubscriptionService::new(pool.clone());
+        svc.upgrade_subscription("u-bad-expiry", "pro", Some(30))
+            .unwrap();
+        pool.get()
+            .unwrap()
+            .execute(
+                "UPDATE subscriptions SET expires_at = 'not-a-date' WHERE user_id = ?1",
+                params!["u-bad-expiry"],
+            )
+            .unwrap();
+        assert!(
+            !svc.has_feature_access("u-bad-expiry", "book_deconstruction")
+                .unwrap(),
+            "无法解析的 expires_at 应保守拒绝"
+        );
     }
 
     #[test]

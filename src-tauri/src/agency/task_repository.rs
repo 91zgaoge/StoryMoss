@@ -102,8 +102,10 @@ impl TaskRepository {
 
     pub fn set_status(&self, task_id: &str, status: &str) -> Result<usize, rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
+        // 终态不可被 set_status 改写（completed/failed/cancelled/stale）。
         conn.execute(
-            "UPDATE agency_agent_tasks SET status = ?2 WHERE id = ?1",
+            "UPDATE agency_agent_tasks SET status = ?2 \
+             WHERE id = ?1 AND status NOT IN ('completed', 'failed', 'cancelled', 'stale')",
             params![task_id, status],
         )
     }
@@ -126,7 +128,7 @@ impl TaskRepository {
                  tool_calls = tool_calls + ?3,
                  last_tool = COALESCE(?4, last_tool),
                  heartbeat_at = ?5
-             WHERE id = ?1",
+             WHERE id = ?1 AND status IN ('running', 'waiting')",
             params![task_id, phase, tool_calls_delta, last_tool, now],
         )
     }
@@ -144,7 +146,9 @@ impl TaskRepository {
             "UPDATE agency_agent_tasks
              SET status = ?2, finished_at = ?3, heartbeat_at = ?3,
                  result_summary = ?4, error = ?5
-             WHERE id = ?1",
+             WHERE id = ?1
+               AND status NOT IN ('completed', 'failed', 'cancelled', 'stale')
+               AND (status != 'cancelling' OR ?2 = 'cancelled')",
             params![task_id, status, now, result_summary, error],
         )
     }

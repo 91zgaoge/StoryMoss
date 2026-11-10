@@ -190,9 +190,7 @@ impl StorySystemEngine {
                 .get(*name)
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
-            let is_ok = status_str == "success"
-                || status_str == "skipped"
-                || status_str == "skipped: no_store";
+            let is_ok = projection_status_is_healthy(status_str);
             if !is_ok {
                 overall_healthy = false;
             }
@@ -221,11 +219,28 @@ pub struct ContractTree {
     pub reviews: HashMap<String, crate::db::StoryContract>,
 }
 
+/// projection writer 状态是否健康：合法成功/跳过状态可以带合法后缀，例如
+/// `success (precomputed)`、`skipped: content_too_short`、`skipped: no_store`；
+/// error/pending/unknown 以及其它未知前缀仍判为不健康。
+fn projection_status_is_healthy(status: &str) -> bool {
+    let status = status.trim().to_ascii_lowercase();
+    if status.is_empty() {
+        return false;
+    }
+    if status.starts_with("error") || status.starts_with("pending") || status.starts_with("unknown")
+    {
+        return false;
+    }
+    status.starts_with("success") || status.starts_with("skipped")
+}
+
 /// 单个 projection writer 的健康状态
 #[derive(Debug, Clone, Serialize)]
 pub struct WriterHealth {
     pub name: String,
-    pub status: String, // "success" | "skipped" | "error: ..." | "pending" | "unknown"
+    /// "success" | "success (precomputed)" | "skipped" |
+    /// "skipped: content_too_short" | "error: ..." | "pending" | "unknown"
+    pub status: String,
 }
 
 /// 投影一致性健康报告
@@ -236,4 +251,29 @@ pub struct ProjectionHealthReport {
     pub commit_id: String,
     pub overall_healthy: bool,
     pub writers: Vec<WriterHealth>,
+}
+
+#[cfg(test)]
+mod projection_health_tests {
+    use super::projection_status_is_healthy;
+
+    #[test]
+    fn accepts_legal_success_and_skipped_prefixes() {
+        assert!(projection_status_is_healthy("success"));
+        assert!(projection_status_is_healthy("success (precomputed)"));
+        assert!(projection_status_is_healthy("skipped"));
+        assert!(projection_status_is_healthy("skipped: no_store"));
+        assert!(projection_status_is_healthy("skipped: content_too_short"));
+        assert!(projection_status_is_healthy(" SUCCESS (precomputed) "));
+    }
+
+    #[test]
+    fn rejects_error_pending_unknown_and_other_prefixes() {
+        assert!(!projection_status_is_healthy("error: timeout"));
+        assert!(!projection_status_is_healthy("pending"));
+        assert!(!projection_status_is_healthy("unknown"));
+        assert!(!projection_status_is_healthy(""));
+        assert!(!projection_status_is_healthy("failed"));
+        assert!(!projection_status_is_healthy("content_too_short"));
+    }
 }

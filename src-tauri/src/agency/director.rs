@@ -10,6 +10,7 @@ use crate::{
         crew::{CrewAlert, CrewSnapshot},
         director_repository::DirectorRepository,
         models::{AgentRole, ChatMessage, DirectorAction},
+        repository::AgencyRepository,
         scheduler::TaskScheduler,
         task_repository::TaskRepository,
     },
@@ -255,18 +256,30 @@ impl DirectorExecutor {
         for (idx, action) in actions.iter().enumerate() {
             let action_id = action.id.clone().unwrap_or_else(|| format!("a{}", idx + 1));
             let params = serde_json::to_string(action).unwrap_or_default();
-            let record = repo.insert_action(
-                story_id,
-                Some(session_id),
-                Some(message_id),
-                None,
-                &action.action_type,
-                action.role.as_deref(),
-                action.target_id.as_deref(),
-                &params,
-                "executing",
-                action.reason.as_deref(),
-            )?;
+            // 若动作来自 proposed 审批卡（id 已存在），复用同一行推进
+            // approved→executing，不再 insert 一条新 executing 记录：旧实现会
+            // 在 DB 里留下原 approved 行 + 新 executing 行，前端看到两条状态。
+            let existing = match action.id.as_deref() {
+                Some(id) => repo.get(id)?,
+                None => None,
+            };
+            let record = if let Some(existing) = existing.filter(|a| a.story_id == story_id) {
+                repo.update_status(&existing.id, "executing", None, None)?;
+                existing
+            } else {
+                repo.insert_action(
+                    story_id,
+                    Some(session_id),
+                    Some(message_id),
+                    None,
+                    &action.action_type,
+                    action.role.as_deref(),
+                    action.target_id.as_deref(),
+                    &params,
+                    "executing",
+                    action.reason.as_deref(),
+                )?
+            };
 
             // v0.86.0：每个 arm 包 async 块，`?` 只在块内短路、进 result，
             // 由下方统一收集失败——不允许任何 arm 直接把整回合炸掉。
@@ -365,15 +378,28 @@ impl DirectorExecutor {
                 "cancel_run" => {
                     async {
                         let target = action.target_id.as_deref().unwrap_or("");
+                        // 取消必须同时落 DB 终态：内存 flag 只覆盖注册过同一
+                        // run 的执行路径（批量续写用 scheduler 的外部 flag）。
+                        // 只置 flag 会让「导演取消」变成 no-op，run 继续写
+                        // scene。
+                        let repo = AgencyRepository::new(pool.clone());
+                        let db_hit = repo
+                            .finish_run(target, "cancelled", None, Some("导演取消"))
+                            .map(|n| n > 0)
+                            .unwrap_or(false);
                         let hit = crate::agency::coordinator::cancel_agency_run(target);
-                        if hit {
+                        if hit || db_hit {
                             return Ok(Some(target.to_string()));
                         }
                         // v0.86.0：精确未命中时按前缀解析 run id，仍找不到才算
                         // 失败（此前是静默 Ok(None)，导演会误以为已取消）。
                         let resolved = Self::resolve_run_target(pool, story_id, target).await?;
+                        let db_hit = AgencyRepository::new(pool.clone())
+                            .finish_run(&resolved, "cancelled", None, Some("导演取消"))
+                            .map(|n| n > 0)
+                            .unwrap_or(false);
                         let hit = crate::agency::coordinator::cancel_agency_run(&resolved);
-                        Ok(if hit { Some(resolved) } else { None })
+                        Ok(if hit || db_hit { Some(resolved) } else { None })
                     }
                     .await
                 }

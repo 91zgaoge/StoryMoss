@@ -329,6 +329,168 @@ impl TaskRepository {
         Ok(())
     }
 
+    /// 显式重新开始：手动触发前把任务复位到 pending，清除上一轮结果。
+    ///
+    /// 终态本身不可被 executor 直接覆盖；重新执行必须先经过这个显式事件，
+    /// 从而与“取消后迟到的 complete/fail”彻底分开两条路径。
+    pub fn prepare_for_trigger(&self, id: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        let conn = self.pool.get()?;
+        let now = Local::now().to_rfc3339();
+        let updated = conn.execute(
+            "UPDATE tasks SET status = 'pending', progress = 0, result = NULL, \
+             error_message = NULL, retry_count = 0, updated_at = ?1 \
+             WHERE id = ?2 AND status != 'running'",
+            params![now, id],
+        )?;
+        Ok(updated > 0)
+    }
+
+    /// 原子开始一次执行。`cancelled` 不会被复活；completed/failed 只能通过
+    /// 定时任务的新一轮或显式 `prepare_for_trigger` 进入，不能直接 start。
+    pub fn start_execution(&self, id: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        let conn = self.pool.get()?;
+        let now = Local::now().to_rfc3339();
+        let updated = conn.execute(
+            "UPDATE tasks SET status = 'running', progress = 0, result = NULL, \
+             error_message = NULL, updated_at = ?1 \
+             WHERE id = ?2 AND status IN ('pending', 'completed', 'failed')",
+            params![now, id],
+        )?;
+        Ok(updated > 0)
+    }
+
+    /// 进度只允许从 running 写入；不再把取消/终态任务改回 running。
+    /// 返回是否真实写入（0 行说明任务已离开 running）。
+    pub fn record_progress_if_running(
+        &self,
+        id: &str,
+        progress: i32,
+        message: &str,
+        now: &str,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let conn = self.pool.get()?;
+        let progress = progress.clamp(0, 100);
+        let updated = conn.execute(
+            "UPDATE tasks SET progress = CASE WHEN ?2 > progress THEN ?2 ELSE progress END, \
+             updated_at = ?3, last_heartbeat_at = ?3 \
+             WHERE id = ?1 AND status = 'running'",
+            params![id, progress, now],
+        )?;
+        if updated > 0 {
+            conn.execute(
+                "INSERT INTO task_logs (id, task_id, log_level, message, created_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    Uuid::new_v4().to_string(),
+                    id,
+                    "info",
+                    format!("进度 {progress}% · {message}"),
+                    now,
+                ],
+            )?;
+        }
+        Ok(updated > 0)
+    }
+
+    /// 完成只允许从 running 写入。终态（cancelled/failed/completed）不会被
+    /// 迟到的执行结果覆盖。
+    pub fn complete_if_running(
+        &self,
+        id: &str,
+        result: Option<String>,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let conn = self.pool.get()?;
+        let now = Local::now().to_rfc3339();
+        let updated = conn.execute(
+            "UPDATE tasks SET status = 'completed', progress = 100, result = ?2, \
+             error_message = NULL, retry_count = 0, updated_at = ?3 \
+             WHERE id = ?1 AND status = 'running'",
+            params![id, result, now],
+        )?;
+        Ok(updated > 0)
+    }
+
+    /// 失败只允许从 running 写入（保留当前进度，不再把进度抹零）。
+    pub fn fail_if_running(
+        &self,
+        id: &str,
+        error_message: &str,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let conn = self.pool.get()?;
+        let now = Local::now().to_rfc3339();
+        let updated = conn.execute(
+            "UPDATE tasks SET status = 'failed', error_message = ?2, updated_at = ?3 \
+             WHERE id = ?1 AND status = 'running'",
+            params![id, error_message, now],
+        )?;
+        Ok(updated > 0)
+    }
+
+    /// 取消只允许从 pending/running 写入；已终态任务不会被改写。
+    pub fn cancel_if_active(
+        &self,
+        id: &str,
+        error_message: &str,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let conn = self.pool.get()?;
+        let now = Local::now().to_rfc3339();
+        let updated = conn.execute(
+            "UPDATE tasks SET status = 'cancelled', progress = 0, error_message = ?2, \
+             updated_at = ?3 WHERE id = ?1 AND status IN ('pending', 'running')",
+            params![id, error_message, now],
+        )?;
+        Ok(updated > 0)
+    }
+
+    /// 无执行器/无法启动等“任务本身不可执行”的失败写入；只作用于
+    /// pending/running，避免覆盖已取消或已完成任务。
+    pub fn fail_if_active(
+        &self,
+        id: &str,
+        error_message: &str,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let conn = self.pool.get()?;
+        let now = Local::now().to_rfc3339();
+        let updated = conn.execute(
+            "UPDATE tasks SET status = 'failed', error_message = ?2, updated_at = ?3 \
+             WHERE id = ?1 AND status IN ('pending', 'running')",
+            params![id, error_message, now],
+        )?;
+        Ok(updated > 0)
+    }
+
+    /// 心跳超时等“失去响应”的失败写入。只作用于 running；保留进度以便 UI
+    /// 展示最后到达的位置。重试由用户显式触发，不再留下永不执行的 pending。
+    pub fn fail_if_running_preserving_progress(
+        &self,
+        id: &str,
+        error_message: &str,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let conn = self.pool.get()?;
+        let now = Local::now().to_rfc3339();
+        let updated = conn.execute(
+            "UPDATE tasks SET status = 'failed', error_message = ?2, updated_at = ?3 \
+             WHERE id = ?1 AND status = 'running'",
+            params![id, error_message, now],
+        )?;
+        Ok(updated > 0)
+    }
+
+    /// 心跳只在 running 时刷新；取消后的迟到心跳不再延长寿命。
+    pub fn update_heartbeat_if_running(
+        &self,
+        id: &str,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let conn = self.pool.get()?;
+        let now = Local::now().to_rfc3339();
+        let updated = conn.execute(
+            "UPDATE tasks SET last_heartbeat_at = ?1, updated_at = ?2 \
+             WHERE id = ?3 AND status = 'running'",
+            params![&now, &now, id],
+        )?;
+        Ok(updated > 0)
+    }
+
     /// v0.93.14: 进度写入与日志/心跳共用同一时间源。
     ///
     /// 此前 `update_progress` 只改 tasks.progress/updated_at，`task_logs` 另写

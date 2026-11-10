@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { loggedInvoke } from '@/services/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -48,7 +48,7 @@ interface AgentInfo {
 }
 
 interface ExecutionProgress {
-  stage: 'started' | 'thinking' | 'generating' | 'reviewing' | 'completed' | 'failed';
+  stage: 'started' | 'thinking' | 'generating' | 'reviewing' | 'completed' | 'failed' | 'cancelled';
   message: string;
   progress: number;
 }
@@ -112,69 +112,45 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [taskId, setTaskId] = useState<string | null>(null);
+  // 取消与失败分开表达：error 只承载失败原因，cancelled 承载用户取消
+  const [cancelled, setCancelled] = useState(false);
 
   const { data: settings } = useSettings();
 
-  // 监听执行事件
+  // v0.94.x: 监听器在 execute 流程中直接注册（不再依赖 taskId state 的 effect 时机）。
+  // runSeqRef 作为代次票据：取消/新执行会让旧 invoke 返回、旧事件全部失效。
+  const runSeqRef = useRef(0);
+  const taskIdRef = useRef<string | null>(null);
+  const unlistenersRef = useRef<Array<() => void>>([]);
+  const mountedRef = useRef(true);
+  // 同步执行锁：同一 tick 连点只会启动一次执行
+  const executingRef = useRef(false);
+  // 终态票据：监听注册完成前若已收到终态事件，不再保留迟到注册的监听器
+  const terminalRef = useRef(false);
+
+  const cleanupListeners = useCallback(() => {
+    unlistenersRef.current.forEach(unlisten => unlisten());
+    unlistenersRef.current = [];
+  }, []);
+
   useEffect(() => {
-    if (!taskId) return;
-
-    let unlisteners: (() => void)[] = [];
-    let cancelled = false;
-
-    Promise.all([
-      listen<{
-        task_id: string;
-        agent_type: string;
-        stage: string;
-        message: string;
-        progress: number;
-      }>(`agent-event-${taskId}`, event => {
-        const payload = event.payload;
-        const stageMap: Record<string, ExecutionProgress['stage']> = {
-          started: 'started',
-          thinking: 'thinking',
-          generating: 'generating',
-          reviewing: 'reviewing',
-          completed: 'completed',
-          failed: 'failed',
-        };
-        setProgress({
-          stage: stageMap[payload.stage] || 'started',
-          message: payload.message,
-          progress: payload.progress,
-        });
-      }),
-      listen<ExecutionResult>(`agent-complete-${taskId}`, event => {
-        setResult(event.payload);
-        setProgress({ stage: 'completed', message: '执行完成', progress: 1 });
-        setIsExecuting(false);
-        setTaskId(null);
-      }),
-      listen<string>(`agent-error-${taskId}`, event => {
-        setError(event.payload);
-        setProgress({ stage: 'failed', message: '执行失败', progress: 0 });
-        setIsExecuting(false);
-        setTaskId(null);
-      }),
-    ]).then(unlistens => {
-      if (cancelled) {
-        unlistens.forEach(u => u());
-        return;
-      }
-      unlisteners = unlistens;
-    });
-
+    mountedRef.current = true;
     return () => {
-      cancelled = true;
-      unlisteners.forEach(u => u());
+      mountedRef.current = false;
+      runSeqRef.current += 1;
+      cleanupListeners();
     };
-  }, [taskId]);
+  }, [cleanupListeners]);
 
   const handleExecute = useCallback(async () => {
-    if (!selectedAgent || !input.trim()) return;
+    if (!selectedAgent || !input.trim() || executingRef.current) return;
+    executingRef.current = true;
 
+    const runSeq = ++runSeqRef.current;
+    cleanupListeners();
+    taskIdRef.current = null;
+    terminalRef.current = false;
+    setCancelled(false);
     setIsExecuting(true);
     setProgress({ stage: 'started', message: '准备执行...', progress: 0 });
     setResult(null);
@@ -190,27 +166,93 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
           parameters: {},
         },
       });
-      setTaskId(id);
+      // 执行返回前已被取消/卸载/被新一代取代：不再注册监听，直接丢弃
+      if (!mountedRef.current || runSeq !== runSeqRef.current) return;
+      taskIdRef.current = id;
+
+      // 先完成监听注册再允许后续状态推进（事件在 LLM 执行期间到达，
+      // 注册在 invoke 返回后立即 await，不再经过 React effect 调度窗口）。
+      const unlisteners = await Promise.all([
+        listen<{
+          task_id: string;
+          agent_type: string;
+          stage: string;
+          message: string;
+          progress: number;
+        }>(`agent-event-${id}`, event => {
+          if (runSeq !== runSeqRef.current) return;
+          const payload = event.payload;
+          const stageMap: Record<string, ExecutionProgress['stage']> = {
+            started: 'started',
+            thinking: 'thinking',
+            generating: 'generating',
+            reviewing: 'reviewing',
+            completed: 'completed',
+            failed: 'failed',
+          };
+          setProgress({
+            stage: stageMap[payload.stage] || 'started',
+            message: payload.message,
+            progress: payload.progress,
+          });
+        }),
+        listen<ExecutionResult>(`agent-complete-${id}`, event => {
+          if (runSeq !== runSeqRef.current) return;
+          terminalRef.current = true;
+          setResult(event.payload);
+          setProgress({ stage: 'completed', message: '执行完成', progress: 1 });
+          setIsExecuting(false);
+          taskIdRef.current = null;
+          executingRef.current = false;
+          cleanupListeners();
+        }),
+        listen<string>(`agent-error-${id}`, event => {
+          if (runSeq !== runSeqRef.current) return;
+          terminalRef.current = true;
+          setError(event.payload);
+          setCancelled(false);
+          setProgress({ stage: 'failed', message: '执行失败', progress: 0 });
+          setIsExecuting(false);
+          taskIdRef.current = null;
+          executingRef.current = false;
+          cleanupListeners();
+        }),
+      ]);
+      if (terminalRef.current || !mountedRef.current || runSeq !== runSeqRef.current) {
+        unlisteners.forEach(unlisten => unlisten());
+        return;
+      }
+      unlistenersRef.current = unlisteners;
     } catch (err) {
+      if (runSeq !== runSeqRef.current) return;
       setError(err instanceof Error ? err.message : '执行失败');
       setProgress({ stage: 'failed', message: '执行失败', progress: 0 });
       setIsExecuting(false);
-      setTaskId(null);
+      taskIdRef.current = null;
+      executingRef.current = false;
     }
-  }, [selectedAgent, input, storyId, chapterNumber, currentContent]);
+  }, [selectedAgent, input, storyId, chapterNumber, currentContent, cleanupListeners]);
 
   const handleCancel = useCallback(async () => {
-    if (!taskId) return;
+    // 取消票据先递增：任何在途 invoke 返回/迟到事件都不能再回写
+    runSeqRef.current += 1;
+    cleanupListeners();
+    const id = taskIdRef.current;
+    taskIdRef.current = null;
+    executingRef.current = false;
     try {
-      await loggedInvoke<unknown>('agent_cancel_task', { taskId });
+      if (id) {
+        await loggedInvoke<unknown>('agent_cancel_task', { taskId: id });
+      }
     } catch (err) {
       // ignore cancel errors
     } finally {
       setIsExecuting(false);
-      setTaskId(null);
-      setProgress({ stage: 'failed', message: '已取消', progress: 0 });
+      setCancelled(true);
+      setError(null);
+      setProgress({ stage: 'cancelled', message: '已取消', progress: 0 });
     }
-  }, [taskId]);
+  }, [cleanupListeners]);
 
   const handleCopy = useCallback(() => {
     if (result?.content) {
@@ -373,6 +415,26 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
         )}
       </AnimatePresence>
 
+      {/* 取消提示（与失败区分） */}
+      <AnimatePresence>
+        {cancelled && !error && !isExecuting && !result && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="px-4 pb-4"
+          >
+            <div className="flex items-start gap-3 rounded-lg border border-stone-200 bg-stone-100 p-4">
+              <OctagonX className="mt-0.5 h-5 w-5 flex-shrink-0 text-stone-500" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-stone-700">已取消</p>
+                <p className="mt-1 text-sm text-stone-500">本次执行已被用户取消，未产生结果。</p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* 结果显示 */}
       <AnimatePresence>
         {result && (
@@ -481,6 +543,9 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
                   setResult(null);
                   setSelectedAgent(null);
                   setInput('');
+                  setCancelled(false);
+                  setError(null);
+                  setProgress(null);
                 }}
               >
                 <RotateCcw className="w-4 h-4" />

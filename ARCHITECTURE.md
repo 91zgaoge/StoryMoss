@@ -1,4 +1,6 @@
-# StoryMoss v0.94.0 架构文档
+# StoryMoss v0.95.0 架构文档
+
+> **v0.95.0**：**隐式状态机治理**——新增 `src-tauri/src/lifecycle/`：`EntityKind`/`LifecycleState`/`LifecycleEvent` 单一转移表、终态集合、RAII `CancelHub/CancelScope`；任务进度/完成/失败只允许 running 来源写入，取消后迟到结果不复活终态；agency `finish_run` 返回写入行数，完成事件只在真实写入后发送；导演取消同时落 DB；聊天占位成功回填 done；审批动作复用同一行。前端 `state/generation.ts` 唯一解析 generation-status（后端 phase 改 snake_case + label），`backendActivityStore` 单一优先级表并读当前 store；FrontstageApp 章节选择 epoch、幽灵 Esc/Tab、保存态、切书失败恢复。审计文档 `docs/plans/2026-11-10-implicit-state-machine-audit.md`。
 
 > **v0.94.0**：**续写训练资产重建 + 编审/对比闭环**——新增 `agency/training_assets.rs`：`ContinuationTrainingExecutor` 在续写前从上下文章（不含末位真实基准章）调用资产分析 LLM，重建 `world_buildings`（concept/history/rules）、`story_outlines`（核心冲突/转折点/下一节点）、`characters`（含情感四字段）、`character_relationships` 与 `scenes.outline_content` 逐章梗概；复用 `CharacterRepository`/`WorldBuildingRepository`/`StoryOutlineRepository`/`SceneRepository`/`materialize::upsert_seed_relationship`，未接地人名跳过，JSON 失败复用 `asset_refresh::parse_refresh_payload` salvage。资产就绪后仍走 `run_continue_batch_with_cancel`（writer→gate/revision→assembly）；`compare_and_report`/`judge_prompt` 新增上一章结尾衔接基准，报告固定记录「资产重建→编审→对比」三段流程。
 

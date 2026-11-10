@@ -328,6 +328,52 @@ static PENDING: Lazy<Mutex<HashMap<String, PendingEdit>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 static RUNNING: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 
+/// RUNNING 占用的 RAII 所有权。Drop 覆盖提前 return / break / panic /
+/// future 被丢弃等所有退出路径；`release()` 用于在持有 PENDING 锁时原子
+/// 释放占用（避免“处理器已判定退出、新编辑仍看到 RUNNING 存在”的窗口）。
+struct RunningGuard {
+    story_id: String,
+    active: bool,
+}
+
+impl RunningGuard {
+    fn release(&mut self) {
+        if self.active {
+            self.active = false;
+            lock_running().remove(&self.story_id);
+        }
+    }
+}
+
+impl Drop for RunningGuard {
+    fn drop(&mut self) {
+        if self.active {
+            self.active = false;
+            lock_running().remove(&self.story_id);
+        }
+    }
+}
+
+fn lock_running() -> std::sync::MutexGuard<'static, HashSet<String>> {
+    match RUNNING.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// 尝试占用某故事的文风学习名额；已有处理器时不返回 guard。
+fn try_mark_running(story_id: &str) -> Option<RunningGuard> {
+    let mut running = lock_running();
+    if running.contains(story_id) {
+        return None;
+    }
+    running.insert(story_id.to_string());
+    Some(RunningGuard {
+        story_id: story_id.to_string(),
+        active: true,
+    })
+}
+
 /// 人类编辑入口：排队（防抖 + last-write-wins），必要时启动处理器。
 pub fn note_user_edit(
     app: tauri::AppHandle,
@@ -339,7 +385,7 @@ pub fn note_user_edit(
     if !looks_like_style_signal(before, after) {
         return;
     }
-    let should_spawn = {
+    {
         let mut pending = PENDING.lock().unwrap();
         pending.insert(
             story_id.clone(),
@@ -348,21 +394,16 @@ pub fn note_user_edit(
                 after: after.to_string(),
             },
         );
-        let mut running = RUNNING.lock().unwrap();
-        if running.contains(&story_id) {
-            false
-        } else {
-            running.insert(story_id.clone());
-            true
-        }
-    };
-    if !should_spawn {
-        return; // 已有处理器在跑，醒来时会取到最新一次编辑
     }
+    // 已有处理器在跑时 try_mark_running 返回 None，但编辑仍在 PENDING 里，
+    // 处理器下一轮会取到最新一次；没有处理器时这里启动新的。
     spawn_processor(app, pool, story_id);
 }
 
 fn spawn_processor(app: tauri::AppHandle, pool: DbPool, story_id: String) {
+    let Some(mut running) = try_mark_running(&story_id) else {
+        return;
+    };
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(STYLE_LEARN_DEBOUNCE_SECS)).await;
@@ -371,22 +412,37 @@ fn spawn_processor(app: tauri::AppHandle, pool: DbPool, story_id: String) {
                 map.remove(&story_id)
             };
             let Some(edit) = pending else {
+                // 没有待处理编辑：在 PENDING 锁内原子地释放 RUNNING。这样
+                // 新编辑要么在此之前排队（被下面的 contains_key 看到并继续
+                // 处理），要么在释放之后排队并启动新处理器。
+                let pending_guard = PENDING.lock().unwrap();
+                if pending_guard.contains_key(&story_id) {
+                    continue;
+                }
+                running.release();
+                drop(pending_guard);
                 break;
             };
             let bg_permit = crate::concurrency::BACKGROUND_LLM_SEMAPHORE.acquire().await;
             if bg_permit.is_err() {
                 log::warn!("[style_learning] 获取后台闸门失败，跳过本轮提炼");
+                // 闸门失败也必须释放 RUNNING，否则后续编辑永远无法再学习。
+                let should_respawn = {
+                    let pending_guard = PENDING.lock().unwrap();
+                    let has_more = pending_guard.contains_key(&story_id);
+                    running.release();
+                    has_more
+                };
+                if should_respawn {
+                    spawn_processor(app.clone(), pool.clone(), story_id.clone());
+                }
                 break;
             }
             let _bg_permit = bg_permit.unwrap();
             let llm = LlmService::new(app.clone());
             extract_and_store(&pool, &llm, &story_id, &edit.before, &edit.after).await;
-            // 处理期间若又有新编辑排队，继续下一轮；否则释放占用
-            let has_more = PENDING.lock().unwrap().contains_key(&story_id);
-            if !has_more {
-                RUNNING.lock().unwrap().remove(&story_id);
-                break;
-            }
+            // 处理期间若又有新编辑排队，继续下一轮；否则下一轮开头会在
+            // PENDING 锁内释放占用。
         }
     });
 }
@@ -440,6 +496,47 @@ mod tests {
         assert!(!looks_like_style_signal(&base, &minor), "光标级改动不排队");
         let changed = "字".repeat(250);
         assert!(looks_like_style_signal(&base, &changed));
+    }
+
+    #[test]
+    fn running_guard_releases_after_gate_failure_and_allows_relearning() {
+        let story_id = format!("style-guard-gate-{}", uuid::Uuid::new_v4());
+        {
+            let mut guard = try_mark_running(&story_id).expect("首次应可占用");
+            assert!(try_mark_running(&story_id).is_none(), "占用期间不可重入");
+            // 模拟后台 LLM 闸门获取失败后的释放路径
+            guard.release();
+        }
+        let guard = try_mark_running(&story_id).expect("闸门失败后应可再次学习");
+        drop(guard);
+        assert!(
+            try_mark_running(&story_id).is_some(),
+            "RAII drop 后应可再次获取"
+        );
+    }
+
+    #[test]
+    fn running_guard_drop_releases_on_early_exit_and_panic() {
+        let story_id = format!("style-guard-panic-{}", uuid::Uuid::new_v4());
+        {
+            let _guard = try_mark_running(&story_id).expect("首次应可占用");
+            // 模拟处理器在 `break` / 提前 return 路径退出
+        }
+        assert!(
+            try_mark_running(&story_id).is_some(),
+            "提前退出后 RUNNING 必须被移除"
+        );
+
+        let story_id = format!("style-guard-panic2-{}", uuid::Uuid::new_v4());
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = try_mark_running(&story_id).expect("首次应可占用");
+            panic!("模拟处理器 panic");
+        }));
+        assert!(result.is_err());
+        assert!(
+            try_mark_running(&story_id).is_some(),
+            "panic 后 RUNNING 也必须被移除"
+        );
     }
 
     #[test]

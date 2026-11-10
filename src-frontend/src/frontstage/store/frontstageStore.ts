@@ -26,7 +26,6 @@ interface FrontstageState {
   // Status
   isSaved: boolean;
   lastSavedAt: string | null;
-  isGenerating: boolean;
 
   // Actions
   setContent: (content: string | ((prev: string) => string)) => void;
@@ -36,7 +35,6 @@ interface FrontstageState {
   removeAiHint: (id: string) => void;
   clearAiHints: () => void;
   setSaveStatus: (saved: boolean, timestamp?: string | null) => void;
-  setGenerating: (generating: boolean) => void;
 }
 
 export const useFrontstageStore = create<FrontstageState>(set => ({
@@ -49,7 +47,6 @@ export const useFrontstageStore = create<FrontstageState>(set => ({
   aiHints: [],
   isSaved: true,
   lastSavedAt: null,
-  isGenerating: false,
 
   // Actions
   setContent: content =>
@@ -89,6 +86,4 @@ export const useFrontstageStore = create<FrontstageState>(set => ({
       isSaved: saved,
       lastSavedAt: timestamp || null,
     }),
-
-  setGenerating: generating => set({ isGenerating: generating }),
 }));

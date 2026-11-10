@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.94.0 项目完成状态
+# StoryMoss (草苔) v0.95.0 项目完成状态
+
+> 最后更新: 2026-11-10（**v0.95.0：隐式状态机治理**——新增 Rust `lifecycle` 转移表与 RAII `CancelHub`；任务/agency/聊天/审批终态不可被迟到结果覆盖；前端 `state/generation.ts` 唯一解释器 + 后台活动单一 reducer；章节选择 epoch、幽灵/保存/切书失败恢复；拆书/Prompts/日志上传/导出/Tasks/Training/向导/技能执行流程状态收敛；MCP Unknown 权限、updater 多源、重复日志包、projection 前缀、style-learning/recompute RAII、PostProcess 解析失败、订阅过期门控、拆书终态重试。Rust **2130/17**，tsc 0，Vitest **719/3**，Playwright **144/5**。**未关闭**：真机复测取消/审批/训练/日志上传；租约续期与 DB CHECK、P2/P3 窗口/自动化/叙事阶段/视图单源。）
 
 > 最后更新: 2026-11-10（**v0.94.0：续写训练资产重建 + 编审/对比闭环**——训练先用上下文章重建世界观/故事大纲（含下一节点）/角色卡/角色关系/逐章梗概，再走既有 writer→gate/revision→assembly；资产分析只允许前文实际人名、未接地人名跳过；判官增加上一章结尾承接基准；报告记录「资产重建→编审→对比」三段流程。Rust **2107/17**（+6），Vitest **706/3**、Playwright **144/5** 基线不变。**未关闭**：升级后真机重跑第 97 章训练；旧沙盒空稿正文恢复。）
 

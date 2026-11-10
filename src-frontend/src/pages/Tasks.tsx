@@ -92,50 +92,69 @@ function TaskRow({
   const deleteMutation = useDeleteTask();
   const triggerMutation = useTriggerTask();
   const cancelMutation = useCancelTask();
-  const [isDeleting, setIsDeleting] = useState(false);
+  // v0.94.x: 行级单一 pending 源——trigger/cancel/retry/delete 共用，防止连点重复触发任务
+  const [pendingAction, setPendingAction] = useState<
+    'trigger' | 'cancel' | 'retry' | 'delete' | null
+  >(null);
+  // ref 同步判重（同 tick 连点不会都读到 null）；state 供 UI 禁用
+  const pendingActionRef = useRef<'trigger' | 'cancel' | 'retry' | 'delete' | null>(null);
+  const rowBusy = pendingAction !== null;
+
+  const acquireRowAction = (action: 'trigger' | 'cancel' | 'retry' | 'delete'): boolean => {
+    if (pendingActionRef.current !== null) return false;
+    pendingActionRef.current = action;
+    setPendingAction(action);
+    return true;
+  };
+  const releaseRowAction = () => {
+    pendingActionRef.current = null;
+    setPendingAction(null);
+  };
 
   const status = statusConfig[task.status] || statusConfig.pending;
   const heartbeat = getHeartbeatStatus(task);
 
+  const runRowAction = async (
+    action: 'trigger' | 'cancel' | 'retry',
+    fn: () => Promise<unknown>,
+    successMessage: string,
+    failureMessage: string
+  ) => {
+    if (!acquireRowAction(action)) return;
+    try {
+      await fn();
+      toast.success(successMessage);
+    } catch (e) {
+      toast.error(`${failureMessage}: ${e}`);
+    } finally {
+      releaseRowAction();
+    }
+  };
+
   const handleDelete = async () => {
-    if (!(await confirmDialog({ title: `确定要删除任务「${task.name}」吗？` }))) return;
-    setIsDeleting(true);
+    if (!acquireRowAction('delete')) return;
+    if (!(await confirmDialog({ title: `确定要删除任务「${task.name}」吗？` }))) {
+      releaseRowAction();
+      return;
+    }
     try {
       await deleteMutation.mutateAsync(task.id);
       toast.success('任务已删除');
     } catch (e) {
       toast.error(`删除失败: ${e}`);
     } finally {
-      setIsDeleting(false);
+      releaseRowAction();
     }
   };
 
-  const handleTrigger = async () => {
-    try {
-      await triggerMutation.mutateAsync(task.id);
-      toast.success('任务已触发');
-    } catch (e) {
-      toast.error(`触发失败: ${e}`);
-    }
-  };
+  const handleTrigger = () =>
+    runRowAction('trigger', () => triggerMutation.mutateAsync(task.id), '任务已触发', '触发失败');
 
-  const handleCancel = async () => {
-    try {
-      await cancelMutation.mutateAsync(task.id);
-      toast.success('任务已取消');
-    } catch (e) {
-      toast.error(`取消失败: ${e}`);
-    }
-  };
+  const handleCancel = () =>
+    runRowAction('cancel', () => cancelMutation.mutateAsync(task.id), '任务已取消', '取消失败');
 
-  const handleRetry = async () => {
-    try {
-      await triggerMutation.mutateAsync(task.id);
-      toast.success('任务已重试');
-    } catch (e) {
-      toast.error(`重试失败: ${e}`);
-    }
-  };
+  const handleRetry = () =>
+    runRowAction('retry', () => triggerMutation.mutateAsync(task.id), '任务已重试', '重试失败');
 
   const metaParts = [
     scheduleTypeLabels[task.schedule_type] || task.schedule_type,
@@ -188,7 +207,8 @@ function TaskRow({
         {task.status === 'running' ? (
           <button
             onClick={handleCancel}
-            className="p-1.5 rounded hover:bg-[color-mix(in_srgb,var(--ai-red)_10%,transparent)] text-ai-ink-3 hover:text-ai-red transition-colors"
+            disabled={rowBusy}
+            className="p-1.5 rounded hover:bg-[color-mix(in_srgb,var(--ai-red)_10%,transparent)] text-ai-ink-3 hover:text-ai-red transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             title="取消"
           >
             <Square className="w-3.5 h-3.5" />
@@ -196,7 +216,8 @@ function TaskRow({
         ) : task.status === 'failed' ? (
           <button
             onClick={handleRetry}
-            className="p-1.5 rounded hover:bg-[color-mix(in_srgb,var(--ai-orange)_10%,transparent)] text-ai-ink-3 hover:text-ai-orange transition-colors"
+            disabled={rowBusy}
+            className="p-1.5 rounded hover:bg-[color-mix(in_srgb,var(--ai-orange)_10%,transparent)] text-ai-ink-3 hover:text-ai-orange transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             title="重试"
           >
             <Play className="w-3.5 h-3.5" />
@@ -204,7 +225,8 @@ function TaskRow({
         ) : (
           <button
             onClick={handleTrigger}
-            className="p-1.5 rounded hover:bg-[color-mix(in_srgb,var(--ai-green)_10%,transparent)] text-ai-ink-3 hover:text-ai-green transition-colors"
+            disabled={rowBusy}
+            className="p-1.5 rounded hover:bg-[color-mix(in_srgb,var(--ai-green)_10%,transparent)] text-ai-ink-3 hover:text-ai-green transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             title="执行"
           >
             <Play className="w-3.5 h-3.5" />
@@ -212,8 +234,8 @@ function TaskRow({
         )}
         <button
           onClick={handleDelete}
-          disabled={isDeleting}
-          className="p-1.5 rounded hover:bg-[color-mix(in_srgb,var(--ai-red)_10%,transparent)] text-ai-ink-3 hover:text-ai-red transition-colors"
+          disabled={rowBusy}
+          className="p-1.5 rounded hover:bg-[color-mix(in_srgb,var(--ai-red)_10%,transparent)] text-ai-ink-3 hover:text-ai-red transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           title="删除"
         >
           <Trash2 className="w-3.5 h-3.5" />
@@ -749,6 +771,7 @@ export function Tasks() {
                 { key: 'pending', label: '等待中' },
                 { key: 'completed', label: '已完成' },
                 { key: 'failed', label: '失败' },
+                { key: 'cancelled', label: '已取消' },
               ]}
             />
           </div>
@@ -836,6 +859,25 @@ export function Tasks() {
                         失败 ({groupedTasks.failed.length})
                       </div>
                       {groupedTasks.failed.map(task => (
+                        <TaskRow
+                          key={task.id}
+                          task={task}
+                          isExpanded={expandedId === task.id}
+                          highlighted={highlightId === task.id}
+                          onToggleExpand={() =>
+                            setExpandedId(expandedId === task.id ? null : task.id)
+                          }
+                        />
+                      ))}
+                    </>
+                  )}
+                  {/* v0.94.x: 「全部」分组此前漏渲染 cancelled → 已取消任务在全部视图消失 */}
+                  {groupedTasks.cancelled.length > 0 && (
+                    <>
+                      <div className="px-4 py-2 bg-cinema-800/30 text-xs font-medium text-ai-orange">
+                        已取消 ({groupedTasks.cancelled.length})
+                      </div>
+                      {groupedTasks.cancelled.map(task => (
                         <TaskRow
                           key={task.id}
                           task={task}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Sparkles,
   ChevronRight,
@@ -58,6 +58,13 @@ interface NovelCreationWizardProps {
   onCancel: () => void;
 }
 
+/** 索引边界取值：空数组/越界/非整数索引一律视为不存在（不回退旧数组）。 */
+function itemAtIndex<T>(list: readonly T[] | null | undefined, index: number | null): T | null {
+  if (!list || index === null || !Number.isInteger(index)) return null;
+  if (index < 0 || index >= list.length) return null;
+  return list[index] ?? null;
+}
+
 export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizardProps) {
   const [step, setStep] = useState<WizardStep>('genre_input');
   const [genreInput, setGenreInput] = useState('');
@@ -65,6 +72,9 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
   const [selectedCharacters, setSelectedCharacters] = useState<number | null>(null);
   const [selectedStyle, setSelectedStyle] = useState<number | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isCompleting, setIsCompleting] = useState(false);
+  // v0.94.x: completed 提交锁——同步 ref 保证双击只提交一次，state 供按钮禁用
+  const completingRef = useRef(false);
 
   const [worldOptions, setWorldOptions] = useState<WorldBuildingOption[]>([]);
   const [characterSets, setCharacterSets] = useState<CharacterProfileOption[][]>([]);
@@ -72,8 +82,22 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
   const [firstScene, setFirstScene] = useState<SceneProposal | null>(null);
   const [selectedStrategy, setSelectedStrategy] = useState<SelectedStrategy | null>(null);
 
+  /** 清掉旧数组/旧选择，避免上一次生成的选项被当作本次结果回写。 */
+  const clearWorldAndDownstream = () => {
+    setWorldOptions([]);
+    setCharacterSets([]);
+    setStyleOptions([]);
+    setFirstScene(null);
+    setSelectedWorld(null);
+    setSelectedCharacters(null);
+    setSelectedStyle(null);
+  };
+
   const handleStartGeneration = async () => {
-    if (!genreInput.trim()) return;
+    if (!genreInput.trim() || isGenerating) return;
+    // 新一轮创作：清除上一轮的所有选项与选择
+    clearWorldAndDownstream();
+    setSelectedStrategy(null);
     setStep('selecting_strategy');
     setIsGenerating(true);
     try {
@@ -94,8 +118,16 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
   };
 
   const handleConfirmStrategy = async () => {
+    if (isGenerating) return;
     setStep('generating_world');
     setIsGenerating(true);
+    setWorldOptions([]);
+    setCharacterSets([]);
+    setStyleOptions([]);
+    setFirstScene(null);
+    setSelectedWorld(null);
+    setSelectedCharacters(null);
+    setSelectedStyle(null);
     try {
       const options = await generateWorldBuildingOptions(genreInput.trim());
       setWorldOptions(options);
@@ -113,11 +145,23 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
     // 防重入：生成中忽略重复点击/双击，避免并发多个 invoke（issue #14 曾因此
     // 出现 3 个并发角色谱请求，全部失败时难以排查）
     if (isGenerating) return;
+    const world = itemAtIndex(worldOptions, index);
+    if (!world) {
+      toast.error('世界观选项已失效，请重新生成');
+      setStep('selecting_world');
+      return;
+    }
     setSelectedWorld(index);
     setStep('generating_characters');
     setIsGenerating(true);
+    // 新世界选择后，旧的后续选项全部作废
+    setCharacterSets([]);
+    setStyleOptions([]);
+    setFirstScene(null);
+    setSelectedCharacters(null);
+    setSelectedStyle(null);
     try {
-      const sets = await generateCharacterProfiles(worldOptions[index]);
+      const sets = await generateCharacterProfiles(world);
       setCharacterSets(sets);
       setStep('selecting_characters');
     } catch (error) {
@@ -132,11 +176,21 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
 
   const handleSelectCharacters = async (index: number) => {
     if (isGenerating) return; // 防重入，同 handleSelectWorld
+    const characters = itemAtIndex(characterSets, index);
+    const world = itemAtIndex(worldOptions, selectedWorld);
+    if (!characters || !world) {
+      toast.error('角色选项已失效，请重新选择世界观');
+      setSelectedCharacters(null);
+      setStep('selecting_world');
+      return;
+    }
     setSelectedCharacters(index);
     setStep('generating_style');
     setIsGenerating(true);
+    setStyleOptions([]);
+    setFirstScene(null);
+    setSelectedStyle(null);
     try {
-      const world = worldOptions[selectedWorld!];
       const styles = await generateWritingStyles(genreInput.trim(), world);
       setStyleOptions(styles);
       setStep('selecting_style');
@@ -152,14 +206,21 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
 
   const handleSelectStyle = async (index: number) => {
     if (isGenerating) return; // 防重入，同 handleSelectWorld
+    const style = itemAtIndex(styleOptions, index);
+    const world = itemAtIndex(worldOptions, selectedWorld);
+    const characters = itemAtIndex(characterSets, selectedCharacters);
+    if (!style || !world || !characters) {
+      toast.error('文风选项已失效，请重新选择角色');
+      setSelectedStyle(null);
+      setStep('selecting_characters');
+      return;
+    }
     setSelectedStyle(index);
     setStep('generating_first_scene');
     setIsGenerating(true);
+    setFirstScene(null);
     try {
-      const world = worldOptions[selectedWorld!];
-      const chars = characterSets[selectedCharacters!];
-      const style = styleOptions[index];
-      const scene = await generateFirstScene(world, chars, style);
+      const scene = await generateFirstScene(world, characters, style);
       setFirstScene(scene);
       setStep('completed');
     } catch (error) {
@@ -173,18 +234,21 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
   };
 
   const handleComplete = () => {
-    if (
-      selectedWorld === null ||
-      selectedCharacters === null ||
-      selectedStyle === null ||
-      !firstScene
-    )
+    if (completingRef.current || isCompleting) return;
+    const world = itemAtIndex(worldOptions, selectedWorld);
+    const characters = itemAtIndex(characterSets, selectedCharacters);
+    const style = itemAtIndex(styleOptions, selectedStyle);
+    if (!world || !characters || !style || !firstScene) {
+      toast.error('生成结果不完整，请返回上一步重新生成');
       return;
-
+    }
+    // 提交锁：completed 只能提交一次
+    completingRef.current = true;
+    setIsCompleting(true);
     onComplete({
-      worldBuilding: worldOptions[selectedWorld],
-      characters: characterSets[selectedCharacters],
-      writingStyle: styleOptions[selectedStyle],
+      worldBuilding: world,
+      characters,
+      writingStyle: style,
       firstScene,
       genreInput: genreInput.trim(),
       selectedStrategy: selectedStrategy ?? undefined,
@@ -213,6 +277,9 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
         setStep('selecting_style');
         setSelectedStyle(null);
         setFirstScene(null);
+        // 返回修改后允许重新走一次 completed 提交（同一完成页仍只提交一次）
+        completingRef.current = false;
+        setIsCompleting(false);
         break;
       default:
         break;
@@ -493,7 +560,7 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
         <div className="flex items-center gap-3">
           <Users className="w-5 h-5 text-cinema-gold" />
           <span className="text-gray-300">
-            {characterSets[selectedCharacters!]?.length || 0} 位角色已设定
+            {itemAtIndex(characterSets, selectedCharacters)?.length || 0} 位角色已设定
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -511,7 +578,12 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
           <ChevronLeft className="w-4 h-4 mr-1" />
           返回修改
         </Button>
-        <Button variant="primary" onClick={handleComplete}>
+        <Button
+          variant="primary"
+          onClick={handleComplete}
+          disabled={isCompleting}
+          isLoading={isCompleting}
+        >
           开始写作
           <ChevronRight className="w-4 h-4 ml-1" />
         </Button>

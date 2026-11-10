@@ -7,8 +7,10 @@
 
 import { useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { useBackendActivityStore } from '@/stores/backendActivityStore';
+import { ACTIVITY_PRIORITY, useBackendActivityStore } from '@/stores/backendActivityStore';
 import type { ActivityCategory } from '@/stores/backendActivityStore';
+import { mapDisplayStage, parseGenerationEvent } from '@/state/generation';
+import type { GenerationStatusPayload } from '@/state/generation';
 
 interface UseBackendActivityListenerOptions {
   /** 是否监听（用于条件启用） */
@@ -20,76 +22,6 @@ const PRIMARY_ACTIVITY_ID = 'ai-primary-activity';
 // v0.23.46: 全局缓存最近一次 LLM 心跳的模型名称（model + provider），
 // 用于 generation-status / smart-execute-progress 消息中追加模型名称
 let lastModelName = '';
-
-/** 智能创作精确阶段映射（A4-1.7 / C1） */
-const PRECISE_PHASE_PATTERNS: { phase: string; patterns: string[] }[] = [
-  {
-    phase: '准备上下文',
-    patterns: [
-      '准备上下文',
-      'preparing_context',
-      'prepare_context',
-      'loading_context',
-      '加载上下文',
-      '读取故事',
-      '读取章节',
-    ],
-  },
-  {
-    phase: '候选生成',
-    patterns: [
-      '候选生成',
-      'candidate',
-      'candidates',
-      'generating_candidates',
-      '生成候选',
-      '生成中',
-      '生成',
-    ],
-  },
-  {
-    phase: '内容审校',
-    patterns: [
-      '内容审校',
-      'inspector',
-      '质检',
-      'inspecting',
-      'inspect',
-      'inspection',
-      'review',
-      '审校',
-    ],
-  },
-  { phase: '改写', patterns: ['改写', '润色改写', 'rewrite', 'rewriting', 'revise', '润色'] },
-  {
-    phase: '最终输出',
-    patterns: ['最终输出', '已完成', 'final_output', 'finalize', '最终', 'final output'],
-  },
-  { phase: '保存记忆', patterns: ['保存记忆', 'save_memory', 'saving_memory', 'memory', '记忆'] },
-];
-
-function mapPrecisePhase(raw: string | undefined): string | null {
-  if (!raw) return null;
-  const s = raw.toLowerCase();
-  for (const { phase, patterns } of PRECISE_PHASE_PATTERNS) {
-    if (patterns.some(p => s.includes(p.toLowerCase()))) {
-      return phase;
-    }
-  }
-  return null;
-}
-
-/** 活动类别优先级（数字越小越优先） */
-const CATEGORY_PRIORITY: Record<ActivityCategory, number> = {
-  pipeline: 1,
-  smart_execute: 2,
-  contract_fill: 3,
-  orchestrator: 4,
-  plan_executor: 5,
-  auto_write: 6,
-  auto_revise: 7,
-  agent_stage: 8,
-};
 
 type ProgressPayload = {
   category: ActivityCategory;
@@ -109,16 +41,6 @@ function appendModelName(message: string): string {
   return message;
 }
 
-/** C1: 统一生成状态事件 payload */
-type GenerationStatusPayload = {
-  phase: string;
-  progress: number;
-  message: string;
-  elapsed_ms: number;
-  task_id: string;
-  request_id?: string | null;
-};
-
 /** v0.26.50: contract-auto-progress 仅 completed/error 可收尾，running 不得注册 activity */
 export function shouldRegisterContractAutoProgress(stage: string): boolean {
   return stage === 'completed' || stage === 'error';
@@ -134,7 +56,6 @@ export function shouldRegisterContractAutoProgress(stage: string): boolean {
  */
 export function useBackendActivityListener(options: UseBackendActivityListenerOptions = {}) {
   const { enabled = true } = options;
-  const storeRef = useRef(useBackendActivityStore.getState());
   // C1: 记录最近一次收到 generation-status 的时间，用于跳过重叠的旧事件
   const lastGenerationStatusAtRef = useRef(0);
   // v0.24.3: running 状态更新节流相关 refs
@@ -142,26 +63,20 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
   const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastUpdateAtRef = useRef(0);
 
-  // 保持 store 引用最新
-  useEffect(() => {
-    const unsub = useBackendActivityStore.subscribe(state => {
-      storeRef.current = state;
-    });
-    return unsub;
-  }, []);
-
   useEffect(() => {
     if (!enabled) return;
-    const store = storeRef.current;
     const unlistens: (() => void)[] = [];
 
     const flushPrimary = (payload: ProgressPayload) => {
+      // 必须读“此刻”的 store，而不是 effect 初次捕获的旧快照：
+      // 旧实现的 existing 永远是空数组，优先级守卫/进度继承/收尾全失效。
+      const store = useBackendActivityStore.getState();
       const existing = store.activities.find(a => a.id === PRIMARY_ACTIVITY_ID);
-      const priority = CATEGORY_PRIORITY[payload.category] ?? 99;
+      const priority = ACTIVITY_PRIORITY.indexOf(payload.category);
 
       // 如果已有主活动且优先级更高，且新事件优先级更低，则忽略（避免低优先级覆盖高优先级）
       if (existing && existing.status === 'running') {
-        const existingPriority = CATEGORY_PRIORITY[existing.category] ?? 99;
+        const existingPriority = ACTIVITY_PRIORITY.indexOf(existing.category);
         if (priority > existingPriority && existing.category !== payload.category) {
           return;
         }
@@ -224,23 +139,23 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
       const unlistenGenerationStatus = await listen<GenerationStatusPayload>(
         'generation-status',
         event => {
-          const p = event.payload;
+          // 唯一协议边界：中文/英文/snake_case 在这里一次归一成 outcome。
+          const parsed = parseGenerationEvent(event.payload);
           lastGenerationStatusAtRef.current = Date.now();
-          const precise = mapPrecisePhase(p.phase) || mapPrecisePhase(p.message);
 
           // v0.23.46: 状态文案追加模型名称
-          const messageWithModel = appendModelName(precise || p.message);
+          const messageWithModel = appendModelName(parsed.label || parsed.message);
           const status: ProgressPayload['status'] =
-            p.phase === 'completed'
+            parsed.outcome === 'done'
               ? 'completed'
-              : p.phase === 'error' || p.phase === 'cancelled'
+              : parsed.outcome === 'failed' || parsed.outcome === 'cancelled'
                 ? 'failed'
                 : 'running';
           updatePrimary({
             category: 'orchestrator',
-            stage: p.phase,
+            stage: parsed.phase,
             message: messageWithModel,
-            progress: p.progress,
+            progress: parsed.progress,
             status,
           });
         }
@@ -262,9 +177,9 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
           return;
         }
         // 仅在已有主活动时收尾，不新建 activity
-        const existing = store.activities.find(
-          a => a.id === PRIMARY_ACTIVITY_ID && a.status === 'running'
-        );
+        const existing = useBackendActivityStore
+          .getState()
+          .activities.find(a => a.id === PRIMARY_ACTIVITY_ID && a.status === 'running');
         if (existing && existing.category === 'contract_fill') {
           updatePrimary({
             category: 'contract_fill',
@@ -302,7 +217,7 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         }
         // v0.9.4: 后端实际发射的是中文 step_type（生成 / 质检 / 改写）
         // A4-1.7: 映射到统一精确阶段文案
-        const precise = mapPrecisePhase(p.step_type) || mapPrecisePhase(p.detail);
+        const precise = mapDisplayStage(p.step_type) || mapDisplayStage(p.detail);
         const stepNames: Record<string, string> = {
           生成: '候选生成',
           质检: 'Inspector 审校',
@@ -338,7 +253,7 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         if (shouldSkipOverlappingEvent()) return;
         const p = event.payload;
         // A4-1.7: 优先映射到精确阶段文案
-        const precise = mapPrecisePhase(p.stage) || mapPrecisePhase(p.message);
+        const precise = mapDisplayStage(p.stage) || mapDisplayStage(p.message);
         updatePrimary({
           category: 'agent_stage',
           stage: p.stage,
@@ -465,20 +380,20 @@ export function useBackendActivityListener(options: UseBackendActivityListenerOp
         // get_input_hint 等轻量 LLM 调用会把输入框置为禁用状态。只在已有创作活动
         // 进行时更新文案，避免”还没打字就进入运行进程”。
         // A4-1.7: 优先映射到精确阶段文案
-        const precise = mapPrecisePhase(p.stage) || mapPrecisePhase(p.message);
+        const precise = mapDisplayStage(p.stage) || mapDisplayStage(p.message);
         const message = appendModelName(precise || p.message);
-        const existing = store.activities.find(
-          a => a.status === 'running' && a.id === PRIMARY_ACTIVITY_ID
-        );
+        const existing = useBackendActivityStore
+          .getState()
+          .activities.find(a => a.status === 'running' && a.id === PRIMARY_ACTIVITY_ID);
         if (existing) {
-          store.updateActivity(PRIMARY_ACTIVITY_ID, { message });
+          useBackendActivityStore.getState().updateActivity(PRIMARY_ACTIVITY_ID, { message });
         }
       });
       unlistens.push(unlistenLlmHeartbeat);
 
       // ── 8. 流水线完成 / 智能执行完成清理 ──
       const unlistenPipelineComplete = await listen('pipeline-complete', () => {
-        store.clearCompleted(1000);
+        useBackendActivityStore.getState().clearCompleted(1000);
       });
       unlistens.push(unlistenPipelineComplete);
     };

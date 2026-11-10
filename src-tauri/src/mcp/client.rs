@@ -276,7 +276,7 @@ impl McpClient {
                     {
                         let permission = previous
                             .permission_for(&bare_name)
-                            .unwrap_or(McpPermission::Read);
+                            .unwrap_or(McpPermission::Unknown);
                         return Err(McpError::PermissionChanged {
                             permission,
                             tool: bare_name,
@@ -393,8 +393,8 @@ fn is_transient_transport_error(error: &McpError) -> bool {
     }
 }
 
-/// 只读/联网工具在瞬时故障后可安全重发；写与隐私工具绝不重试，
-/// 避免连接重置后把同一副作用执行两次。
+/// 只有显式声明为只读/联网的工具在瞬时故障后可安全重发；写、隐私与
+/// 未知权限工具绝不重试，避免连接重置后把同一副作用执行两次。
 fn permission_is_retry_safe(permission: Option<McpPermission>) -> bool {
     matches!(
         permission,
@@ -550,9 +550,33 @@ mod tests {
     fn only_read_and_network_permissions_are_retry_safe() {
         assert!(permission_is_retry_safe(Some(McpPermission::Read)));
         assert!(permission_is_retry_safe(Some(McpPermission::Network)));
+        assert!(!permission_is_retry_safe(Some(McpPermission::Unknown)));
         assert!(!permission_is_retry_safe(Some(McpPermission::Write)));
         assert!(!permission_is_retry_safe(Some(McpPermission::Private)));
         assert!(!permission_is_retry_safe(None));
+    }
+
+    /// 无 annotations 的工具被保守判为 Unknown，瞬时故障时不得重发。
+    #[tokio::test]
+    async fn unknown_permission_tool_is_not_retried_after_connection_reset() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let tool = McpTool {
+            name: "get_chapter_content".into(),
+            description: String::new(),
+            parameters: serde_json::json!({ "type": "object" }),
+            annotations: None,
+        };
+        let mut client = client_with_transport(
+            tool,
+            ResetOnceTransport::new(attempts.clone(), serde_json::json!({})),
+        );
+
+        let error = client
+            .call_tool("get_chapter_content", serde_json::json!({}))
+            .await
+            .expect_err("未知权限工具不应重试");
+        assert!(matches!(error, McpError::TransportError(_)));
+        assert_eq!(attempts.load(Ordering::SeqCst), 1, "不得重发");
     }
 
     /// v0.93.15 回归：只读工具首次 Connection reset，重试后成功返回。

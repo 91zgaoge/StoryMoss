@@ -63,9 +63,6 @@ interface AppState {
   setEditorConfig: (config: EditorConfig | null) => void;
 
   // L4 诊断页互链状态
-  /** GenesisPanel 应自动选中的 session_id */
-  selectedGenesisSessionId: string | null;
-  setSelectedGenesisSessionId: (id: string | null) => void;
   /** TracingPanel 预过滤条件 */
   tracingFilter: { traceId?: string; sessionId?: string } | null;
   setTracingFilter: (filter: { traceId?: string; sessionId?: string } | null) => void;
@@ -189,8 +186,6 @@ export const useAppStore = create<AppState>(set => ({
   setEditorConfig: config => set({ editorConfig: config }),
 
   // L4 诊断页互链状态
-  selectedGenesisSessionId: null,
-  setSelectedGenesisSessionId: id => set({ selectedGenesisSessionId: id }),
   tracingFilter: null,
   setTracingFilter: filter => set({ tracingFilter: filter }),
   logsSearchQuery: null,

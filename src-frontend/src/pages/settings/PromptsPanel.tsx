@@ -1,5 +1,5 @@
 import { confirmDialog } from '@/components/ui/confirm';
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
   FileText,
   RotateCcw,
@@ -172,7 +172,10 @@ export function PromptsPanel() {
   const [entries, setEntries] = useState<PromptEntry[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [savingId, setSavingId] = useState<string | null>(null);
+  // v0.94.x: 按 entry id 记录在途保存（此前单槽 savingId，切换保存对象会互相清空 loading）；
+  // ref 同步判定同一 entry 的连点，state 供按钮禁用/loading。
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+  const savingIdsRef = useRef(new Set<string>());
   const [edited, setEdited] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<PromptCategory | 'all'>('all');
@@ -281,19 +284,31 @@ export function PromptsPanel() {
   }, [filteredEntries]);
 
   const handleSaveOverride = async (id: string) => {
-    setSavingId(id);
+    if (savingIdsRef.current.has(id)) return;
+    savingIdsRef.current.add(id);
+    const content = edited[id] ?? '';
+    setSavingIds(prev => new Set(prev).add(id));
     try {
       await loggedInvoke('save_prompt_override', {
         prompt_id: id,
-        content: edited[id] || '',
+        content,
       });
       toast.success('提示词已保存，下次生成时生效');
-      await fetchEntries();
+      // v0.94.x: 只更新当前 entry（此前全量 fetchEntries 会用后端快照覆盖
+      // 其他条目所有未保存草稿，保存 A 丢 B/C）。草稿 map 不动，只同步已保存基线。
+      setEntries(prev =>
+        prev.map(e => (e.id === id ? { ...e, current_content: content, is_overridden: true } : e))
+      );
     } catch (e) {
       toast.error('保存失败');
       console.error(e);
     } finally {
-      setSavingId(null);
+      savingIdsRef.current.delete(id);
+      setSavingIds(prev => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
   };
 
@@ -302,7 +317,14 @@ export function PromptsPanel() {
     try {
       await loggedInvoke('reset_prompt_override', { prompt_id: id });
       toast.success('已重置为默认值');
-      await fetchEntries();
+      // 同样只更新当前 entry；其余条目的未保存草稿保持不变
+      const resetContent = entries.find(e => e.id === id)?.default_content ?? '';
+      setEntries(prev =>
+        prev.map(e =>
+          e.id === id ? { ...e, current_content: e.default_content, is_overridden: false } : e
+        )
+      );
+      setEdited(prev => ({ ...prev, [id]: resetContent }));
     } catch (e) {
       toast.error('重置失败');
       console.error(e);
@@ -744,8 +766,8 @@ export function PromptsPanel() {
                           <Button
                             size="sm"
                             onClick={() => handleSaveOverride(entry.id)}
-                            disabled={!isDirty || savingId === entry.id}
-                            isLoading={savingId === entry.id}
+                            disabled={!isDirty || savingIds.has(entry.id)}
+                            isLoading={savingIds.has(entry.id)}
                           >
                             <Save className="mr-1 h-3.5 w-3.5" />
                             保存覆盖

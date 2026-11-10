@@ -68,21 +68,25 @@ impl AgencyRepository {
         Ok(())
     }
 
-    /// 终态守护：cancelled/completed/failed 后不再允许覆盖（取消竞态防护）。
+    /// 终态守护：cancelled/completed/failed 后不再允许覆盖。
+    ///
+    /// 返回实际写入行数：0 = run 已终态或不存在。调用方必须据此决定是否
+    /// 发 `completed` 事件/写 activity log，不能“写完再发”把 cancelled 的
+    /// run 说成完成。
     pub fn finish_run(
         &self,
         run_id: &str,
         status: &str,
         result_json: Option<&str>,
         error_message: Option<&str>,
-    ) -> Result<(), rusqlite::Error> {
+    ) -> Result<usize, rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
-        conn.execute(
+        let updated = conn.execute(
             "UPDATE agency_runs SET status = ?2, result_json = ?3, error_message = ?4, updated_at = ?5
              WHERE id = ?1 AND status NOT IN ('cancelled', 'completed', 'failed')",
             params![run_id, status, result_json, error_message, now()],
         )?;
-        Ok(())
+        Ok(updated)
     }
 
     pub fn get_run(&self, run_id: &str) -> Result<Option<AgencyRun>, rusqlite::Error> {

@@ -1574,14 +1574,22 @@ impl AgencyCoordinator {
                 let json = serde_json::to_string(r).unwrap_or_default();
                 let repo_c = repo.clone();
                 let rid = run_id.to_string();
-                let _ = self
+                let applied = self
                     .db(move || {
                         repo_c
                             .finish_run(&rid, "completed", Some(&json), None)
                             .map_err(AppError::from)
                     })
-                    .await;
-                self.emit_progress(run_id, "assembly", "completed", "创世完成");
+                    .await
+                    .unwrap_or(0);
+                if applied > 0 {
+                    self.emit_progress(run_id, "assembly", "completed", "创世完成");
+                } else {
+                    log::warn!(
+                        "agency: run {} 已终态（取消/失败），拒绝写入 completed，不发送完成事件",
+                        run_id
+                    );
+                }
                 // run 收尾检查点（best-effort）
                 self.checkpoint_auto(run_id, &r.story_id, "run_final", None, &budget)
                     .await;
@@ -3632,14 +3640,22 @@ impl AgencyCoordinator {
                 let json = serde_json::to_string(r).unwrap_or_default();
                 let repo_c = repo.clone();
                 let rid = run_id.to_string();
-                let _ = self
+                let applied = self
                     .db(move || {
                         repo_c
                             .finish_run(&rid, "completed", Some(&json), None)
                             .map_err(AppError::from)
                     })
-                    .await;
-                self.emit_progress(run_id, "assembly", "completed", "续写完成");
+                    .await
+                    .unwrap_or(0);
+                if applied > 0 {
+                    self.emit_progress(run_id, "assembly", "completed", "续写完成");
+                } else {
+                    log::warn!(
+                        "agency: run {} 已终态（取消/失败），拒绝写入 completed，不发送完成事件",
+                        run_id
+                    );
+                }
                 // run 收尾检查点（best-effort）
                 self.checkpoint_auto(run_id, &r.story_id, "run_final", None, &budget)
                     .await;
@@ -3888,7 +3904,7 @@ impl AgencyCoordinator {
         };
         let repo_c = repo.clone();
         let rid = run_id.to_string();
-        let _ = self
+        let applied = self
             .db(move || {
                 repo_c
                     .finish_run(
@@ -3899,21 +3915,30 @@ impl AgencyCoordinator {
                     )
                     .map_err(AppError::from)
             })
-            .await;
-        self.emit_progress(
-            run_id,
-            role.as_str(),
-            status,
-            &format!(
-                "{} 任务{}",
+            .await
+            .unwrap_or(0);
+        if applied > 0 {
+            self.emit_progress(
+                run_id,
                 role.as_str(),
-                if status == "completed" {
-                    "完成"
-                } else {
-                    "失败"
-                }
-            ),
-        );
+                status,
+                &format!(
+                    "{} 任务{}",
+                    role.as_str(),
+                    if status == "completed" {
+                        "完成"
+                    } else {
+                        "失败"
+                    }
+                ),
+            );
+        } else {
+            log::warn!(
+                "agency: role run {} 已终态，拒绝覆盖 {}，不发送进度事件",
+                run_id,
+                status
+            );
+        }
         if let Ok(r) = &result {
             if r.aborted {
                 return Err(AppError::internal(format!(
@@ -7645,14 +7670,22 @@ impl AgencyCoordinator {
                 let json = serde_json::to_string(r).unwrap_or_default();
                 let repo_c = repo.clone();
                 let rid = run_id.to_string();
-                let _ = self
+                let applied = self
                     .db(move || {
                         repo_c
                             .finish_run(&rid, "completed", Some(&json), None)
                             .map_err(AppError::from)
                     })
-                    .await;
-                self.emit_progress(run_id, "assembly", "completed", "批量续写完成");
+                    .await
+                    .unwrap_or(0);
+                if applied > 0 {
+                    self.emit_progress(run_id, "assembly", "completed", "批量续写完成");
+                } else {
+                    log::warn!(
+                        "agency: run {} 已终态（取消/失败），拒绝写入 completed，不发送完成事件",
+                        run_id
+                    );
+                }
                 // run 收尾检查点（best-effort）
                 self.checkpoint_auto(run_id, &r.story_id, "run_final", None, &budget)
                     .await;
@@ -7838,7 +7871,10 @@ impl AgencyCoordinator {
 
         for offset in 0..count {
             let chapter_number = start_chapter + offset as i32;
-            if let Err(e) = self.check_cancel(cancel) {
+            // 内存 flag + DB 终态双读：导演 cancel_run 可能只把 DB 写成
+            // cancelled（它不知道 scheduler 的外部 flag），批量循环仍必须
+            // 在下一章前停下，不能继续写 scene。
+            if let Err(e) = self.check_cancel_for_run(run_id, cancel) {
                 // 取消时终止在途 gate，避免其向已结束 run 的黑板写审查条目
                 if let Some(jh) = pending_gate.take() {
                     jh.abort();
@@ -8539,6 +8575,24 @@ impl AgencyCoordinator {
         } else {
             Ok(())
         }
+    }
+
+    /// 取消的权威判定：内存 flag 之外还要读 DB 终态。
+    ///
+    /// 导演的 cancel_run 走 `agency_cancel_run`/`finish_run` 时不一定注册到
+    /// 同一内存 flag（批量续写使用 scheduler 的外部 flag），只查 flag 会漏掉
+    /// 这类取消，继续向已 cancelled 的 run 写 scene。
+    fn check_cancel_for_run(&self, run_id: &str, cancel: &Arc<AtomicBool>) -> Result<(), AppError> {
+        if cancel.load(Ordering::SeqCst) {
+            return Err(AppError::from("创世已取消"));
+        }
+        let repo = AgencyRepository::new(self.pool.clone());
+        if let Ok(Some(run)) = repo.get_run(run_id) {
+            if run.status == "cancelled" {
+                return Err(AppError::from("创世已取消"));
+            }
+        }
+        Ok(())
     }
 
     fn emit_progress(&self, run_id: &str, phase: &str, status: &str, message: &str) {

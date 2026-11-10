@@ -32,8 +32,25 @@ export function useUploadBook() {
 
 // ==================== 分析状态 ====================
 
+function isTerminalAnalysisStatus(status: string | undefined): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
+
 export function useBookAnalysisStatus(bookId: string | null) {
+  const queryClient = useQueryClient();
   const [liveStatus, setLiveStatus] = useState<AnalysisStatusResponse | null>(null);
+
+  /** 完成/失败/取消后让结果查询重新取数，避免「已完结但结果区永远加载中」。 */
+  const invalidateAnalysisResults = (status: string | undefined) => {
+    if (!bookId || !isTerminalAnalysisStatus(status)) return;
+    void queryClient.invalidateQueries({ queryKey: [ANALYSIS_KEY, bookId] });
+    void queryClient.invalidateQueries({ queryKey: [STATUS_KEY, bookId] });
+  };
+
+  // 单状态源：切书时清掉上一本书的 liveStatus，避免 A 书终态渲染到 B 书。
+  useEffect(() => {
+    setLiveStatus(null);
+  }, [bookId]);
 
   // 监听实时进度事件（book-analysis-progress）
   useEffect(() => {
@@ -53,6 +70,7 @@ export function useBookAnalysisStatus(bookId: string | null) {
             active_threads: event.payload.active_threads ?? prev?.active_threads ?? 0,
             max_threads: event.payload.total_chunks ?? prev?.max_threads ?? 0,
           }));
+          invalidateAnalysisResults(event.payload.status);
         }
       });
     };
@@ -87,13 +105,20 @@ export function useBookAnalysisStatus(bookId: string | null) {
         setLiveStatus(prev => ({
           book_id: bookId,
           status:
-            p.status === 'completed' ? 'completed' : p.status === 'failed' ? 'failed' : 'analyzing',
+            p.status === 'completed'
+              ? 'completed'
+              : p.status === 'failed'
+                ? 'failed'
+                : p.status === 'cancelled'
+                  ? 'cancelled'
+                  : 'analyzing',
           progress: p.progress_percent,
           current_step: p.message,
           error: undefined,
           active_threads: prev?.active_threads ?? 0,
           max_threads: prev?.max_threads ?? 0,
         }));
+        invalidateAnalysisResults(p.status);
       });
     };
 
@@ -189,6 +214,7 @@ export function useBookAnalysisStatus(bookId: string | null) {
           }
           return base;
         });
+        invalidateAnalysisResults(event.payload.status);
       });
     };
 
@@ -222,7 +248,11 @@ export function useBookAnalysisStatus(bookId: string | null) {
     enabled: !!bookId,
   });
 
-  return liveStatus ?? query.data ?? null;
+  // 单一状态源：liveStatus 必须属于当前 bookId；切换瞬间的旧态直接视为空，
+  // 由下面的 useQuery（按 bookId 分键）接管，绝不把 A 书的终态渲染到 B 书。
+  const scopedLiveStatus = liveStatus && liveStatus.book_id === bookId ? liveStatus : null;
+
+  return scopedLiveStatus ?? query.data ?? null;
 }
 
 // ==================== 分析结果 ====================

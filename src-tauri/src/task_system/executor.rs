@@ -75,21 +75,35 @@ impl<R: Runtime> TaskExecutionContext<R> {
         self.progress.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    /// 开始执行：更新状态为 running
+    /// 开始执行：只有 pending/新一轮的 completed/failed 可以进入 running。
+    /// cancelled 不会被执行器复活（重新执行必须先走显式 trigger）。
     pub fn start(&self) -> Result<(), Box<dyn std::error::Error>> {
         let repo = TaskRepository::new(self.pool.clone());
-        repo.update_status(&self.task_id, &TaskStatus::Running, Some(0), None, None)?;
+        if !repo.start_execution(&self.task_id)? {
+            return Err(format!("任务 {} 已取消或已在运行，拒绝开始执行", self.task_id).into());
+        }
         repo.update_last_run(&self.task_id)?;
         repo.create_log(&self.task_id, "info", "任务开始执行")?;
         self.emit_status_changed("running", 0, Some("任务开始执行".to_string()));
         Ok(())
     }
 
-    /// 记录心跳
+    /// 记录心跳。任务已离开 running（取消/终态）后不再续命。
     pub fn heartbeat(&self) {
         let repo = TaskRepository::new(self.pool.clone());
-        if let Err(e) = repo.update_heartbeat(&self.task_id) {
-            log::warn!("[TaskExecution] Failed to record heartbeat: {}", e);
+        match repo.update_heartbeat_if_running(&self.task_id) {
+            Ok(true) => {}
+            Ok(false) => {
+                log::debug!(
+                    "[TaskExecution] Heartbeat skipped: task {} is no longer running",
+                    self.task_id
+                );
+                return;
+            }
+            Err(e) => {
+                log::warn!("[TaskExecution] Failed to record heartbeat: {}", e);
+                return;
+            }
         }
         // 发送心跳事件给前端
         let event = TaskHeartbeatEvent {
@@ -107,8 +121,19 @@ impl<R: Runtime> TaskExecutionContext<R> {
         // v0.93.14: 进度、日志、心跳共用同一个 now（毫秒级一致），
         // 修「任务进度时间与日志时间不一致」的循环复现口径。
         let now = Local::now().to_rfc3339();
-        if let Err(e) = repo.record_progress(&self.task_id, progress, message, &now) {
-            log::warn!("[TaskExecution] Failed to update progress: {}", e);
+        match repo.record_progress_if_running(&self.task_id, progress, message, &now) {
+            Ok(true) => {}
+            Ok(false) => {
+                log::debug!(
+                    "[TaskExecution] Progress skipped: task {} is no longer running",
+                    self.task_id
+                );
+                return;
+            }
+            Err(e) => {
+                log::warn!("[TaskExecution] Failed to update progress: {}", e);
+                return;
+            }
         }
 
         let event = TaskProgressEvent {
@@ -129,35 +154,34 @@ impl<R: Runtime> TaskExecutionContext<R> {
         }
         // v0.93.14: 日志也是存活信号——同步刷新心跳，避免「日志刚写、
         // 心跳却显示几分钟前」的错位（日志时间仍以 create_log 为准）。
-        let _ = repo.update_heartbeat(&self.task_id);
+        let _ = repo.update_heartbeat_if_running(&self.task_id);
     }
 
-    /// 完成任务
+    /// 完成任务。终态任务（被取消/已失败）不会被迟到的结果覆盖。
     pub fn complete(&self, result_json: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
         let repo = TaskRepository::new(self.pool.clone());
-        repo.reset_retry(&self.task_id)?;
-        repo.update_status(
-            &self.task_id,
-            &TaskStatus::Completed,
-            Some(100),
-            result_json.clone(),
-            None,
-        )?;
+        if !repo.complete_if_running(&self.task_id, result_json)? {
+            return Err(format!(
+                "任务 {} 已不在 running，拒绝写入 completed（可能已取消）",
+                self.task_id
+            )
+            .into());
+        }
         repo.create_log(&self.task_id, "info", "任务执行完成")?;
         self.emit_status_changed("completed", 100, Some("任务执行完成".to_string()));
         Ok(())
     }
 
-    /// 标记失败
+    /// 标记失败。只允许从 running 写入，避免取消后迟到的失败覆盖终态。
     pub fn fail(&self, error: &str) -> Result<(), Box<dyn std::error::Error>> {
         let repo = TaskRepository::new(self.pool.clone());
-        repo.update_status(
-            &self.task_id,
-            &TaskStatus::Failed,
-            None,
-            None,
-            Some(error.to_string()),
-        )?;
+        if !repo.fail_if_running(&self.task_id, error)? {
+            return Err(format!(
+                "任务 {} 已不在 running，拒绝写入 failed（可能已取消）",
+                self.task_id
+            )
+            .into());
+        }
         repo.create_log(&self.task_id, "error", &format!("任务执行失败: {}", error))?;
         self.emit_status_changed("failed", 0, Some(error.to_string()));
         Ok(())

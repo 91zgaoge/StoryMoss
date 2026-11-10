@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum McpPermission {
+    /// 保守默认：工具没有 annotations 或没有任何可判别 hint 时，权限未知。
+    /// 未知权限可以调用（工具确实存在），但绝不能在瞬时故障后重发。
+    Unknown,
     Read,
     Write,
     Network,
@@ -16,6 +19,7 @@ pub enum McpPermission {
 impl McpPermission {
     pub fn as_str(self) -> &'static str {
         match self {
+            McpPermission::Unknown => "unknown",
             McpPermission::Read => "read",
             McpPermission::Write => "write",
             McpPermission::Network => "network",
@@ -25,6 +29,7 @@ impl McpPermission {
 
     pub fn label_zh(self) -> &'static str {
         match self {
+            McpPermission::Unknown => "未知",
             McpPermission::Read => "读取",
             McpPermission::Write => "写入",
             McpPermission::Network => "联网",

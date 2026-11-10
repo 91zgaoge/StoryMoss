@@ -299,7 +299,10 @@ pub fn parse_resources_payload(result: &serde_json::Value) -> Result<Vec<McpReso
     Ok(resources)
 }
 
-/// 根据工具 annotations 推断权限类别；没有注解时按只读处理。
+/// 根据工具 annotations 推断权限类别。
+///
+/// 只有显式注解才能证明“只读”：没有 annotations、或注解里没有可判别的
+/// hint 时一律返回 `Unknown`，不再把未声明工具默认当成 Read 并允许重试。
 pub fn permission_for_tool(tool: &McpTool) -> McpPermission {
     if let Some(annotations) = tool.annotations.as_ref() {
         if annotations.is_write() {
@@ -308,8 +311,11 @@ pub fn permission_for_tool(tool: &McpTool) -> McpPermission {
         if annotations.is_network() {
             return McpPermission::Network;
         }
+        if annotations.read_only_hint == Some(true) {
+            return McpPermission::Read;
+        }
     }
-    McpPermission::Read
+    McpPermission::Unknown
 }
 
 /// 构建工具面映射快照。基础工具缺失是整机映射失效；权限工具缺失只记撤销。
@@ -355,6 +361,7 @@ pub fn build_snapshot(
 
     let mut permissions = BTreeMap::new();
     for permission in [
+        McpPermission::Unknown,
         McpPermission::Read,
         McpPermission::Write,
         McpPermission::Network,
@@ -366,7 +373,9 @@ pub fn build_snapshot(
             .iter()
             .any(|(_, expected)| *expected == permission);
         let granted = match permission {
-            McpPermission::Read => true,
+            // 未知权限没有工具时自然视为未开启；有工具时允许调用，但不允许
+            // 自动重试（重试判定只看显式 Read/Network）。
+            McpPermission::Unknown | McpPermission::Read => !tools_for_permission.is_empty(),
             // 写/隐私权限没有基础工具也不视为契约损坏；只是当前未开启。
             McpPermission::Write | McpPermission::Private => !tools_for_permission.is_empty(),
             // 联网权限若契约声明的可选工具全缺席，即视为源系统已撤销联网。
@@ -537,6 +546,63 @@ mod tests {
             protocol.unwrap_err(),
             McpError::ProtocolUnsupported { .. }
         ));
+    }
+
+    #[test]
+    fn missing_annotations_are_unknown_not_read() {
+        let without = legado_tool("get_chapter_content", None);
+        assert_eq!(permission_for_tool(&without), McpPermission::Unknown);
+
+        // 有 annotations 但没有可用于判别的 hint，仍应保守返回 Unknown。
+        let hintless = legado_tool(
+            "get_book",
+            Some(McpToolAnnotations {
+                read_only_hint: None,
+                open_world_hint: None,
+                destructive_hint: None,
+                idempotent_hint: Some(true),
+            }),
+        );
+        assert_eq!(permission_for_tool(&hintless), McpPermission::Unknown);
+
+        let explicit_read = legado_tool(
+            "list_books",
+            Some(McpToolAnnotations {
+                read_only_hint: Some(true),
+                open_world_hint: Some(false),
+                destructive_hint: Some(false),
+                idempotent_hint: None,
+            }),
+        );
+        assert_eq!(permission_for_tool(&explicit_read), McpPermission::Read);
+    }
+
+    #[test]
+    fn snapshot_serializes_unknown_permission_conservatively() {
+        let contract = legado_contract("2025-06-18".to_string(), "0.14.24".to_string());
+        let tools: Vec<McpTool> = LEGADO_REQUIRED_TOOLS
+            .iter()
+            .map(|name| legado_tool(name, None))
+            .collect();
+        let snapshot = build_snapshot(
+            &contract,
+            &meta("legado-macos", "栗子读书", "0.14.24", "2025-06-18"),
+            &tools,
+            HashMap::new(),
+        )
+        .unwrap();
+        assert_eq!(
+            snapshot.permission_for("get_chapter_content"),
+            Some(McpPermission::Unknown)
+        );
+        assert!(snapshot.permissions[&McpPermission::Unknown].granted);
+        assert!(!snapshot.permissions[&McpPermission::Read].granted);
+
+        // 序列化键名必须是 snake_case 的 "unknown"，前端 permissions 映射可
+        // 继续按 Record<string, McpPermissionState> 读取。
+        let value = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(value["tool_permissions"]["get_chapter_content"], "unknown");
+        assert_eq!(value["permissions"]["unknown"]["granted"], true);
     }
 
     #[test]

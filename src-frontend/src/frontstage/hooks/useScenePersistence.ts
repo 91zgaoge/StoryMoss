@@ -111,6 +111,20 @@ export default function useScenePersistence({
     }
   }, []);
 
+  // v0.94.x: 保存失败错误态属于「当前文档」。切书/切场景后旧文档的错误横幅
+  // 不能继续挂在顶栏，也不再保留持有旧正文的在途重试。
+  const storeStoryTitle = useFrontstageStore(state => state.storyTitle);
+  const storeSceneId = useFrontstageStore(state => state.sceneId);
+  const docKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const docKey = `${storeStoryTitle ?? ''}::${storeSceneId ?? ''}`;
+    if (docKeyRef.current === docKey) return;
+    docKeyRef.current = docKey;
+    cancelPersistRetry();
+    saveFailedRef.current = false;
+    setSaveError(null);
+  }, [storeStoryTitle, storeSceneId, cancelPersistRetry]);
+
   // 序列化 DB 写入：所有 update_scene 必经此函数，按调用顺序串行提交。
   // 只写正文，不写 title：标题由改名/自动取名独立维护，正文保存携带的
   // 旧 sceneTitle 会在自动取名后把新标题覆盖回占位名（v0.79.0）。

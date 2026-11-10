@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Download,
   FileText,
@@ -42,6 +42,9 @@ const exportFormats: {
 
 type Step = 'format' | 'health-check' | 'reviewing' | 'review-results';
 
+/** 审查失败的两种可区分原因：空文本 / 审查服务不可用 */
+type ReviewErrorKind = 'empty-text' | 'service';
+
 export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDialogProps) {
   const [step, setStep] = useState<Step>('format');
   const [selectedFormat, setSelectedFormat] = useState<ExportFormat>('markdown');
@@ -51,7 +54,28 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>(undefined);
 
   const [reviewResult, setReviewResult] = useState<AntiAiReview | null>(null);
-  const [isReviewing, setIsReviewing] = useState(false);
+  const [reviewError, setReviewError] = useState<ReviewErrorKind | null>(null);
+
+  // v0.94.x: 关闭/卸载票据——审查请求回来时若已不是同一打开周期，禁止 setState 回写
+  const reviewEpochRef = useRef(0);
+  const isOpenRef = useRef(isOpen);
+  // 渲染期同步（早于 effect）：即使异步结果在关闭后的微任务窗口内到达也能被挡住
+  isOpenRef.current = isOpen;
+  useEffect(() => {
+    if (!isOpen) {
+      // 关闭时递增票据并清掉上一轮审查残留
+      reviewEpochRef.current += 1;
+      setStep('format');
+      setReviewResult(null);
+      setReviewError(null);
+    }
+  }, [isOpen]);
+  useEffect(
+    () => () => {
+      reviewEpochRef.current += 1;
+    },
+    []
+  );
 
   const exportMutation = useExport();
   const { data: templates } = useExportTemplates(selectedFormat);
@@ -79,39 +103,50 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
       },
       {
         onSuccess: data => {
-          // 用户取消原生保存对话框时不关闭
-          if (data.savedPath) onClose();
+          // 用户取消原生保存对话框时不关闭；异步完成时弹窗若已关闭也不再回写
+          if (data.savedPath && isOpenRef.current) onClose();
         },
       }
     );
   };
 
   const handleRunAntiAi = async () => {
+    const epoch = reviewEpochRef.current;
     setStep('reviewing');
-    setIsReviewing(true);
+    setReviewResult(null);
+    setReviewError(null);
     try {
       // Fetch all chapters and concatenate content
       const chapters = await getStoryChapters(storyId);
+      if (epoch !== reviewEpochRef.current || !isOpenRef.current) return;
       const fullText = chapters
         .map(c => c.content || '')
         .filter(Boolean)
         .join('\n\n');
       if (!fullText.trim()) {
+        // 空文本不是「审查服务失败」——给出可区分的 error
         setReviewResult(null);
+        setReviewError('empty-text');
         setStep('review-results');
-        setIsReviewing(false);
         return;
       }
       // Limit to first 3000 chars to avoid overwhelming the review
       const textToReview = fullText.slice(0, 3000);
       const result = await antiAiReview(textToReview);
-      setReviewResult(result);
-      logFeatureUsage('anti_ai_review', 'executed', storyId);
+      if (epoch !== reviewEpochRef.current || !isOpenRef.current) return;
+      if (result) {
+        setReviewResult(result);
+        logFeatureUsage('anti_ai_review', 'executed', storyId);
+      } else {
+        // 服务无结果与空文本分开表达
+        setReviewResult(null);
+        setReviewError('service');
+      }
+      setStep('review-results');
     } catch (e) {
-      // silent fail - allow export anyway
+      if (epoch !== reviewEpochRef.current || !isOpenRef.current) return;
       setReviewResult(null);
-    } finally {
-      setIsReviewing(false);
+      setReviewError('service');
       setStep('review-results');
     }
   };
@@ -177,6 +212,16 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
           <Button variant="primary" onClick={handleRunAntiAi} className="flex-1 gap-2">
             <ShieldAlert className="w-4 h-4" />
             运行审查
+          </Button>
+        </div>
+      );
+    }
+
+    if (step === 'reviewing') {
+      return (
+        <div className="flex w-full justify-end">
+          <Button variant="secondary" isLoading disabled>
+            审查进行中…
           </Button>
         </div>
       );
@@ -432,11 +477,21 @@ export function ExportDialog({ storyId, storyTitle, isOpen, onClose }: ExportDia
                   </div>
                 )}
               </>
+            ) : reviewError === 'empty-text' ? (
+              <div className="text-center py-4">
+                <AlertTriangle className="w-6 h-6 text-yellow-400 mx-auto mb-2" />
+                <p className="text-sm text-gray-300">没有可审查的正文</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  故事尚无章节正文（或正文为空），可先写作后再运行 Anti-AI 体检。
+                </p>
+              </div>
             ) : (
               <div className="text-center py-4">
                 <AlertTriangle className="w-6 h-6 text-yellow-400 mx-auto mb-2" />
-                <p className="text-sm text-gray-300">审查未返回结果</p>
-                <p className="text-xs text-gray-500 mt-1">可能是文本为空或审查服务暂时不可用</p>
+                <p className="text-sm text-gray-300">审查服务未返回结果</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  审查服务暂时不可用；可忽略审查结果直接导出。
+                </p>
               </div>
             )}
           </div>

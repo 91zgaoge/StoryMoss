@@ -40,15 +40,12 @@ impl TaskScheduler {
     {
         let task_id = task.id.clone();
 
-        // 先注销已存在的
+        // 先注销已存在的定时器（只 abort timer，不重造执行锁）
         self.unregister(&task_id);
 
-        // 创建互斥锁
-        let lock = Arc::new(tokio::sync::Mutex::new(()));
-        {
-            let mut locks = self.locks.lock().unwrap();
-            locks.insert(task_id.clone(), lock.clone());
-        }
+        // 复用既有执行锁：update_task/toggle 会反复 register，如果每次都换
+        // 一把新锁，在途执行仍持有旧 Arc，第二次触发就能绕过互斥并发跑。
+        let _lock = self.ensure_lock(&task_id);
 
         match task.schedule_type {
             ScheduleType::Once => {
@@ -97,8 +94,8 @@ impl TaskScheduler {
             log::info!("[TaskScheduler] Unregistered task: {}", task_id);
         }
 
-        let mut locks = self.locks.lock().unwrap();
-        locks.remove(task_id);
+        // 执行锁必须随任务生命周期保留：unregister 只停 timer，若这里 remove
+        // 锁，register 会新建一把，旧 guard 仍在旧 Arc 上，互斥语义失效。
     }
 
     /// 检查任务是否已注册

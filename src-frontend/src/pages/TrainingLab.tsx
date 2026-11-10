@@ -6,7 +6,7 @@
  * 五维对比评审 → 改进建议自动注入下一轮。报告按书聚合，看总分趋势。
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, Dumbbell, Loader2, Play, RotateCcw } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -107,6 +107,20 @@ export default function TrainingLab() {
   const createTask = useCreateTask();
   const updateTask = useUpdateTask();
   const triggerTask = useTriggerTask();
+  // v0.94.x: find→create/update 的异步 upsert 互斥锁。仅靠 mutation.isPending
+  // 挡不住「两次点击都先读到不存在再各自创建」——ref 同步置位，state 供 UI 禁用。
+  const upsertBusyRef = useRef(false);
+  const [upsertBusy, setUpsertBusy] = useState(false);
+  const acquireUpsertLock = (): boolean => {
+    if (upsertBusyRef.current) return false;
+    upsertBusyRef.current = true;
+    setUpsertBusy(true);
+    return true;
+  };
+  const releaseUpsertLock = () => {
+    upsertBusyRef.current = false;
+    setUpsertBusy(false);
+  };
 
   // ── 配置表单 ──────────────────────────────────────────────
   const [bookTitle, setBookTitle] = useState('');
@@ -178,7 +192,10 @@ export default function TrainingLab() {
     const sorted = [...trainingTasks].sort((a, b) =>
       (b.updated_at ?? '').localeCompare(a.updated_at ?? '')
     );
-    return (input ? sorted.find(t => payloadBookTitle(t) === input) : undefined) ?? sorted[0];
+    // v0.94.x: 填了书名时只显示该书的训练任务；找不到就是没有，
+    // 不再回退到「最近一条训练任务」（那会把别的书的运行态显示成本书状态）。
+    if (input) return sorted.find(t => payloadBookTitle(t) === input);
+    return sorted[0];
   }, [trainingTasks, bookTitle]);
   const statusLogs = useTaskLogs(statusTask?.id);
   const latestStatusLogs = (statusLogs.data ?? []).slice(0, 2);
@@ -259,6 +276,7 @@ export default function TrainingLab() {
 
   // v0.93.2 融合：创建/更新定时训练（同书名计划 upsert，任务表每书一行）
   const handleCreateSchedule = async () => {
+    if (!acquireUpsertLock()) return;
     try {
       const payload = JSON.stringify(buildPayload());
       const cronPattern = cron.trim() || DEFAULT_CRON;
@@ -285,6 +303,8 @@ export default function TrainingLab() {
       }
     } catch (e) {
       toast.error((e as Error).message);
+    } finally {
+      releaseUpsertLock();
     }
   };
 
@@ -305,6 +325,7 @@ export default function TrainingLab() {
 
   // v0.93.2 融合：立即跑 = 同步当前配置到既有计划后触发；无计划则建一次性任务
   const handleRunNow = async () => {
+    if (!acquireUpsertLock()) return;
     try {
       const payload = JSON.stringify(buildPayload());
       const cronPattern = cron.trim() || DEFAULT_CRON;
@@ -353,6 +374,8 @@ export default function TrainingLab() {
       }
     } catch (e) {
       toast.error((e as Error).message);
+    } finally {
+      releaseUpsertLock();
     }
   };
 
@@ -597,14 +620,16 @@ export default function TrainingLab() {
                 <Button
                   variant="primary"
                   onClick={handleCreateSchedule}
-                  isLoading={createTask.isPending}
+                  isLoading={createTask.isPending || upsertBusy}
+                  disabled={upsertBusy}
                 >
                   创建定时训练
                 </Button>
                 <Button
                   variant="secondary"
                   onClick={handleRunNow}
-                  isLoading={triggerTask.isPending || updateTask.isPending}
+                  isLoading={triggerTask.isPending || updateTask.isPending || upsertBusy}
+                  disabled={upsertBusy}
                 >
                   <Play className="mr-1 h-3.5 w-3.5" />
                   立即跑一轮
@@ -720,7 +745,11 @@ export default function TrainingLab() {
         size="xl"
         testId="training-report-modal"
       >
-        {detailQuery.data ? (
+        {detailQuery.isError ? (
+          <p className="p-4 text-xs text-ai-red">
+            加载训练报告失败：{String(detailQuery.error ?? '未知错误')}
+          </p>
+        ) : detailQuery.data ? (
           <div
             className="flex flex-col gap-3 overflow-y-auto"
             style={{ maxHeight: 'min(560px, 60vh)' }}

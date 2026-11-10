@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -116,6 +116,8 @@ export function Logs() {
     file_count: number;
     skipped_duplicates: boolean;
   } | null>(null);
+  // v0.94.x: 弹窗生命周期票据——关闭/重开后，旧的打包/上传异步结果不得回写新状态
+  const uploadEpochRef = useRef(0);
   const uploadHistoryQuery = useQuery({
     queryKey: ['log-upload-history'],
     queryFn: () =>
@@ -124,7 +126,32 @@ export function Logs() {
       ),
   });
 
+  const openUploadModal = () => {
+    uploadEpochRef.current += 1;
+    setPackaging(false);
+    setUploading(false);
+    setPackaged(null);
+    setUploadModalOpen(true);
+  };
+
+  const closeUploadModal = () => {
+    uploadEpochRef.current += 1;
+    setUploadModalOpen(false);
+    setPackaging(false);
+    setUploading(false);
+    setPackaged(null);
+  };
+
+  // 卸载时同样使旧打包/上传结果失效，避免卸载后 setState 回写
+  useEffect(
+    () => () => {
+      uploadEpochRef.current += 1;
+    },
+    []
+  );
+
   const handlePackage = async () => {
+    const epoch = uploadEpochRef.current;
     setPackaging(true);
     setPackaged(null);
     try {
@@ -135,37 +162,40 @@ export function Logs() {
         file_count: number;
         skipped_duplicates: boolean;
       }>('package_log_report');
+      if (epoch !== uploadEpochRef.current) return; // 弹窗已关闭/重开，丢弃旧结果
       if (info.skipped_duplicates) {
         toast.success('该日志内容与上次上传完全一致，无需重复上传');
       }
       setPackaged(info);
     } catch (e) {
-      toast.error('打包失败：' + (e as Error).message);
+      if (epoch === uploadEpochRef.current) toast.error('打包失败：' + (e as Error).message);
     } finally {
-      setPackaging(false);
+      if (epoch === uploadEpochRef.current) setPackaging(false);
     }
   };
 
   const handleUpload = async () => {
-    if (!packaged) return;
+    const epoch = uploadEpochRef.current;
+    // 重复包没有可上传的路径（后端返回空 filename/path），禁止上传
+    if (!packaged || packaged.skipped_duplicates || !packaged.path) return;
     setUploading(true);
     try {
       const res = await loggedInvoke<{ accepted: boolean; duplicate: boolean; sha256: string }>(
         'upload_log_report',
         { file_path: packaged.path, sha256: packaged.sha256 }
       );
+      if (epoch !== uploadEpochRef.current) return; // 上传期间弹窗已关闭，不再写回
       if (res.duplicate) {
         toast.success('服务端已有同内容日志包，无需重复上传');
       } else {
         toast.success('日志包已上传，感谢反馈');
       }
-      setUploadModalOpen(false);
-      setPackaged(null);
+      closeUploadModal();
       void uploadHistoryQuery.refetch();
     } catch (e) {
-      toast.error((e as Error).message);
+      if (epoch === uploadEpochRef.current) toast.error((e as Error).message);
     } finally {
-      setUploading(false);
+      if (epoch === uploadEpochRef.current) setUploading(false);
     }
   };
 
@@ -201,12 +231,7 @@ export function Logs() {
               <Copy className="w-4 h-4" />
               复制
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setUploadModalOpen(true)}
-              className="gap-1.5"
-            >
+            <Button variant="ghost" size="sm" onClick={openUploadModal} className="gap-1.5">
               <UploadCloud className="w-4 h-4" />
               上传日志包
             </Button>
@@ -348,10 +373,7 @@ export function Logs() {
       {/* v0.89.0: 显式授权上传弹窗——列明内容/用途/保留期，确认后才打包上传 */}
       <Modal
         open={uploadModalOpen}
-        onClose={() => {
-          setUploadModalOpen(false);
-          setPackaged(null);
-        }}
+        onClose={closeUploadModal}
         title="上传日志包到官网"
         size="md"
         testId="log-upload-modal"

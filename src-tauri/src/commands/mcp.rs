@@ -52,6 +52,20 @@ pub async fn connect_server(config: McpServerConfig) -> Result<Vec<crate::mcp::M
         );
     }
 
+    // 先登记连接，再注册能力：能力注册后若立刻被 PlanGenerator/执行器
+    // 查询，连接必须已经可用；顺序反过来会产生“能力已注册但连接不可用”
+    // 的窗口。
+    {
+        let mut connections = MCP_CONNECTIONS.lock().await;
+        connections.insert(config.id.clone(), client);
+    }
+    log::info!(
+        "[MCP] Connected to server {} ({}), {} tools available",
+        config.name,
+        config.id,
+        tools.len()
+    );
+
     // W4-B2: 动态注册到 CapabilityRegistry
     {
         let mut registry = crate::capabilities::get_capability_registry();
@@ -66,14 +80,6 @@ pub async fn connect_server(config: McpServerConfig) -> Result<Vec<crate::mcp::M
         );
     }
 
-    let mut connections = MCP_CONNECTIONS.lock().await;
-    connections.insert(config.id.clone(), client);
-    log::info!(
-        "[MCP] Connected to server {} ({}), {} tools available",
-        config.name,
-        config.id,
-        tools.len()
-    );
     Ok(tools)
 }
 

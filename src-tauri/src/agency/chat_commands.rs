@@ -220,7 +220,13 @@ pub fn agency_director_reject(
 ) -> Result<(), AppError> {
     let repo = DirectorRepository::new(pool.inner().clone());
     for id in action_ids {
-        repo.update_status(&id, "rejected", None, None)?;
+        // 已经 executed/done 的动作不能被事后拒绝；只回写仍待确认的审批行。
+        if repo.reject_if_pending(&id)? == 0 {
+            log::warn!(
+                "agency_director_reject: action {} 已执行/已终态，拒绝被忽略",
+                id
+            );
+        }
     }
     if let Some(mid) = message_id {
         let _ = ChatRepository::new(pool.inner().clone()).update_message_payload(

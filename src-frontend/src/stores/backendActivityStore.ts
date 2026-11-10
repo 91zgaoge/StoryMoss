@@ -46,8 +46,8 @@ interface BackendActivityState {
   getActiveCount: () => number;
 }
 
-/** 按优先级排序的活动类别（越靠前越重要） */
-const CATEGORY_PRIORITY: ActivityCategory[] = [
+/** 按优先级排序的活动类别（越靠前越重要）。全应用唯一一份排序表。 */
+export const ACTIVITY_PRIORITY: ActivityCategory[] = [
   'contract_fill',
   'pipeline',
   'orchestrator',
@@ -59,7 +59,7 @@ const CATEGORY_PRIORITY: ActivityCategory[] = [
 ];
 
 function getPriority(category: ActivityCategory): number {
-  return CATEGORY_PRIORITY.indexOf(category);
+  return ACTIVITY_PRIORITY.indexOf(category);
 }
 
 /** 选择当前最"重要"的活动作为 primary */

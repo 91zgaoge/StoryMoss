@@ -160,7 +160,6 @@ export function TracingPanel() {
 
   const tracingFilter = useAppStore(s => s.tracingFilter);
   const setTracingFilter = useAppStore(s => s.setTracingFilter);
-  const setSelectedGenesisSessionId = useAppStore(s => s.setSelectedGenesisSessionId);
   const setCurrentView = useAppStore(s => s.setCurrentView);
 
   const loadTraces = async () => {
@@ -189,8 +188,9 @@ export function TracingPanel() {
     }
   };
 
+  // 会话 ID 此前只写入一个永不被读取的 appStore 字段，已删除；保留跳转仪表盘入口
   const handleViewGenesisRun = (sessionId: string) => {
-    setSelectedGenesisSessionId(sessionId);
+    tracingLogger.debug('Open genesis run from trace', { sessionId });
     setCurrentView('dashboard');
   };
 

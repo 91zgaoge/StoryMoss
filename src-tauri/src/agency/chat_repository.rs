@@ -218,7 +218,11 @@ impl ChatRepository {
                  task_ids_json = COALESCE(?4, task_ids_json),
                  actions_json = COALESCE(?5, actions_json),
                  error = ?6
-             WHERE id = ?1",
+             WHERE id = ?1
+               AND (
+                 status NOT IN ('done', 'failed', 'cancelled')
+                 OR ?2 IN ('done', 'failed', 'cancelled')
+               )",
             params![
                 message_id,
                 status,

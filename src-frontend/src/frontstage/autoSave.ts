@@ -32,7 +32,6 @@ const DEFAULT_DEBOUNCE_MS = 2000;
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let idleCallbackId: ReturnType<typeof setTimeout> | number | null = null;
-let isSaving = false;
 
 /**
  * 调度一次自动保存
@@ -59,8 +58,6 @@ export function scheduleAutoSave(
     // 使用 requestIdleCallback 将保存任务推入浏览器空闲时段，
     // 确保输入、动画等用户可见任务优先执行。
     const scheduleSave = () => {
-      isSaving = true;
-
       const executeSave = async () => {
         try {
           const resolvedPayload = typeof payload === 'function' ? payload() : payload;
@@ -69,7 +66,6 @@ export function scheduleAutoSave(
           // v0.23.87: 不再向上抛出；保存失败已在 saveFn 内处理，抛出会导致未捕获 Promise 拒绝。
           // 调用方如需感知失败，应在 saveFn 内部自行处理。
         } finally {
-          isSaving = false;
           idleCallbackId = null;
         }
       };
@@ -112,11 +108,4 @@ export function cancelAutoSave(): void {
     }
     idleCallbackId = null;
   }
-}
-
-/**
- * 查询是否正在保存中
- */
-export function getIsSaving(): boolean {
-  return isSaving;
 }

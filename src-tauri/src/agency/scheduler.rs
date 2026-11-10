@@ -381,7 +381,10 @@ impl TaskScheduler {
         self.notify_waiters(&task.id);
         unregister_task_cancel(&task.id);
         if status == "completed" {
-            self.append_chat_follow_up(&task, summary.as_deref());
+            // v0.95.0：成功也必须回填原占位消息（而不是追加一条新消息）。
+            // 旧实现成功后占位消息永远停在 acting，前端会看到“已完成 + 思考中”
+            // 两条并存。
+            self.complete_chat_task(&task, summary.as_deref());
         } else {
             // v0.80.4: 失败/取消也要回填聊天占位消息，否则 @主创 等直达派发
             // 的占位消息会一直停在 acting，作者看不到失败原因。
@@ -842,7 +845,7 @@ impl TaskScheduler {
         self.notify_waiters(&task.id);
         unregister_task_cancel(&task.id);
         if status == "completed" {
-            self.append_chat_follow_up(task, summary.as_deref());
+            self.complete_chat_task(task, summary.as_deref());
         } else {
             self.update_chat_task_status(task, status, error.as_deref());
         }
@@ -916,6 +919,39 @@ impl TaskScheduler {
                     "task": task,
                 }),
             );
+        }
+    }
+
+    /// 成功回填原占位消息：占位消息 → done，内容取任务摘要。
+    ///
+    /// 没有占位消息（非对话派发）时才追加 follow-up，保持后台任务可见。
+    fn complete_chat_task(&self, task: &AgencyAgentTask, summary: Option<&str>) {
+        let Some(message_id) = parse_meta_chat_message(&task.meta_json) else {
+            self.append_chat_follow_up(task, summary);
+            return;
+        };
+        let content = summary
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("{} 任务完成", task.role.as_str()));
+        let repo = ChatRepository::new(self.pool.clone());
+        if repo
+            .update_message_payload(&message_id, "done", Some(&content), None, None, None)
+            .is_ok()
+        {
+            if let Some(app) = &self.app {
+                let _ = app.emit(
+                    EVENT_CHAT_UPDATE,
+                    serde_json::json!({
+                        "session_id": parse_meta_chat_session(&task.meta_json).unwrap_or_default(),
+                        "message_id": message_id,
+                        "role": task.role.as_str(),
+                        "status": "done",
+                        "content": content,
+                        "task_ids": [task.id.clone()],
+                    }),
+                );
+            }
         }
     }
 

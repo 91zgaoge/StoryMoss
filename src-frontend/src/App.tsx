@@ -482,9 +482,6 @@ function App() {
         return <KnowledgeGraph />;
       case 'skills':
         return <Skills />;
-      case 'mcp':
-        // v0.26.40: MCP 已迁至设置「扩展」；兜底仍渲染 Settings
-        return <Settings />;
       case 'settings':
         return <Settings />;
       case 'book-deconstruction':

@@ -139,59 +139,30 @@ impl HeartbeatMonitor {
                     task.last_heartbeat_at
                 );
 
-                // P0-6 修复: 超时后若可重试，将状态改回 Pending 并安排重试
-                if task.retry_count < task.max_retries {
-                    let new_retry = task.retry_count + 1;
-                    // 指数退避: 每次重试等待 30 * 2^(retry_count) 秒
-                    let backoff_secs = 30u64 * (2u64.pow(new_retry as u32));
-                    let next_run = (Local::now() + chrono::Duration::seconds(backoff_secs as i64))
-                        .to_rfc3339();
-
-                    repo.update_status(
-                        &task.id,
-                        &TaskStatus::Pending,
-                        Some(task.progress),
-                        None,
-                        Some(format!(
-                            "心跳超时，准备重试 ({}/{})",
-                            new_retry, task.max_retries
-                        )),
-                    )?;
-                    repo.update_next_run_at(&task.id, Some(&next_run))?;
-                    repo.increment_retry(&task.id)?;
-
-                    log::info!(
-                        "[HeartbeatMonitor] Task {} rescheduled for retry ({}/{}), backoff={}s",
-                        task.id,
-                        new_retry,
-                        task.max_retries,
-                        backoff_secs
-                    );
-                    repo.create_log(
-                        &task.id,
-                        "info",
-                        &format!(
-                            "心跳超时，已安排重试 ({}/{}), 退避 {} 秒",
-                            new_retry, task.max_retries, backoff_secs
-                        ),
-                    )?;
-                } else {
-                    // 超过最大重试次数，标记为失败
-                    repo.update_status(
-                        &task.id,
-                        &TaskStatus::Failed,
-                        Some(task.progress),
-                        None,
-                        Some("心跳超时：任务执行过程中失去响应，且已超过最大重试次数".to_string()),
-                    )?;
+                // 心跳超时 = 执行器已失去响应。以前写回 Pending 并安排
+                // next_run_at，但调度器根本不读 next_run_at：任务会永久卡在
+                // pending 且 executor 随后还会把它覆盖成 completed。现在只用
+                // 同一个 running 守卫写 failed，保留最后进度；重试由用户显式
+                // 触发（trigger → pending → running），不存在幽灵重试。
+                let message = format!(
+                    "心跳超时：任务失去响应超过 {} 秒，已标记为失败（需手动重试）",
+                    timeout_secs
+                );
+                let applied = repo.fail_if_running_preserving_progress(&task.id, &message)?;
+                if applied {
                     repo.create_log(
                         &task.id,
                         "error",
                         &format!(
-                            "心跳超时检测：任务失去响应超过 {} 秒，自动标记为失败（重试已耗尽）。",
+                            "心跳超时检测：任务失去响应超过 {} 秒，自动标记为失败。",
                             timeout_secs
                         ),
                     )?;
+                } else {
+                    log::warn!(
+                        "[HeartbeatMonitor] Task {} 已离开 running，跳过心跳失败写入（可能已取消）",
+                        task.id
+                    );
                 }
             }
         }

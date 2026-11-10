@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.94.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.95.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,16 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.95.0 · 隐式状态机治理：状态只有一个所有者，终态不可被覆盖
+
+全仓审计出 51 个隐式状态机（同一事实散落在多个布尔、Option、字符串列、store 与事件中）。本版把同类回归一次性收口到三个核心边界：
+
+- **任务/agency 生命周期**：新增 `lifecycle` 模块的显式转移表与 RAII `CancelHub`；任务完成/失败/进度只允许从 `running` 写入，取消后迟到的执行结果不再复活终态；agency run 只有真正写入 completed 才发完成事件，导演取消同时落 DB；聊天占位消息成功后回填 `done`，审批动作复用同一行 `approved→executing→done`。
+- **前端生成协议**：`state/generation.ts` 接线为唯一解释器，后端 `phase` 改为 snake_case id + 中文 `label`，彻底消除「中文/英文终态各判一套」导致的状态栏永久转圈；后台活动聚合改为读取当前 store（旧快照 bug 让优先级守卫失效）。
+- **前端文档会话**：章节选择增加 epoch 票据，快速点 A 再点 B 只应用最后一次；Esc 终止打字机、Tab 只在完整输出后接受；跳过正文加载不再留下“保存中”假死；切书失败恢复旧故事事件流。
+
+同时修掉 MCP 无注解工具默认只读导致写工具重发、updater 首源无更新短路、重复日志包返回不存在路径、过期/取消订阅仍解锁、拆书失败后无法重试、风格学习/重算运行集合永久卡死、PostProcess 损坏状态伪装成 Running 等隐式状态。
 
 ### v0.94.0 · 续写训练按真实创作流程重建资产，再续写、编审与对比
 

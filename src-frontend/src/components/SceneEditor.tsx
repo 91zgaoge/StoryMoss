@@ -63,6 +63,18 @@ const CONFLICT_TYPES: ConflictType[] = [
 
 type ExecutionStage = 'planning' | 'outline' | 'drafting' | 'review' | 'final';
 
+const EXECUTION_STAGES: readonly ExecutionStage[] = [
+  'planning',
+  'outline',
+  'drafting',
+  'review',
+  'final',
+];
+
+function isExecutionStage(value: string | null | undefined): value is ExecutionStage {
+  return !!value && EXECUTION_STAGES.includes(value as ExecutionStage);
+}
+
 const STAGE_TABS: { id: ExecutionStage | 'annotations'; label: string; icon: React.ElementType }[] =
   [
     { id: 'planning', label: '规划', icon: Target },
@@ -114,17 +126,22 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
         draft_content: scene.draft_content,
       });
       const stage = scene.execution_stage;
-      if (
-        stage === 'planning' ||
-        stage === 'outline' ||
-        stage === 'drafting' ||
-        stage === 'review' ||
-        stage === 'final'
-      ) {
-        setActiveTab(stage);
+      // v0.94.x: activeTab 与落库 execution_stage 同源——未知/缺失阶段一律回到 planning，
+      // 不再保留上一个场景的 tab。
+      setActiveTab(isExecutionStage(stage) ? stage : 'planning');
+      if (!isExecutionStage(stage)) {
+        setFormData(prev => ({ ...prev, execution_stage: 'planning' }));
       }
     }
   }, [scene]);
+
+  /** v0.94.x: 切换阶段 Tab 时同步 execution_stage，派发阶段与落库字段只有一个来源。 */
+  const activateStageTab = (tab: ExecutionStage | 'annotations') => {
+    setActiveTab(tab);
+    if (isExecutionStage(tab)) {
+      setFormData(prev => ({ ...prev, execution_stage: tab }));
+    }
+  };
 
   const showPipelineRail =
     activeTab === 'drafting' || activeTab === 'review' || activeTab === 'final';
@@ -155,7 +172,9 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
     setRevisionMode(false);
   };
 
-  const currentStage = (formData.execution_stage as ExecutionStage) || 'planning';
+  const currentStage: ExecutionStage = isExecutionStage(formData.execution_stage)
+    ? formData.execution_stage
+    : 'planning';
 
   const handleGenerateOutline = async () => {
     if (!scene) return;
@@ -170,7 +189,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
         execution_stage: 'outline',
       }));
       toast.success('大纲生成成功');
-      setActiveTab('outline');
+      activateStageTab('outline');
     } catch (e: unknown) {
       toast.error(`生成大纲失败: ${extractMessage(e)}`);
     } finally {
@@ -195,7 +214,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
         execution_stage: 'drafting',
       }));
       toast.success('草稿生成成功');
-      setActiveTab('drafting');
+      activateStageTab('drafting');
     } catch (e: unknown) {
       toast.error(`生成草稿失败: ${extractMessage(e)}`);
     } finally {
@@ -215,7 +234,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
       execution_stage: 'final',
     }));
     toast.success('已提升为定稿');
-    setActiveTab('final');
+    activateStageTab('final');
   };
 
   // Simple diff computation for revision mode
@@ -376,7 +395,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
           {STAGE_TABS.map(tab => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => activateStageTab(tab.id)}
               className={`
               flex shrink-0 items-center gap-2 whitespace-nowrap px-3 py-2 rounded-md text-sm font-medium transition-[background-color,color] duration-500 ease-spring motion-reduce:duration-[0.01s] motion-reduce:ease-linear
               ${
@@ -644,7 +663,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                 className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-lg text-white focus:border-cinema-gold focus:outline-none resize-none font-serif leading-relaxed"
               />
               <div className="flex justify-between">
-                <Button variant="secondary" size="sm" onClick={() => setActiveTab('planning')}>
+                <Button variant="secondary" size="sm" onClick={() => activateStageTab('planning')}>
                   返回规划
                 </Button>
                 <Button
@@ -695,7 +714,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                 className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-lg text-white focus:border-cinema-gold focus:outline-none resize-none font-serif leading-relaxed"
               />
               <div className="flex justify-between">
-                <Button variant="secondary" size="sm" onClick={() => setActiveTab('outline')}>
+                <Button variant="secondary" size="sm" onClick={() => activateStageTab('outline')}>
                   返回大纲
                 </Button>
                 <Button variant="primary" size="sm" onClick={handlePromoteToFinal}>
@@ -712,7 +731,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
             <SceneAuditPanel
               sceneId={scene.id}
               onPromoteToFinal={handlePromoteToFinal}
-              onBackToDrafting={() => setActiveTab('drafting')}
+              onBackToDrafting={() => activateStageTab('drafting')}
             />
           )}
 
@@ -814,7 +833,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                 </div>
               )}
               <div className="flex justify-between mt-4">
-                <Button variant="secondary" size="sm" onClick={() => setActiveTab('review')}>
+                <Button variant="secondary" size="sm" onClick={() => activateStageTab('review')}>
                   返回审校
                 </Button>
                 <Button variant="primary" size="sm" onClick={handleSave}>

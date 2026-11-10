@@ -30,6 +30,13 @@ use crate::{
 
 const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024; // 100MB
 
+/// hash 去重决策：失败/已取消的拆书记录走重试，其余状态复用旧记录。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum BookDedupDecision {
+    ReturnExisting,
+    RetryExisting,
+}
+
 pub struct BookDeconstructionService {
     pool: DbPool,
     llm_service: LlmService,
@@ -54,6 +61,15 @@ impl BookDeconstructionService {
 
     // ==================== 上传并分析 ====================
 
+    /// 同文件 hash 去重决策：failed/cancelled 是终态失败记录，不能复用；
+    /// 其余状态（pending/extracting/analyzing/completed）复用已有记录。
+    pub(crate) fn dedup_decision(status: &AnalysisStatus) -> BookDedupDecision {
+        match status {
+            AnalysisStatus::Failed | AnalysisStatus::Cancelled => BookDedupDecision::RetryExisting,
+            _ => BookDedupDecision::ReturnExisting,
+        }
+    }
+
     pub async fn upload_and_analyze(&self, file_path: &Path) -> Result<String, ParseError> {
         // 1. 校验文件
         self.validate_file(file_path)?;
@@ -67,11 +83,46 @@ impl BookDeconstructionService {
         // 2. 计算文件哈希
         let file_hash = self.compute_file_hash(file_path).await?;
 
-        // 3. 检查重复
+        // 3. 检查重复：只复用非失败终态记录。failed/cancelled 的同文件
+        //    重试不允许复用旧记录（旧记录没有可用的分析结果），删除旧记录
+        //    及其副本后按新记录重新走上传/建任务流程。
         let book_repo = ReferenceBookRepository::new(self.pool.clone());
-        if let Ok(Some(existing)) = book_repo.get_by_hash(&file_hash) {
-            log::info!("[BookDeconstruction] File already exists: {}", existing.id);
-            return Ok(existing.id);
+        // 先把 RepoResult 转成纯 Option<ReferenceBook>，避免 Box<dyn Error>
+        // 临时值跨 await（tauri command future 必须 Send）。
+        let existing = match book_repo.get_by_hash(&file_hash) {
+            Ok(found) => found,
+            Err(error) => {
+                log::warn!("[BookDeconstruction] 查询重复文件失败: {error}");
+                None
+            }
+        };
+        if let Some(existing) = existing {
+            match Self::dedup_decision(&existing.analysis_status) {
+                BookDedupDecision::ReturnExisting => {
+                    log::info!("[BookDeconstruction] File already exists: {}", existing.id);
+                    return Ok(existing.id);
+                }
+                BookDedupDecision::RetryExisting => {
+                    log::info!(
+                        "[BookDeconstruction] Retrying failed/cancelled deconstruction: {}",
+                        existing.id
+                    );
+                    if let Some(stored_path) = existing.file_path.as_deref() {
+                        if let Err(error) = tokio::fs::remove_file(stored_path).await {
+                            if error.kind() != std::io::ErrorKind::NotFound {
+                                log::warn!(
+                                    "[BookDeconstruction] 清理旧文件失败 {}: {}",
+                                    stored_path,
+                                    error
+                                );
+                            }
+                        }
+                    }
+                    book_repo.delete(&existing.id).map_err(|error| {
+                        ParseError::StorageError(format!("重置失败/已取消的拆书记录失败: {error}"))
+                    })?;
+                }
+            }
         }
 
         // 4. 生成 book_id
@@ -858,4 +909,34 @@ pub struct AnalysisStatusResponse {
     /// 关联的任务ID
     #[serde(default)]
     pub task_id: Option<String>,
+}
+
+#[cfg(test)]
+mod dedup_tests {
+    use super::*;
+
+    #[test]
+    fn only_failed_or_cancelled_records_are_retried() {
+        assert_eq!(
+            BookDeconstructionService::dedup_decision(&AnalysisStatus::Failed),
+            BookDedupDecision::RetryExisting
+        );
+        assert_eq!(
+            BookDeconstructionService::dedup_decision(&AnalysisStatus::Cancelled),
+            BookDedupDecision::RetryExisting
+        );
+        // pending/extracting/analyzing/completed 复用已有记录，不再新建。
+        for status in [
+            AnalysisStatus::Pending,
+            AnalysisStatus::Extracting,
+            AnalysisStatus::Analyzing,
+            AnalysisStatus::Completed,
+        ] {
+            assert_eq!(
+                BookDeconstructionService::dedup_decision(&status),
+                BookDedupDecision::ReturnExisting,
+                "{status} 不应触发重试"
+            );
+        }
+    }
 }

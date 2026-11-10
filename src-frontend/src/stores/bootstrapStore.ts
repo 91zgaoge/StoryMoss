@@ -23,7 +23,6 @@ interface BootstrapState {
       | null
       | ((prev: BootstrapProgress | null) => BootstrapProgress | null)
   ) => void;
-  resetBootstrapProgress: () => void;
 }
 
 export const useBootstrapStore = create<BootstrapState>(set => ({
@@ -38,6 +37,4 @@ export const useBootstrapStore = create<BootstrapState>(set => ({
             )
           : progress,
     })),
-
-  resetBootstrapProgress: () => set({ bootstrapProgress: null }),
 }));

@@ -27,6 +27,22 @@ pub enum GenerationPhase {
 }
 
 impl GenerationPhase {
+    /// 机器可读阶段 id（snake_case）。事件 `phase` 字段只发这个；
+    /// 中文展示文案放在 `label`，前端不再比较中文终态。
+    pub fn as_id(&self) -> &'static str {
+        match self {
+            GenerationPhase::PreparingContext => "preparing_context",
+            GenerationPhase::GeneratingCandidates => "generating_candidates",
+            GenerationPhase::Inspecting => "inspecting",
+            GenerationPhase::Rewriting => "rewriting",
+            GenerationPhase::FinalOutput => "final_output",
+            GenerationPhase::SavingMemory => "saving_memory",
+            GenerationPhase::Completed => "completed",
+            GenerationPhase::Error => "error",
+            GenerationPhase::Cancelled => "cancelled",
+        }
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             GenerationPhase::PreparingContext => "准备上下文",
@@ -48,7 +64,10 @@ impl GenerationPhase {
 /// 原有事件保持发射以兼容旧版前端/其他消费者。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerationStatusEvent {
+    /// snake_case 阶段 id（唯一可比较的机器值）。
     pub phase: String,
+    /// 中文展示文案；前端只读它作为 label。
+    pub label: String,
     pub progress: f32,
     pub message: String,
     pub elapsed_ms: u64,
@@ -83,7 +102,8 @@ pub fn emit_generation_status<R: Runtime>(
     let elapsed = start.elapsed().as_millis() as u64;
 
     let event = GenerationStatusEvent {
-        phase: phase.as_str().to_string(),
+        phase: phase.as_id().to_string(),
+        label: phase.as_str().to_string(),
         progress: progress.clamp(0.0, 1.0),
         message: message.into(),
         elapsed_ms: elapsed,
@@ -155,7 +175,8 @@ mod tests {
             .clone()
             .expect("event should be emitted");
         assert_eq!(event.task_id, task_id);
-        assert_eq!(event.phase, "候选生成");
+        assert_eq!(event.phase, "generating_candidates");
+        assert_eq!(event.label, "候选生成");
         assert!((event.progress - 0.42).abs() < f32::EPSILON);
         assert_eq!(event.message, "生成候选中");
         assert_eq!(event.request_id, Some("req-123".to_string()));
@@ -168,6 +189,7 @@ mod tests {
         // Serialization should not include request_id when None.
         let without_req = GenerationStatusEvent {
             phase: "completed".to_string(),
+            label: "已完成".to_string(),
             progress: 1.0,
             message: "完成".to_string(),
             elapsed_ms: 100,

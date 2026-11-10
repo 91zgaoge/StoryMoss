@@ -209,6 +209,13 @@ impl<R: Runtime> TaskService<R> {
             return Err(AppError::internal("Task is already running"));
         }
 
+        // 显式重新开始：终态任务先复位 pending，executor 的 start 才允许进入
+        // running。这样“取消后迟到的 complete/fail”与“用户主动再跑一轮”是
+        // 两条路径，前者不会复活终态。
+        if !repo.prepare_for_trigger(id).map_err(AppError::from)? {
+            return Err(AppError::internal("Task is already running"));
+        }
+
         let task_id = id.to_string();
         let pool = self.pool.clone();
         let app_handle = self.app_handle.clone();
@@ -229,23 +236,19 @@ impl<R: Runtime> TaskService<R> {
     /// 取消任务
     pub fn cancel_task(&self, id: &str) -> Result<(), AppError> {
         let repo = TaskRepository::new(self.pool.clone());
-        let task = repo
+        let _task = repo
             .get_by_id(id)
             .map_err(AppError::from)?
             .ok_or_else(|| "Task not found".to_string())?;
 
-        if task.status != TaskStatus::Running {
-            return Err(AppError::internal("Task is not running"));
+        // 取消对 running 与 pending（含心跳留下的重试态）都生效；已终态任务
+        // 不会被改写，也不会发第二次取消事件。
+        let applied = repo
+            .cancel_if_active(id, "用户手动取消")
+            .map_err(AppError::from)?;
+        if !applied {
+            return Err(AppError::internal("Task is not active"));
         }
-
-        repo.update_status(
-            id,
-            &TaskStatus::Cancelled,
-            None,
-            None,
-            Some("用户手动取消".to_string()),
-        )
-        .map_err(AppError::from)?;
 
         repo.create_log(id, "warn", "任务被用户手动取消")
             .map_err(AppError::from)?;
@@ -253,7 +256,7 @@ impl<R: Runtime> TaskService<R> {
         let event = TaskStatusChangedEvent {
             task_id: id.to_string(),
             status: "cancelled".to_string(),
-            progress: task.progress,
+            progress: 0,
             message: Some("任务已取消".to_string()),
             timestamp: chrono::Local::now().to_rfc3339(),
         };
@@ -324,14 +327,14 @@ impl<R: Runtime> TaskService<R> {
                     "No executor found for task type: {}",
                     task.task_type.to_string()
                 );
-                repo.update_status(
-                    task_id,
-                    &TaskStatus::Failed,
-                    None,
-                    None,
-                    Some(err_msg.clone()),
-                )?;
-                repo.create_log(task_id, "error", &err_msg)?;
+                if repo.fail_if_active(task_id, &err_msg)? {
+                    repo.create_log(task_id, "error", &err_msg)?;
+                } else {
+                    log::warn!(
+                        "[TaskService] Task {} already terminal, skip no-executor fail",
+                        task_id
+                    );
+                }
                 return Err(err_msg.into());
             }
         };
@@ -374,12 +377,13 @@ impl<R: Runtime> TaskService<R> {
             Err(_) => {
                 let err_msg = format!("任务执行超时 ({} 秒)", timeout_secs);
                 log::error!("[TaskService] {}", err_msg);
-                if let Err(e2) = ctx.fail(&err_msg) {
-                    log::error!(
-                        "[TaskService] Failed to mark task {} as failed: {}",
+                match ctx.fail(&err_msg) {
+                    Ok(()) => StateSync::emit_task_completed(&app_handle, task_id, false),
+                    Err(e2) => log::warn!(
+                        "[TaskService] Task {} already terminal, skip timeout fail: {}",
                         task_id,
                         e2
-                    );
+                    ),
                 }
                 return Err(err_msg.into());
             }
@@ -388,34 +392,40 @@ impl<R: Runtime> TaskService<R> {
         match result {
             Ok(task_result) => {
                 if task_result.success {
-                    if let Err(e) = ctx.complete(task_result.result_json) {
-                        log::error!("[TaskService] Failed to complete task {}: {}", task_id, e);
+                    // 只有终态写入成功才发“完成”事件：取消后迟到的执行结果
+                    // 不得再产生 completed。
+                    match ctx.complete(task_result.result_json) {
+                        Ok(()) => StateSync::emit_task_completed(&app_handle, task_id, true),
+                        Err(e) => log::warn!(
+                            "[TaskService] Task {} completion rejected (likely cancelled): {}",
+                            task_id,
+                            e
+                        ),
                     }
-                    StateSync::emit_task_completed(&app_handle, task_id, true);
                 } else {
                     let err = task_result
                         .error_message
                         .unwrap_or_else(|| "Unknown error".to_string());
-                    if let Err(e) = ctx.fail(&err) {
-                        log::error!(
-                            "[TaskService] Failed to mark task {} as failed: {}",
+                    match ctx.fail(&err) {
+                        Ok(()) => StateSync::emit_task_completed(&app_handle, task_id, false),
+                        Err(e) => log::warn!(
+                            "[TaskService] Task {} failure write rejected: {}",
                             task_id,
                             e
-                        );
+                        ),
                     }
-                    StateSync::emit_task_completed(&app_handle, task_id, false);
                 }
             }
             Err(e) => {
                 let err_msg = format!("Execution error: {}", e);
-                if let Err(e2) = ctx.fail(&err_msg) {
-                    log::error!(
-                        "[TaskService] Failed to mark task {} as failed: {}",
+                match ctx.fail(&err_msg) {
+                    Ok(()) => StateSync::emit_task_completed(&app_handle, task_id, false),
+                    Err(e2) => log::warn!(
+                        "[TaskService] Task {} failure write rejected: {}",
                         task_id,
                         e2
-                    );
+                    ),
                 }
-                StateSync::emit_task_completed(&app_handle, task_id, false);
             }
         }
 

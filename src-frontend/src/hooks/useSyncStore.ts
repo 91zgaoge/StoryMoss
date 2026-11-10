@@ -78,11 +78,10 @@ export interface SyncStoreOptions {
   onDataRefresh?: (storyId: string | undefined, resourceType: string) => void;
 }
 
-// ==================== 穷尽检查辅助函数 ====================
-
-function assertUnreachable(x: never): never {
-  throw new Error(`[useSyncStore] Unhandled SyncEvent type: ${JSON.stringify(x)}`);
-}
+// ==================== 穷尽检查 ====================
+//
+// 注：此前有 assertUnreachable(x: never) 辅助函数但从未被调用（零消费者），
+// 已删除；未知事件统一走 default 分支的 console.warn 降级。
 
 // ==================== Query Key 常量 ====================
 

@@ -899,6 +899,22 @@ impl PipelineReviewRepository {
 
 // ==================== Post Process Repository ====================
 
+/// 解析 PostProcess 状态；未知状态必须显式失败并带可诊断信息，不能静默
+/// 回退成 Running（否则已失败/完成的行会被误读成仍在执行）。
+fn parse_post_process_status(status_str: &str) -> Result<PostProcessStatus, rusqlite::Error> {
+    status_str.parse::<PostProcessStatus>().map_err(|error| {
+        log::error!("[pipeline] PostProcess 状态解析失败: status={status_str:?} error={error}");
+        rusqlite::Error::FromSqlConversionFailure(
+            5,
+            rusqlite::types::Type::Text,
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("无效的 PostProcess 状态 {status_str:?}: {error}"),
+            )),
+        )
+    })
+}
+
 pub struct PostProcessRepository {
     pool: DbPool,
 }
@@ -978,7 +994,7 @@ impl PostProcessRepository {
                     chapter_number: row.get(2)?,
                     source_label: row.get(3)?,
                     scope: row.get(4)?,
-                    status: status_str.parse().unwrap_or(PostProcessStatus::Running),
+                    status: parse_post_process_status(&status_str)?,
                     started_at: started_str.parse().unwrap_or_else(|_| Local::now()),
                     completed_at: completed_str.and_then(|s| s.parse().ok()),
                     error_message: row.get(8)?,
@@ -1017,7 +1033,7 @@ impl PostProcessRepository {
                     chapter_number: row.get(2)?,
                     source_label: row.get(3)?,
                     scope: row.get(4)?,
-                    status: status_str.parse().unwrap_or(PostProcessStatus::Running),
+                    status: parse_post_process_status(&status_str)?,
                     started_at: started_str.parse().unwrap_or_else(|_| Local::now()),
                     completed_at: completed_str.and_then(|s| s.parse().ok()),
                     error_message: row.get(8)?,
@@ -1445,5 +1461,66 @@ impl LlmCallRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let count = conn.execute("DELETE FROM llm_calls", [])?;
         Ok(count)
+    }
+}
+
+#[cfg(test)]
+mod post_process_status_tests {
+    use super::*;
+    use crate::db::connection::create_test_pool;
+
+    fn seed_story(pool: &DbPool) -> String {
+        let story_id = Uuid::new_v4().to_string();
+        let conn = pool.get().unwrap();
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO stories (id, title, created_at, updated_at) VALUES (?1, '状态测试', ?2, ?2)",
+            params![story_id, now],
+        )
+        .unwrap();
+        story_id
+    }
+
+    #[test]
+    fn parse_post_process_status_rejects_unknown() {
+        assert_eq!(
+            parse_post_process_status("running").unwrap(),
+            PostProcessStatus::Running
+        );
+        assert_eq!(
+            parse_post_process_status("completed").unwrap(),
+            PostProcessStatus::Completed
+        );
+        let error = parse_post_process_status("bogus").unwrap_err();
+        assert!(error.to_string().contains("bogus"));
+    }
+
+    #[test]
+    fn repository_surfaces_invalid_status_instead_of_guessing_running() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story(&pool);
+        let repo = PostProcessRepository::new(pool.clone());
+        let run = repo
+            .create_run(&story_id, 1, "测试", None)
+            .expect("create_run");
+
+        pool.get()
+            .unwrap()
+            .execute(
+                "UPDATE post_process_runs SET status = 'bogus' WHERE id = ?1",
+                params![run.id],
+            )
+            .unwrap();
+
+        // get_run_by_id 不能静默回退 Running，必须返回可诊断错误。
+        let error = repo.get_run_by_id(&run.id).unwrap_err();
+        assert!(error.to_string().contains("bogus"), "error={error}");
+
+        // 列表查询同理，整批结果显式失败而不是把坏行当成 Running。
+        let error = repo.get_runs_by_story_chapter(&story_id, 1).unwrap_err();
+        assert!(
+            error.to_string().contains("无效的 PostProcess 状态"),
+            "error={error}"
+        );
     }
 }

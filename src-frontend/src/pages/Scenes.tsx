@@ -1,5 +1,5 @@
 import { confirmDialog } from '@/components/ui/confirm';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus, BookOpen, AlertCircle, History, FileText } from 'lucide-react';
 import { ExecutionPanel } from '@/components/ExecutionPanel';
 import { Button } from '@/components/ui/Button';
@@ -30,6 +30,8 @@ export function Scenes() {
   const [isEditing, setIsEditing] = useState(false);
   const [previewTab, setPreviewTab] = useState<'content' | 'versions'>('content');
   const [compareVersions, setCompareVersions] = useState<[SceneVersion, SceneVersion] | null>(null);
+  // v0.94.x: 创建场景提交锁——双击/连点只放行一次，避免同序号并发创建
+  const createLockRef = useRef(false);
 
   const { data: scenes = [], isLoading } = useScenes(currentStory?.id || null);
   const { data: characters = [] } = useCharacters(currentStory?.id || null);
@@ -41,6 +43,13 @@ export function Scenes() {
   const createVersion = useCreateSceneVersion();
 
   const selectedScene = scenes.find(s => s.id === selectedSceneId) || null;
+
+  // v0.94.x: 切换场景时统一复位预览层（previewTab/compareVersions），
+  // 避免旧场景的版本对比覆盖在新场景上。
+  useEffect(() => {
+    setPreviewTab('content');
+    setCompareVersions(null);
+  }, [selectedSceneId]);
 
   useEffect(() => {
     if (!pendingSceneId || scenes.length === 0) return;
@@ -57,6 +66,9 @@ export function Scenes() {
       toast.error('请先选择一个故事');
       return;
     }
+    // v0.94.x: 提交锁——同步置位，防双击并发创建两个同序号场景
+    if (createLockRef.current || createScene.isPending) return;
+    createLockRef.current = true;
 
     const nextSequence =
       scenes.length > 0 ? Math.max(...scenes.map(s => s.sequence_number)) + 1 : 1;
@@ -72,6 +84,10 @@ export function Scenes() {
           toast.success('场景创建成功');
           setSelectedSceneId(newScene.id);
           setIsEditing(true);
+        },
+        onError: e => toast.error(`场景创建失败: ${String(e)}`),
+        onSettled: () => {
+          createLockRef.current = false;
         },
       }
     );

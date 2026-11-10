@@ -9,6 +9,9 @@ mod ports;
 // 中性并发原语模块，供 agents / story_system / llm 等层共享，避免循环依赖。
 mod concurrency;
 
+// 统一生命周期状态机与取消注册表（单一状态所有者）。
+mod lifecycle;
+
 pub mod agency;
 mod agents;
 mod analytics;

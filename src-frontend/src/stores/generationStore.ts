@@ -29,7 +29,6 @@ interface GenerationState {
       | null
       | ((prev: OrchestratorStatus | null) => OrchestratorStatus | null)
   ) => void;
-  resetGeneration: () => void;
 }
 
 export const useGenerationStore = create<GenerationState>(set => ({
@@ -62,11 +61,4 @@ export const useGenerationStore = create<GenerationState>(set => ({
             )
           : status,
     })),
-
-  resetGeneration: () =>
-    set({
-      isGenerating: false,
-      generationStatus: '',
-      orchestratorStatus: null,
-    }),
 }));

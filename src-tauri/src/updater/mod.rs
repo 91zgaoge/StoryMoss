@@ -157,31 +157,58 @@ async fn check_source(
     Ok(update.map(|update| SourcedUpdate { update, source }))
 }
 
+/// 吸收单个源的检查结果：命中返回 Some；明确无更新返回 None（调用方继续
+/// 检查下一源）；失败时把错误收进 failures 并返回 None。
+fn absorb_update_check<T>(
+    source: UpdateSource,
+    result: Result<Option<T>, String>,
+    failures: &mut Vec<String>,
+) -> Option<T> {
+    match result {
+        Ok(Some(update)) => Some(update),
+        Ok(None) => {
+            log::info!("[Updater] No updates available from {}", source.label());
+            None
+        }
+        Err(error) => {
+            log::warn!("[Updater] {} failed: {}", source.label(), error);
+            failures.push(error);
+            None
+        }
+    }
+}
+
+/// 多源检查的最终裁决（纯函数，便于测试）：
+/// 所有源都明确返回无更新时才 Ok(None)；任一源失败则整体报错（不能把
+/// “某个源检查失败”误报成“没有更新”）。
+fn conclude_update_checks<T>(found: Option<T>, failures: Vec<String>) -> Result<Option<T>, String> {
+    if found.is_some() {
+        return Ok(found);
+    }
+    if failures.is_empty() {
+        Ok(None)
+    } else {
+        Err(format_updater_error(failures.join("；")))
+    }
+}
+
 async fn find_update(app_handle: &AppHandle) -> Result<Option<SourcedUpdate>, String> {
     let mut failures = Vec::new();
 
     for source in UPDATE_SOURCES {
-        match check_source(app_handle, source).await {
-            Ok(Some(update)) => {
-                log::info!(
-                    "[Updater] Using {}: update {}",
-                    source.label(),
-                    update.update.version
-                );
-                return Ok(Some(update));
-            }
-            Ok(None) => {
-                log::info!("[Updater] No updates available from {}", source.label());
-                return Ok(None);
-            }
-            Err(error) => {
-                log::warn!("[Updater] {} failed: {}", source.label(), error);
-                failures.push(error);
-            }
+        let outcome = check_source(app_handle, source).await;
+        if let Some(update) = absorb_update_check(source, outcome, &mut failures) {
+            log::info!(
+                "[Updater] Using {}: update {}",
+                source.label(),
+                update.update.version
+            );
+            return Ok(Some(update));
         }
+        // Ok(None) 不再提前 return：继续检查后续源。
     }
 
-    Err(format_updater_error(failures.join("；")))
+    conclude_update_checks(None, failures)
 }
 
 async fn download_update(app_handle: &AppHandle, update: &Update) -> Result<Vec<u8>, UpdaterError> {
@@ -395,6 +422,58 @@ mod tests {
         assert!(!should_retry_download(&UpdaterError::Io(
             std::io::Error::other("disk")
         )));
+    }
+
+    #[test]
+    fn no_update_from_first_source_does_not_short_circuit() {
+        let mut failures = Vec::new();
+        let mut found = None;
+
+        // GitHub 明确无更新：必须继续检查 Website，而不是直接 Ok(None)。
+        found = absorb_update_check(
+            UpdateSource::GitHub,
+            Ok::<Option<&str>, String>(None),
+            &mut failures,
+        );
+        assert!(found.is_none());
+        assert!(failures.is_empty());
+
+        // Website 命中更新：最终应采用它。
+        found = absorb_update_check(UpdateSource::Website, Ok(Some("0.95.0")), &mut failures);
+        assert_eq!(
+            conclude_update_checks(found, failures).unwrap(),
+            Some("0.95.0")
+        );
+    }
+
+    #[test]
+    fn no_update_only_when_all_sources_report_none() {
+        let mut failures = Vec::new();
+        let mut found = None;
+        for source in UPDATE_SOURCES {
+            found = absorb_update_check(source, Ok::<Option<&str>, String>(None), &mut failures);
+        }
+        assert!(failures.is_empty());
+        assert_eq!(conclude_update_checks(found, failures).unwrap(), None);
+    }
+
+    #[test]
+    fn source_failure_without_update_is_an_error_not_none() {
+        let mut failures = Vec::new();
+        let mut found = absorb_update_check(
+            UpdateSource::GitHub,
+            Ok::<Option<&str>, String>(None),
+            &mut failures,
+        );
+        found = absorb_update_check(
+            UpdateSource::Website,
+            Err("connection reset".into()),
+            &mut failures,
+        );
+        assert!(found.is_none());
+        let error = conclude_update_checks(found, failures).unwrap_err();
+        assert!(error.contains("connection reset"));
+        assert!(error.contains("GitHub"));
     }
 
     #[test]

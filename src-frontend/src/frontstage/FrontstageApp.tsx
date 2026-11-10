@@ -60,6 +60,8 @@ import type { GatewayStatus } from '@/types/llm';
 import { useSubscription } from '@/hooks/useSubscription';
 import { usePipelineProgress, usePipelineComplete } from '@/hooks/usePipelineProgress';
 import { useBackendActivityListener } from '@/hooks/useBackendActivityListener';
+import { mapDisplayStage, parseGenerationEvent } from '@/state/generation';
+import type { GenerationEvent, GenerationStatusPayload } from '@/state/generation';
 import { useDbPoolStatus } from '@/hooks/useDbPoolStatus';
 // import { useIntent } from '@/hooks/useIntent'; // Removed — model-driven orchestration eliminates frontend intent parsing
 import { loadEditorConfig, STORAGE_KEY } from '@/hooks/contracts/useEditorConfig';
@@ -179,44 +181,7 @@ const SCENES_PAGE_SIZE = 5;
 // 切换永久卡死（真机表现为"幕后点书幕前不动，重启才恢复"）。
 const STORY_SWITCH_FLUSH_TIMEOUT_MS = 5000;
 
-// A4-1.7: 智能创作精确阶段映射（组件外常量，避免 hook deps 警告）
-const PRECISE_PHASE_PATTERNS: { phase: string; patterns: string[] }[] = [
-  {
-    phase: '准备上下文',
-    patterns: [
-      '准备上下文',
-      'preparing_context',
-      'prepare_context',
-      'loading_context',
-      '加载上下文',
-      '读取故事',
-      '读取章节',
-    ],
-  },
-  {
-    phase: '候选生成',
-    patterns: ['候选生成', 'candidate', 'candidates', 'generating_candidates', '生成候选'],
-  },
-  {
-    phase: '内容审校',
-    patterns: [
-      '内容审校',
-      'inspector',
-      '质检',
-      'inspecting',
-      'inspect',
-      'inspection',
-      'review',
-      '审校',
-    ],
-  },
-  { phase: '改写', patterns: ['改写', '润色改写', 'rewrite', 'rewriting', 'revise', '润色'] },
-  {
-    phase: '最终输出',
-    patterns: ['最终输出', '已完成', 'final_output', 'finalize', '最终', 'final output'],
-  },
-  { phase: '保存记忆', patterns: ['保存记忆', 'save_memory', 'saving_memory', 'memory', '记忆'] },
-];
+// A4-1.7: 展示阶段映射统一由 state/generation.ts 提供（全应用一份别名表）。
 
 // 底部输入栏历史持久化（按故事隔离）：localStorage 存最近 20 条，
 // 切换故事时加载该故事的历史，窗口关闭/重启后保留，与编码工具一致。
@@ -282,6 +247,10 @@ const FrontstageApp: React.FC = () => {
   const chapterSwitchCountRef = useRef(0);
   // v0.23.62: 追踪 ChapterSwitch 时间戳，用于 post-ChapterSwitch 5s 静默期
   const chapterSwitchTimestampRef = useRef(0);
+  // v0.95.0：章节选择 epoch。每次用户可见的选择递增一次；懒加载/跨页
+  // 加载返回时若 epoch 已变，丢弃旧结果——快速点 A 再点 B，不再让 A 的
+  // 异步结果最后落到编辑器。
+  const chapterSelectionSeqRef = useRef(0);
   // v0.33.0: 自动分章命中当前编辑章时，抑制 selectChapter 内的 flushSceneSave——
   // 编辑器仍持有分章前的旧全文，flush 会把它回写到已被截断的旧 scene，造成重复。
   const suppressChapterSwitchFlushRef = useRef(false);
@@ -1461,14 +1430,7 @@ const FrontstageApp: React.FC = () => {
   const lastLlmPromptRef = useRef<string>('未捕获（可能生成未进入 LLM 调用）');
   const lastLlmModelRef = useRef<string>('未知');
   // v0.24.3: handleGenerationStatus 节流相关 refs
-  const pendingGenerationStatusRef = useRef<{
-    phase: string;
-    progress: number;
-    message: string;
-    elapsed_ms: number;
-    task_id: string;
-    request_id?: string | null;
-  } | null>(null);
+  const pendingGenerationStatusRef = useRef<GenerationEvent | null>(null);
   const generationStatusThrottleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastGenerationStatusUpdateRef = useRef(0);
   const [showDiagnosticCard, setShowDiagnosticCard] = useState(false);
@@ -1763,16 +1725,7 @@ const FrontstageApp: React.FC = () => {
     [cleanStatusBase, getElapsedSeconds]
   );
 
-  const mapPrecisePhase = useCallback((raw: string | undefined): string | null => {
-    if (!raw) return null;
-    const s = raw.toLowerCase();
-    for (const { phase, patterns } of PRECISE_PHASE_PATTERNS) {
-      if (patterns.some(p => s.includes(p.toLowerCase()))) {
-        return phase;
-      }
-    }
-    return null;
-  }, []);
+  const mapPrecisePhase = mapDisplayStage;
 
   // C1: 判断旧版重叠事件是否应被跳过（统一事件已覆盖）
   const shouldSkipOverlappingEvent = useCallback(() => {
@@ -1889,70 +1842,61 @@ const FrontstageApp: React.FC = () => {
   // C1: 处理统一生成状态事件，更新底部状态栏与 orchestratorStatus
   // v0.24.3: 对 running 状态做 200ms 节流，完成/失败立即处理，降低高频进度事件导致的前端渲染负载
   const flushGenerationStatus = useCallback(
-    (p: {
-      phase: string;
-      progress: number;
-      message: string;
-      elapsed_ms: number;
-      task_id: string;
-      request_id?: string | null;
-    }) => {
-      lastProgressEventRef.current = { stage: p.phase, message: p.message, step: p.progress };
+    (parsed: GenerationEvent) => {
+      lastProgressEventRef.current = {
+        stage: parsed.label,
+        message: parsed.message,
+        step: parsed.progress,
+      };
       lastGenerationStatusAtRef.current = Date.now();
       // v0.16.2: 主流程结束阶段（已完成/出错/已取消）后，标记 ref 让后续后台
-      // progress event 不再触发 sinceLastEvent 重置。
-      const isTerminal = p.phase === '已完成' || p.phase === '出错' || p.phase === '已取消';
-      if (isTerminal) {
+      // progress event 不再触发 sinceLastEvent 重置。终态由 parsed.terminal
+      // 决定，不再比较中文/英文 phase 字符串。
+      if (parsed.terminal) {
         mainGenerationCompletedRef.current = true;
       }
       updateLastEventTime();
-      const precise = mapPrecisePhase(p.phase) || mapPrecisePhase(p.message);
       // v0.23.43: 状态文案追加模型名称，提高识别度（用名称而非 ID）
       const modelName = lastLlmModelRef.current;
-      const message = precise || p.message;
+      const message = parsed.label || parsed.message;
       const messageWithModel =
         modelName && modelName !== '未知' ? `${message} · ${modelName}` : message;
       setGenerationStatus(formatStatusWithElapsed(messageWithModel));
       setOrchestratorStatus({
-        stepType: p.phase,
+        stepType: parsed.phase,
         loopIdx: undefined,
-        score: p.progress,
+        score: parsed.progress,
         message: messageWithModel,
-        detail: p.request_id || undefined,
+        detail: parsed.requestId || undefined,
       });
       updateGenerationPhase(message);
       lastGenerationStatusUpdateRef.current = Date.now();
     },
-    [formatStatusWithElapsed, mapPrecisePhase, updateGenerationPhase, updateLastEventTime]
+    [formatStatusWithElapsed, updateGenerationPhase, updateLastEventTime]
   );
 
   const handleGenerationStatus = useCallback(
-    (p: {
-      phase: string;
-      progress: number;
-      message: string;
-      elapsed_ms: number;
-      task_id: string;
-      request_id?: string | null;
-    }) => {
-      const isTerminal = p.phase === '已完成' || p.phase === '出错' || p.phase === '已取消';
-      if (isTerminal) {
+    (p: GenerationStatusPayload) => {
+      // 入口校验一次：中文 label、英文旧写法、snake_case id 全收口成
+      // GenerationEvent；后面只读 outcome/label/progress。
+      const parsed = parseGenerationEvent(p);
+      if (parsed.terminal) {
         if (generationStatusThrottleTimerRef.current) {
           clearTimeout(generationStatusThrottleTimerRef.current);
           generationStatusThrottleTimerRef.current = null;
         }
         pendingGenerationStatusRef.current = null;
-        flushGenerationStatus(p);
+        flushGenerationStatus(parsed);
         return;
       }
 
       const now = Date.now();
       if (now - lastGenerationStatusUpdateRef.current >= 200) {
-        flushGenerationStatus(p);
+        flushGenerationStatus(parsed);
         return;
       }
 
-      pendingGenerationStatusRef.current = p;
+      pendingGenerationStatusRef.current = parsed;
       if (!generationStatusThrottleTimerRef.current) {
         generationStatusThrottleTimerRef.current = setTimeout(() => {
           generationStatusThrottleTimerRef.current = null;
@@ -2831,8 +2775,15 @@ const FrontstageApp: React.FC = () => {
         scenes?: Scene[];
         /** v0.65.3: 内部标记——本次调用是懒加载拿到完整章节后的递归重入 */
         lazyLoadRetried?: boolean;
+        /** v0.95.0：调用作用域 epoch；递归重入沿用同一张票据 */
+        selectionSeq?: number;
       }
     ) => {
+      // 每次新的用户可见选择递增 epoch；懒加载递归重入沿用调用方票据。
+      // 只比较 epoch：切换故事时 selectChapter 会递增新 epoch，旧故事的懒加载
+      // 结果自然过期；不再比较 currentStoryRef（它在本轮 render 的 effect 前
+      // 仍是旧值，会把刚切换的首章正文误判为过期而丢弃）。
+      const selectionSeq = opts?.selectionSeq ?? ++chapterSelectionSeqRef.current;
       // v0.26.16: skipContent 由调用方按场景传入——不同调用方有不同意图：
       //   story_created → skipContent=true（创世期间不加载 DB 正文）
       //   ChapterSwitch(auto_accept=true) → skipContent=false（事件自带正文，需要加载）
@@ -2887,11 +2838,19 @@ const FrontstageApp: React.FC = () => {
           try {
             const full = await loadChapterWithContent(chapter.id);
             if (full) {
+              if (chapterSelectionSeqRef.current !== selectionSeq) {
+                frontstageLogger.info('[selectChapter] stale lazy-load dropped', {
+                  chapter_id: full.id,
+                  selectionSeq,
+                  currentSeq: chapterSelectionSeqRef.current,
+                });
+                return;
+              }
               frontstageLogger.info('[selectChapter] Lazy-loaded full chapter', {
                 chapter_id: full.id,
                 content_length: full.content?.length ?? 0,
               });
-              selectChapter(full, { ...opts, lazyLoadRetried: true });
+              selectChapter(full, { ...opts, lazyLoadRetried: true, selectionSeq });
             }
           } catch (e) {
             frontstageLogger.error('Failed to lazy-load chapter content', { error: e });
@@ -2919,6 +2878,14 @@ const FrontstageApp: React.FC = () => {
             try {
               const full = await loadChapterWithContent(chapter.id);
               if (full) {
+                if (chapterSelectionSeqRef.current !== selectionSeq) {
+                  frontstageLogger.info('[selectChapter] stale missing-chapter load dropped', {
+                    chapter_id: full.id,
+                    selectionSeq,
+                    currentSeq: chapterSelectionSeqRef.current,
+                  });
+                  return;
+                }
                 setChapters(prev => {
                   const map = new Map(prev.map(c => [c.id, c]));
                   map.set(full.id, full);
@@ -3012,19 +2979,14 @@ const FrontstageApp: React.FC = () => {
             }
           );
         } else {
-          try {
-            logToBackend('frontstage:select_chapter_set', 'selectChapter setContent', {
-              chapterId: chapter.id,
-              formattedLen: formattedContent.length,
-              skipContent,
-            });
-            setContent(formattedContent);
-          } catch (e) {
-            frontstageLogger.error('[selectChapter] setContent 失败', {
-              error: e,
-              formatted_length: formattedContent.length,
-            });
-          }
+          // Zustand setter 不会抛异常；这里的 try/catch 是无效防御（用户原则：
+          // 能跳过的 try/catch 直接跳过）。
+          logToBackend('frontstage:select_chapter_set', 'selectChapter setContent', {
+            chapterId: chapter.id,
+            formattedLen: formattedContent.length,
+            skipContent,
+          });
+          setContent(formattedContent);
           // v0.23.68: selectChapter 是内容加载的最终咽喉点。无论内容从哪来
           // (创世/ChapterSwitch/用户切章)，加载后必须清空 generatedText，
           // 防止"有排版版（编辑器）+ 无排版版（幽灵段落）"两份重复渲染。
@@ -3073,6 +3035,9 @@ const FrontstageApp: React.FC = () => {
           }
         }
       } else {
+        // 跳过正文加载时没有待保存内容；若不置于已保存，上一章的 isSaved=false
+        // 会让顶栏长期显示“保存中...”假死。
+        setIsSaved(true);
         logToBackend('frontstage:select_chapter_skip', 'selectChapter skipped content load', {
           chapterId: chapter.id,
         });
@@ -3382,6 +3347,9 @@ const FrontstageApp: React.FC = () => {
         setStories(list);
         const story = list.find(s => s.id === storyId);
         if (!story) {
+          // 切换目标不存在：当前仍是旧故事，旧故事不能继续留在 ignored 集合，
+          // 否则它后续的章节事件会被永久丢弃。
+          if (previousStoryId) ignoredStoryEventsRef.current.delete(previousStoryId);
           toast.error('目标作品不存在，已保留当前作品');
           return;
         }
@@ -3397,6 +3365,7 @@ const FrontstageApp: React.FC = () => {
           });
           const retried = await selectStory(story, { switchSeq, clearEditor: true });
           if (!retried) {
+            if (previousStoryId) ignoredStoryEventsRef.current.delete(previousStoryId);
             toast.error(`切换到《${story.title}》失败，请重试`);
             return;
           }
@@ -3405,6 +3374,9 @@ const FrontstageApp: React.FC = () => {
         toast.success(`已切换到《${story.title}》`);
       } catch (e) {
         frontstageLogger.error('[storySwitch] failed to load target story', { error: e });
+        // 失败后当前仍是旧故事，恢复它的后台事件流（ignored 粘滞曾让旧故事
+        // 在切换失败后永远收不到 ChapterSwitch）。
+        if (previousStoryId) ignoredStoryEventsRef.current.delete(previousStoryId);
         toast.error('切换作品失败，已保留当前作品');
       }
     },
@@ -3464,11 +3436,24 @@ const FrontstageApp: React.FC = () => {
         !isGenesisSettingUpRef.current
       ) {
         // v0.79.0：挂载时先恢复后端持久化的 active story，不再盲目选第一个。
+        const epochAtStart = storySwitchEpochRef.current;
         const active = await loggedInvoke<{ story_id?: string } | null>('get_active_story').catch(
           () => null
         );
+        // await 期间若已有更新的 story-selected 切换开始，挂载恢复必须放弃，
+        // 不能用一个更早的 active_story 覆盖新选择。
+        if (storySwitchEpochRef.current !== epochAtStart) {
+          frontstageLogger.info('[loadStories] newer story switch in flight, skip restore', {
+            epochAtStart,
+            current: storySwitchEpochRef.current,
+          });
+          return;
+        }
         const preferred = active?.story_id ? result.find(s => s.id === active.story_id) : undefined;
-        await selectStory(preferred || result[0], { clearEditor: true });
+        // 挂载恢复也使用同一个 seq：若事件切换在 selectStory 期间发生，旧恢复
+        // 会因 seq 不一致而被丢弃。
+        const restoreSeq = ++switchSeqRef.current;
+        await selectStory(preferred || result[0], { clearEditor: true, switchSeq: restoreSeq });
       }
     } catch (e) {
       frontstageLogger.error('Failed to load stories', { error: e });
@@ -3883,14 +3868,19 @@ const FrontstageApp: React.FC = () => {
   // Request AI generation -- now routes through backend smart_execute
   const handleRequestGeneration = useCallback(
     async (context?: string) => {
+      // 入口互锁用 ref，而不是 React state：两个 Ctrl+Enter 在同一渲染周期
+      // 到达时 state 仍是 false，旧实现会让两次请求都通过预检并发执行。
+      if (isGenerating || isGeneratingRef.current) {
+        // 续写已在底栏进行。不要弹窗、不要顶栏再喊一声——那是前台干预。
+        return;
+      }
+      // 占位锁立即生效；后续所有退出路径都会 setIsGenerating(false)，effect
+      // 再把 ref 同步回 false。
+      isGeneratingRef.current = true;
       // v0.23.94: 新请求开始时清空已接受指纹，避免旧内容阻塞新内容
       clearAccepted();
       // v0.23.95: 新请求开始时解除 post-accept 锁，允许新的 generatedText 设置
       postAcceptLockRef.current = 0;
-      if (isGenerating) {
-        // 续写已在底栏进行。不要弹窗、不要顶栏再喊一声——那是前台干预。
-        return;
-      }
 
       if (typewriterFrameRef.current) {
         cancelAnimationFrame(typewriterFrameRef.current);
@@ -3923,6 +3913,7 @@ const FrontstageApp: React.FC = () => {
                   : preflight.missing_contracts;
               const firstIssue = issues[0] || '写作前检查未通过';
               toast.error(`写作前检查未通过：${firstIssue}`, { duration: 6000 });
+              isGeneratingRef.current = false;
               setIsGenerating(false);
               return;
             }
@@ -3996,6 +3987,20 @@ const FrontstageApp: React.FC = () => {
           stopElapsedTimer();
           setIsGenerating(false);
           setGenerationStatus('');
+          return;
+        }
+
+        // 用户在请求在途时取消：后端可能仍返回一份“成功”结果，但它必须被
+        // 丢弃，不能把“✓ 已取消生成”覆盖成“生成完成”或继续追加正文。
+        if (lastGenerationCancelledRef.current) {
+          frontstageLogger.info('[cancel] late generation result dropped after cancel', {
+            requestStoryEpoch,
+          });
+          smartExecuteInFlightRef.current = false;
+          smartExecuteNeedDiagnosticRef.current = false;
+          stopElapsedTimer();
+          setIsGenerating(false);
+          setGenerationStatus('✓ 已取消生成');
           return;
         }
 
@@ -4342,6 +4347,12 @@ const FrontstageApp: React.FC = () => {
       frontstageLogger.warn('[handleAcceptGeneration] 正在处理中，忽略重复触发');
       return;
     }
+    // 打字机仍在逐帧写入时 generatedText 只是半截文本；此刻 Tab 接受会把
+    // 截断内容永久写入编辑器。等 complete（frame 结束）再允许接受。
+    if (typewriterFrameRef.current !== null) {
+      toast('内容仍在生成中，请等待完整输出后再接受');
+      return;
+    }
     if (!generatedText || !editorRef.current) return;
 
     isAcceptingRef.current = true;
@@ -4407,6 +4418,11 @@ const FrontstageApp: React.FC = () => {
 
   // Reject AI generation
   const handleRejectGeneration = useCallback(() => {
+    // Esc 必须终止打字机；否则下一帧 setGeneratedText(partial) 会让幽灵复活。
+    if (typewriterFrameRef.current !== null) {
+      cancelAnimationFrame(typewriterFrameRef.current);
+      typewriterFrameRef.current = null;
+    }
     if (generatedText && currentStory?.id) {
       recordFeedback({
         story_id: currentStory.id,

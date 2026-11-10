@@ -115,6 +115,21 @@ impl DirectorRepository {
         rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
     }
 
+    /// 拒绝只允许未执行的 proposed/approved 动作；已 done/failed/executing
+    /// 的审批卡不能被事后改写（否则“已完成但被拒绝”会同时存在）。
+    pub fn reject_if_pending(&self, id: &str) -> Result<usize, AppError> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| AppError::from(format!("pool: {e}")))?;
+        conn.execute(
+            "UPDATE agency_director_actions SET status = 'rejected', updated_at = ?2 \
+             WHERE id = ?1 AND status IN ('proposed', 'approved')",
+            params![id, chrono::Utc::now().to_rfc3339()],
+        )
+        .map_err(AppError::from)
+    }
+
     pub fn update_status(
         &self,
         id: &str,

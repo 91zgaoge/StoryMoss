@@ -2,6 +2,22 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.95.0（2026-11-10）
+
+**隐式状态机治理：51 个隐式条目收敛到 3 个核心边界，终态不可覆盖。**
+
+- **`lifecycle` 模块（Rust）**：新增统一状态转移表（Task/AgencyRun/AgentTask/ChatMessage/DirectorAction）、终态集合与 RAII `CancelHub/CancelScope`；任务进度、完成、失败只允许从 `running` 写入，`cancelled` 不会被迟到的 executor 结果复活；手动 trigger 先显式 `pending` 复位；调度器复用同一把执行锁（update/toggle 不再重造锁）。
+- **任务/agency 收尾**：`finish_run` 返回实际写入行数，协调器只在真正写入 completed 时才发完成事件；导演 `cancel_run` 同时落 DB cancelled 并让批量循环逐章读 DB 终态；聊天占位消息成功回填 `done`（不再额外追加一条）；审批动作复用同一行 `approved→executing→done`，迟到 reject 不再改写已执行动作。
+- **前端生成协议**：`state/generation.ts` 接线为唯一解释器；后端 `GenerationStatusEvent.phase` 改 snake_case id、新增中文 `label`；FrontstageApp 与后台活动 Hook 全部走 `parseGenerationEvent`，删除两份阶段表/优先级表；修复活动聚合读取 effect 旧快照导致优先级守卫、进度继承与终态收尾失效。
+- **前端文档会话**：章节选择 epoch 票据丢弃过期懒加载；切书失败恢复旧故事事件流，挂载恢复改用 seq；Esc 取消打字机、Tab 只在完整输出后接受；skipContent 置为已保存，消除“保存中”假死。
+- **流程状态收敛**：拆书 liveStatus 按 bookId 重置并完成后 invalidate；Prompts 保存不再全量覆盖其他草稿；日志上传/导出弹窗关闭后异步回写被票据拦截；Tasks cancelled 分组可见并加行级 pending；Training 同书 upsert 互斥；向导索引边界与提交锁；技能执行监听注册时序修复。
+- **其他状态根修**：MCP 无注解工具默认 Unknown（不再按 Read 重试写工具）、连接先入表再注册能力；updater 首源 `Ok(None)` 不再短路第二源；重复日志包不返回幽灵路径；projection 健康接受 `success (precomputed)`；style_learning/recompute 运行集合 RAII；PostProcess 损坏状态显式失败；订阅过期/取消不再解锁；拆书 failed/cancelled 允许同文件重试。
+- **删除死状态**：前端 `frontstageStore.isGenerating`、`resetGeneration`、`resetBootstrapProgress`、`assertUnreachable`、`autoSave.isSaving`、`selectedGenesisSessionId`、不可达 `renderView('mcp')`、`ExportDialog.isReviewing`。
+
+**验证**：Rust **2130 passed / 17 ignored**；`tsc` 0；Vitest **719 passed / 3 skipped**；Playwright **144 passed / 5 skipped**；`cargo fmt`、`cargo clippy`、`architecture_guard.py`、`prettier --check` 全绿。审计文档：`docs/plans/2026-11-10-implicit-state-machine-audit.md`。
+
+**未关闭**：真机复测取消/审批/训练/日志上传路径；租约续期与 DB CHECK 约束、部分 P2/P3（窗口/自动化/叙事阶段/视图单源）列为后续债务。
+
 ## v0.94.0（2026-11-10）
 
 **续写训练按真实创作流程重构：资产重建 → 续写 → 编审 → 对比 → 经验闭环。**

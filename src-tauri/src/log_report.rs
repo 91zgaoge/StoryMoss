@@ -201,18 +201,34 @@ pub fn package_logs<R: Runtime>(app: &AppHandle<R>) -> Result<PackageInfo, AppEr
         let _ = std::fs::remove_file(&tmp_zip);
     }
 
+    let (path, filename) = package_file_fields(skipped_duplicates, &final_path, &filename);
+
     Ok(PackageInfo {
-        path: final_path.to_string_lossy().to_string(),
-        filename: if skipped_duplicates {
-            String::new()
-        } else {
-            filename
-        },
+        path,
+        filename,
         sha256: sha,
         size_bytes: bytes.len() as u64,
         file_count: selected.len(),
         skipped_duplicates,
     })
+}
+
+/// 打包结果的 path/filename 一致性：重复内容没有落新文件时两者都必须是
+/// 空串，前端不得拿着指向不存在文件的路径去上传；非重复时 filename 是
+/// path 的 basename。
+fn package_file_fields(
+    skipped_duplicates: bool,
+    final_path: &std::path::Path,
+    filename: &str,
+) -> (String, String) {
+    if skipped_duplicates {
+        (String::new(), String::new())
+    } else {
+        (
+            final_path.to_string_lossy().to_string(),
+            filename.to_string(),
+        )
+    }
 }
 
 fn collect_from(
@@ -337,6 +353,15 @@ pub async fn upload_log_report<R: Runtime>(
     file_path: String,
     sha256: String,
 ) -> Result<serde_json::Value, AppError> {
+    // 重复内容（skipped_duplicates）的 PackageInfo path/filename 为空串；
+    // 前端不应上传，后端也拒绝空路径，避免把不存在的文件当日志包发出去。
+    if file_path.trim().is_empty() {
+        return Err(AppError::validation_failed(
+            "日志包路径为空（重复内容无需上传）",
+            None::<String>,
+        ));
+    }
+
     // 免登录：Account 带 token（服务端关联 user_id），Device 匿名
     let token = match resolve_identity(&app, pool.inner()) {
         Identity::Account { token, .. } => Some(token),
@@ -442,6 +467,41 @@ mod tests {
         assert_eq!(loaded[0].sha256, "abc");
         assert!(loaded.iter().any(|r| r.sha256 == "abc"));
         assert!(loaded.iter().all(|r| r.sha256 != "zzz"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn duplicate_package_has_no_dangling_path_or_filename() {
+        let dir = std::env::temp_dir().join(format!(
+            "storymoss-log-report-duplicate-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let final_path = dir.join("storymoss-logs-20261110-000000-abcdef123456.zip");
+
+        // 重复内容不落新文件：path 与 filename 都为空，避免前端/后端拿着
+        // 指向不存在文件的路径去上传。
+        let (path, filename) = package_file_fields(true, &final_path, "ignored.zip");
+        assert!(path.is_empty());
+        assert!(filename.is_empty());
+        assert!(!std::path::Path::new(&path).exists());
+
+        // 非重复时 filename 与 path 指向同一个文件。
+        let (path, filename) = package_file_fields(
+            false,
+            &final_path,
+            "storymoss-logs-20261110-000000-abcdef123456.zip",
+        );
+        assert_eq!(path, final_path.to_string_lossy().to_string());
+        assert_eq!(filename, "storymoss-logs-20261110-000000-abcdef123456.zip");
+        assert_eq!(
+            std::path::Path::new(&path)
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            filename
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -611,6 +671,13 @@ pub async fn maybe_propose_log_upload<R: Runtime>(app: &AppHandle<R>) {
             return;
         }
     };
+    if info.skipped_duplicates {
+        log::info!(
+            "[log_report] 日志内容与上次上传一致（sha256={}），不再提议上传",
+            info.sha256
+        );
+        return;
+    }
 
     let mut st = state;
     st.last_prompted_at = Some(now.to_rfc3339());

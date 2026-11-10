@@ -726,12 +726,40 @@ mod tests {
         assert_eq!(should_auto_recompute(&pool, &story_id, 9), Some(9));
         assert_eq!(should_auto_recompute(&pool, &story_id, 13), Some(9));
 
-        // 并发去重：同一故事只能持有一个在跑名额
-        assert!(try_acquire_inflight(&story_id));
-        assert!(!try_acquire_inflight(&story_id));
-        release_inflight(&story_id);
-        assert!(try_acquire_inflight(&story_id));
-        release_inflight(&story_id);
+        // 并发去重：同一故事只能持有一个在跑名额（guard 必须绑定，否则
+        // 临时值会在语句结束时 Drop 并释放名额）。
+        let guard = try_acquire_inflight(&story_id).expect("首次应可获取");
+        assert!(try_acquire_inflight(&story_id).is_none());
+        drop(guard);
+        let guard = try_acquire_inflight(&story_id).expect("释放后应可再次获取");
+        drop(guard);
+    }
+
+    #[test]
+    fn inflight_guard_is_released_after_execution_ends() {
+        let story_id = format!("inflight-guard-{}", uuid::Uuid::new_v4());
+        {
+            let guard = try_acquire_inflight(&story_id).expect("首次应可获取");
+            assert!(
+                try_acquire_inflight(&story_id).is_none(),
+                "执行期间不可重入"
+            );
+            drop(guard);
+        }
+        assert!(
+            try_acquire_inflight(&story_id).is_some(),
+            "执行结束后应可再次获取"
+        );
+
+        // 模拟后台闸门失败/提前 return：guard 在作用域结束（含失败路径）时
+        // 自动释放。
+        {
+            let _guard = try_acquire_inflight(&story_id).expect("再次获取应成功");
+        }
+        assert!(
+            try_acquire_inflight(&story_id).is_some(),
+            "失败路径结束后也应能再次获取"
+        );
     }
 }
 
@@ -747,12 +775,30 @@ fn inflight() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
     INFLIGHT.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
 }
 
-fn try_acquire_inflight(story_id: &str) -> bool {
+/// INFLIGHT 名额的 RAII 所有权：Drop 覆盖正常结束、提前 return、后台闸门
+/// 失败、panic 或 future 被丢弃等所有路径，避免名额永久泄漏。
+struct InflightGuard {
+    story_id: String,
+}
+
+impl Drop for InflightGuard {
+    fn drop(&mut self) {
+        release_inflight(&self.story_id);
+    }
+}
+
+/// 尝试占用某故事的自动重算名额；已被占用时返回 None。
+fn try_acquire_inflight(story_id: &str) -> Option<InflightGuard> {
     let mut guard = match inflight().lock() {
         Ok(g) => g,
         Err(p) => p.into_inner(),
     };
-    guard.insert(story_id.to_string())
+    if !guard.insert(story_id.to_string()) {
+        return None;
+    }
+    Some(InflightGuard {
+        story_id: story_id.to_string(),
+    })
 }
 
 fn release_inflight(story_id: &str) {
@@ -814,15 +860,15 @@ pub fn spawn_auto_recompute_if_stale(
         let Some(from_chapter) = target else {
             return;
         };
-        if !try_acquire_inflight(&story_id) {
+        let Some(_inflight_guard) = try_acquire_inflight(&story_id) else {
             log::info!("[recompute] 自动重算已在运行，跳过 story={story_id}");
             return;
-        }
+        };
 
         let permit = crate::concurrency::BACKGROUND_LLM_SEMAPHORE.acquire().await;
         if permit.is_err() {
             log::warn!("[recompute] 后台闸门不可用，跳过自动重算 story={story_id}");
-            release_inflight(&story_id);
+            // `_inflight_guard` 的 Drop 会释放名额，无需显式清理。
             return;
         }
         let _permit = permit.unwrap();
@@ -860,7 +906,7 @@ pub fn spawn_auto_recompute_if_stale(
                 );
             }
         }
-        release_inflight(&story_id);
+        // `_inflight_guard` 在函数结束时析构，正常结束/失败都会释放名额。
         let _ = from_chapter;
     });
 }

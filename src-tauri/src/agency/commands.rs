@@ -183,7 +183,7 @@ pub async fn agency_resume_run(
                 })
                 .await
                 {
-                    Ok(Ok(())) => {}
+                    Ok(Ok(_)) => {}
                     Ok(Err(fe)) => {
                         log::warn!("resume 终态落库失败 run={}: {}", new_run_id, fe)
                     }
