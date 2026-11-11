@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.96.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.96.1-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.96.1 · 日志巡检首轮修复：生成链路状态不再「永远进行中」
+
+每天自动下载用户日志包的分析机器人发现了两处真实问题并修复：生成链路追踪（Tracing 面板）里的运行记录此前从不落终态，
+一半以上的记录永远显示「进行中」——现在成功/失败/取消都会正确收尾；保存章节时若遇到已删除或被其它窗口替换的过期章节，
+错误提示从「Query returned no rows」改为「目标章节/场景不存在，请刷新目录后重试」，可直接照做。
 
 ### v0.96.0 · 未尽债务收口：租约续期、DB 守卫、保存 CAS、入口互锁
 

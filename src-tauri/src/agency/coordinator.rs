@@ -175,12 +175,25 @@ fn unregister_run_trace(run_id: &str) {
 /// 路径同样生效）。
 pub(crate) struct RunTraceGuard {
     run_id: String,
+    /// v0.96.1: run 终态收尾句柄。此前 guard 只在 drop 时摘注册、从不
+    /// finish_trace——agency run 的生成链路 trace 永远停在 running
+    /// （2026-11-11 真机日志包：8/12 traces 卡 running，含已取消/已报错）。
+    store: Option<crate::tracing::TraceStore>,
 }
 
 impl RunTraceGuard {
-    fn active(run_id: &str) -> Self {
+    fn active(run_id: &str, store: Option<crate::tracing::TraceStore>) -> Self {
         Self {
             run_id: run_id.to_string(),
+            store,
+        }
+    }
+
+    /// 终态收尾：让 trace 状态与 agency_runs 的终态一致（completed/
+    /// failed/cancelled）。保持幂等——重复调用由 finish_trace 覆盖写。
+    fn finish(&self, status: &str, error: Option<String>) {
+        if let Some(store) = &self.store {
+            let _ = store.finish_trace(&self.run_id, status, error);
         }
     }
 }
@@ -1241,7 +1254,7 @@ impl AgencyCoordinator {
         register_run_trace(run_id, run_id);
         let _ = store.add_step(run_id, "agency.run.start", "agency");
         let _ = store.finish_last_step(run_id, "completed", None);
-        Some(RunTraceGuard::active(run_id))
+        Some(RunTraceGuard::active(run_id, Some(store)))
     }
 
     /// 同步 DB 调用一律经 spawn_blocking，避免阻塞 tokio 运行时线程。
@@ -1569,6 +1582,20 @@ impl AgencyCoordinator {
             .run_genesis_inner(run_id, premise, &repo, &cancel, &budget)
             .await;
         unregister_agency_cancel(run_id);
+        // v0.96.1: trace 与 run 同源收尾（此前 trace 永不离开 running）
+        if let Some(guard) = _run_trace.as_ref() {
+            match &result {
+                Ok(_) => guard.finish("completed", None),
+                Err(e) => {
+                    let status = if cancel.load(Ordering::SeqCst) {
+                        "cancelled"
+                    } else {
+                        "failed"
+                    };
+                    guard.finish(status, Some(e.to_string()));
+                }
+            }
+        }
         match &result {
             Ok(r) => {
                 let json = serde_json::to_string(r).unwrap_or_default();
@@ -3635,6 +3662,20 @@ impl AgencyCoordinator {
             )
             .await;
         unregister_agency_cancel(run_id);
+        // v0.96.1: trace 与 run 同源收尾（此前 trace 永不离开 running）
+        if let Some(guard) = _run_trace.as_ref() {
+            match &result {
+                Ok(_) => guard.finish("completed", None),
+                Err(e) => {
+                    let status = if cancel.load(Ordering::SeqCst) {
+                        "cancelled"
+                    } else {
+                        "failed"
+                    };
+                    guard.finish(status, Some(e.to_string()));
+                }
+            }
+        }
         match &result {
             Ok(r) => {
                 let json = serde_json::to_string(r).unwrap_or_default();
@@ -3902,6 +3943,11 @@ impl AgencyCoordinator {
             }
             Err(e) => ("failed", None, Some(e.to_string())),
         };
+        // v0.96.1: trace 与 run 同源收尾（role 任务无 cancelled 分支，
+        // 取消经 finish_run 的终态守卫保持 DB 语义，trace 记 failed）
+        if let Some(guard) = _run_trace.as_ref() {
+            guard.finish(status, error_message.clone());
+        }
         let repo_c = repo.clone();
         let rid = run_id.to_string();
         let applied = self
@@ -11336,7 +11382,7 @@ mod run_trace_tests {
         assert_eq!(run_trace_for("trace-run-1"), None);
 
         register_run_trace("trace-run-2", "trace-run-2");
-        let guard = RunTraceGuard::active("trace-run-2");
+        let guard = RunTraceGuard::active("trace-run-2", None);
         drop(guard);
         assert_eq!(
             run_trace_for("trace-run-2"),

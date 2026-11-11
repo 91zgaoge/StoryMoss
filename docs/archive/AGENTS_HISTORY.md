@@ -38,6 +38,16 @@
 
 **验证**：Rust **2035 / 15**（+1）；Vitest **696 / 3**；Playwright **134 / 5**（+4）；fmt/clippy/check/guard 全绿。**未关闭**：原生安装包真机复测。
 
+<!-- 2026-11-11（v0.96.1）：自 AGENTS.md 归档 v0.93.15 摘要。 -->
+
+### v0.93.15 - 续写训练网络韧性 + 判官评分闸门（本机真机日志根修）
+
+**为什么**：本机 2026-11-09 17:58 续写训练任务 `a2090aa1`（《阴脉先生》第 97 章起 10 章）在取到第 100 章后报 `调用 get_chapter_content 失败：传输错误: 读取响应失败: Connection reset by peer (os error 54)`，整条训练直接失败；重试后于 18:28 完成，但报告 `1a36e1d9` 是 `{"overall":0.0,"scores":null}`、五维全「-」的假 0.00 报告（判官 718 字输出缺 scores），且报告把「沙盒第 11 章」与「真实第 107 章」混在同一行；闭环提示词还输出「上一1轮训练建议」。
+
+**改动**：①`mcp/client.rs::McpClient::call_tool` 对 Read/Network 权限工具在瞬时 `TransportError`（ECONNRESET/os error 54、拒绝、broken pipe、读取/写入失败）或 `Timeout` 时重试两次（150/400ms 退避），Write/Private 绝不重发；②`task_system/continuation_training.rs` 新增 `parse_judge_report`：五维必须齐全且为 1-10 数值（宽容数字字符串与 `"7/10"`），`overall` 缺失按五维均值折算、0-10 归一；判官输出不可用时严格重试一次（提示词只给纯 JSON），仍不可用则降级落 `{"scores":null,"overall":null,"judge_error":...}` 报告（overall=null，前端趋势跳过；正文与沙盒保留，对齐质检失败降级保产出）；③报告与判官提示词标清「沙盒第 N 章（对应真实第 M 章）」，任务摘要同口径；④`load_prior_insights` 修「上一1轮/上一2轮」为「更早一轮/最近一轮训练建议」。
+
+**验证**：Rust **2096 / 17**（+10）；fmt/clippy/guard 全绿；前端未改（Vitest **706/3**、Playwright **144/5** 基线不变）；本机 Legado live probe（11 工具、list_groups）通过；本地 96–111 章直连探针全部 200。**未关闭**：安装 v0.93.15 后真机重跑第 97 章训练，确认取章遇到抖动不再整轮失败、报告含真实五维分（判官可用时）。
+
 <!-- 2026-11-07（v0.89.0）：自 AGENTS.md 归档 v0.85.1 摘要。 -->
 
 ### v0.85.1 - GitHub 优先的双源自动更新

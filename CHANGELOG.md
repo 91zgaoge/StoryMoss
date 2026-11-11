@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.96.1（2026-11-11，日志巡检修复）
+
+**日志分析机器人首轮真实修复（v0.95.0 真机日志包）：agency trace 终态收尾 + update_scene 错误语义化。**
+
+- **trace 永不收尾（观测缺陷，v0.86.0 起）**：真机日志包 12 个 traces 中 8 个卡在 `status=running`（含已取消/已报错的完整步骤序列）。根因：`RunTraceGuard` 只在 drop 时摘注册，从不 `finish_trace`。修复：guard 携带 TraceStore 句柄 + `finish(status, error)`；genesis/continue 在结果后按「Ok→completed / Err+cancel→cancelled / Err→failed」收尾，role 任务按 completed/failed 收尾（取消语义仍由 finish_run 终态守卫兜底）。
+- **update_scene 错误语义化**：真机两次 `update_scene failed: Query returned no rows`（Fatal）。该错误是 v0.30.50 防丢稿的明确拒绝（id 既非 scene 也非 chapter，如过期/已删除章节 id），但经 `AppError::from` 暴露成内部 SQL 语义。新增 `map_scene_update_error`：`QueryReturnedNoRows` → 可操作文案「目标章节/场景不存在（可能已被删除或在其它窗口被替换），请刷新目录后重试」；其余错误保持原映射。
+- **验证**：Rust **2141 passed / 17 ignored**（+2：no-rows 语义映射、其余错误保持 Internal）；Clippy/check/fmt/guard 全绿；前端未改（tsc/Vitest/Playwright 基线复跑）。
+- **未关闭**：trace 终态需真机验证（Tracing 面板不再出现无限 running）；`execute_writer_prepared` 空内容（模型侧，已由冷却机制兜底）与本地端点连接失败属环境类，不修。
+
 ## v0.96.0（2026-11-11）
 
 **未尽状态机债务收口：租约续期、DB 状态守卫、CAS 保存、入口互锁、死模块删除。**

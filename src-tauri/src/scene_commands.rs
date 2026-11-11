@@ -348,7 +348,7 @@ pub async fn update_scene(
             let prior_content = prior_scene.as_ref().and_then(|s| s.content.clone());
             let result = repo.update(&scene_id_clone, &updates_clone).map_err(|e| {
                 log::error!("[story_commands] {} failed: {}", "update_scene", e);
-                AppError::from(e)
+                map_scene_update_error(e, &scene_id_clone)
             })?;
             // v0.64.7：续写/保存途中写成的死亡立即持久化——不必等 30s 后的
             // 章提交（真机第 10 章就是在一章之内把已死的公主写成活人的）。
@@ -1199,6 +1199,23 @@ pub async fn trigger_cascade_rewrite(
 
 // ==================== Trait-based 业务逻辑测试 ====================
 
+/// v0.96.1: update_scene 仓储错误语义化——id 既非 scene 也非 chapter 时
+/// 仓储返回 `QueryReturnedNoRows`（v0.30.50 防丢稿的明确拒绝：宁可报错也不
+/// 静默丢稿）。此前经 `AppError::from` 落成 `INTERNAL_ERROR: Query returned
+/// no rows`（Fatal）——用户只看到内部 SQL 语义、无从判断怎么处理
+/// （2026-11-11 真机日志两次复现）。映射为可操作文案，前端 toast 直接展示。
+fn map_scene_update_error(e: rusqlite::Error, scene_id: &str) -> AppError {
+    match e {
+        rusqlite::Error::QueryReturnedNoRows => AppError::validation_failed(
+            format!(
+                "目标章节/场景不存在（id={scene_id}，可能已被删除或在其它窗口被替换），请刷新目录后重试"
+            ),
+            Some("scene_id"),
+        ),
+        other => AppError::from(other),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1473,5 +1490,25 @@ mod tests {
             }
             format!("{hash:016x}")
         });
+    }
+
+    #[test]
+    fn scene_update_no_rows_maps_to_actionable_validation_error() {
+        // v0.96.1: QueryReturnedNoRows 必须转成可操作文案，而不是内部 SQL 语义
+        let err = map_scene_update_error(rusqlite::Error::QueryReturnedNoRows, "deadbeef-scene");
+        match err {
+            crate::error::AppError::ValidationFailed { message, field } => {
+                assert!(message.contains("不存在"), "message: {message}");
+                assert!(message.contains("刷新目录"), "message: {message}");
+                assert_eq!(field.as_deref(), Some("scene_id"));
+            }
+            other => panic!("expected ValidationFailed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn scene_update_other_errors_keep_internal_mapping() {
+        let err = map_scene_update_error(rusqlite::Error::InvalidParameterName("boom".into()), "x");
+        assert!(matches!(err, crate::error::AppError::Internal { .. }));
     }
 }

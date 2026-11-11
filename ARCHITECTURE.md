@@ -1,5 +1,7 @@
 # StoryMoss v0.96.0 架构文档
 
+> **v0.96.1**：**观测收尾**——`agency/coordinator.rs` 的 `RunTraceGuard` 携带 TraceStore 句柄并新增 `finish(status, error)`：genesis/continue 在结果后按「Ok→completed / Err+cancel→cancelled / Err→failed」调 `finish_trace`，role 任务按 completed/failed 收尾（此前 guard 只在 drop 摘注册，trace 永久停在 running）。`scene_commands::map_scene_update_error` 把仓储 `QueryReturnedNoRows`（id 既非 scene 也非 chapter，防丢稿拒绝）映射为可操作 validation 文案，其余错误保持 `AppError::from`。
+>
 > **v0.96.0**：**未尽状态机债务收口**——`LeaseGuard` 后台续期（ttl/3）+ Drop 释放，`LeaseManager::acquire` 前置全局过期回收；agency 子任务依赖等待落 `waiting`，dispatch 前 `reap_stale(600)`；V158 迁移清理历史未知状态并为 tasks/agency_runs/agency_agent_tasks/agency_chat_messages/agency_director_actions/editor_gate_records 建 INSERT/UPDATE 触发器；`update_scene` 新增 `expected_content_hash`（FNV-1a 64 UTF-8，Rust/TS 同构）做正文 CAS；Request/Smart 共享入口 ref 锁并在生成开始后释放；`TrainingStage` 8 阶段枚举；删除 auth/oauth/session；`WindowVisibility{Visible,Hidden,Closed}` + toggle 锁；`AutomationLifecycle` AtomicU8 + processor_started；Falling 叙事阶段可达；前端 `navigation/views.ts` 单源布局。
 
 > **v0.95.0**：**隐式状态机治理**——新增 `src-tauri/src/lifecycle/`：`EntityKind`/`LifecycleState`/`LifecycleEvent` 单一转移表、终态集合、RAII `CancelHub/CancelScope`；任务进度/完成/失败只允许 running 来源写入，取消后迟到结果不复活终态；agency `finish_run` 返回写入行数，完成事件只在真实写入后发送；导演取消同时落 DB；聊天占位成功回填 done；审批动作复用同一行。前端 `state/generation.ts` 唯一解析 generation-status（后端 phase 改 snake_case + label），`backendActivityStore` 单一优先级表并读当前 store；FrontstageApp 章节选择 epoch、幽灵 Esc/Tab、保存态、切书失败恢复。审计文档 `docs/plans/2026-11-10-implicit-state-machine-audit.md`。

@@ -1,8 +1,13 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.96.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.96.1)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.96.1 变更说明
+
+- Rust **2141 passed / 17 ignored**（+2）：`scene_update_no_rows_maps_to_actionable_validation_error`（QueryReturnedNoRows → validation 文案含「不存在/刷新目录」、field=scene_id）、`scene_update_other_errors_keep_internal_mapping`（其余 rusqlite 错误保持 Internal）。
+- 前端零改动：tsc/Vitest/Playwright 基线复跑通过。
 
 ### v0.96.0 变更说明
 
