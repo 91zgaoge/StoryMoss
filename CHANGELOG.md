@@ -2,6 +2,22 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.96.0（2026-11-11）
+
+**未尽状态机债务收口：租约续期、DB 状态守卫、CAS 保存、入口互锁、死模块删除。**
+
+- **租约**：`LeaseGuard` 自带后台续期（每 ttl/3 推 `now+ttl`），Drop 先 abort 再删租约；`LeaseManager::acquire` 每次尝试先清全局过期租约。长创世/批量续写不再因 TTL 到期被第二个 run 抢走所有权。
+- **agency 依赖等待显式化**：任务等父任务时落 `waiting`，父结束后 `start` 推 `waiting→running`；`dispatch_sub_agent` 每次派发前 `reap_stale(600)`，`stale` 不再只在测试里可达。
+- **DB 状态守卫**：新增 V158 迁移，清理历史未知状态后为 tasks/agency_runs/agency_agent_tasks/agency_chat_messages/agency_director_actions/editor_gate_records 建 INSERT/UPDATE 触发器；未知状态写入直接 ABORT。
+- **保存 CAS**：`update_scene` 新增 `expected_content_hash`（FNV-1a 64 UTF-8，Rust/TS 同构），幕前保存用加载时正文基线做指纹；幕后改正文后再保存被拒绝（`scene_conflict`），标题/元数据变化不误判。
+- **生成入口互锁**：Request/Smart 两个入口共享 ref 锁，覆盖意图分类/预检窗口；生成开始后释放，文思 auto-continue 不受影响；两次 Ctrl+Enter 不再并发。
+- **训练阶段显式化**：`TrainingStage` 枚举统一 8 个阶段的进度/step/文案，单调且不可重复。
+- **死状态删除**：删除 `auth/oauth.rs`/`auth/session.rs`（登录早已走 server 轮询）；窗口新增 `WindowVisibility{Visible,Hidden,Closed}` 并给 toggle 加锁；automation 用 `AutomationLifecycle` AtomicU8 + `processor_started` 防双循环；叙事阶段 `Falling` 在 40–49 场景且主要伏笔回收时可达；前端新增 `navigation/views.ts` 单源布局集合。
+
+**验证**：Rust **2139 passed / 17 ignored**；tsc 0；Vitest **720 passed / 3 skipped**；Playwright **144 passed / 5 skipped**；fmt/clippy/guard/prettier 全绿。
+
+**未关闭**：Gate verdict 仍存在 run.result/board/editor_gate_records 三份副本（本版只加了 outcome 触发器）；Sidebar 分组与 `renderView` switch 仍各自维护（布局已单源）；真机复测租约续期/CAS 冲突/入口互锁。
+
 ## v0.95.0（2026-11-10）
 
 **隐式状态机治理：51 个隐式条目收敛到 3 个核心边界，终态不可覆盖。**

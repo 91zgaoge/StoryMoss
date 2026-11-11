@@ -22,6 +22,10 @@ impl LeaseManager {
         owner_task_id: Option<&str>,
         ttl_secs: u64,
     ) -> Result<ResourceLease, AppError> {
+        // 生产清理点：每次尝试拿租约前先清掉全局过期租约，避免无人续期的
+        // 旧租约（进程崩溃/任务被外部终止）永久占住资源。单资源过期仍由
+        // 下方 existing 分支兜底（TTL 内可被新 owner 覆盖）。
+        let _ = self.reap_expired();
         let mut conn = self
             .pool
             .get()

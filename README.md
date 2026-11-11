@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.95.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.96.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,17 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.96.0 · 未尽债务收口：租约续期、DB 守卫、保存 CAS、入口互锁
+
+v0.95.0 留下的一批状态机债务已逐项收口：
+
+- **租约不再过期失权**：Append/资产租约守卫自带后台续期；进程崩溃留下的过期租约在下次 acquire 前被清理。
+- **DB 最后一道防线**：V158 迁移为任务/run/agent task/聊天/审批/gate record 的状态列建触发器，未知状态直接 ABORT，不再静默落库。
+- **保存 CAS**：幕前保存携带加载正文的 FNV-1a 指纹；幕后已改正文时拒绝旧快照覆盖，标题/元数据变化不误判。只比对正文，不比对时间戳。
+- **入口互锁**：续写与智能输入共享 ref 锁，覆盖意图分类/预检窗口；生成开始后释放，文思 auto-continue 照常。
+- **依赖等待显式 waiting**：子任务等父任务不再伪装成 queued；stale 心跳任务在每次派发前被回收。
+- **死代码删除**：旧本地 OAuth/JWT session、窗口 closed/hidden 歧义、automation 双 bool、叙事 Falling 不可达、视图布局三处清单。
 
 ### v0.95.0 · 隐式状态机治理：状态只有一个所有者，终态不可被覆盖
 

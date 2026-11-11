@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildUpdateSceneIpcArgs } from '../updateSceneIpc';
+import { buildUpdateSceneIpcArgs, sceneContentHash } from '../updateSceneIpc';
 
 describe('buildUpdateSceneIpcArgs', () => {
   it('构造后端期望的 scene_id + updates 嵌套形状', () => {
@@ -10,6 +10,7 @@ describe('buildUpdateSceneIpcArgs', () => {
     });
     expect(args).toEqual({
       scene_id: 'scene-1',
+      expected_content_hash: null,
       updates: {
         title: '第一章',
         content: '<p>正文</p>',
@@ -30,5 +31,15 @@ describe('buildUpdateSceneIpcArgs', () => {
     const updates = args.updates as Record<string, unknown>;
     expect(updates.title).toBeUndefined();
     expect(updates.content).toBe('<p>x</p>');
+  });
+
+  it('正文指纹与 Rust FNV-1a 64 同构（UTF-8 bytes）', () => {
+    const args = buildUpdateSceneIpcArgs({
+      sceneId: 'scene-3',
+      content: '<p>新</p>',
+      expectedContentHash: sceneContentHash('<p>旧</p>'),
+    });
+    expect(args.expected_content_hash).toBe(sceneContentHash('<p>旧</p>'));
+    expect(typeof sceneContentHash('<p>旧</p>')).toBe('string');
   });
 });

@@ -4003,10 +4003,7 @@ impl AgencyCoordinator {
                 None,
                 1800,
             )?;
-            Some(LeaseGuard {
-                pool: self.pool.clone(),
-                lease_id: Some(lease.id),
-            })
+            Some(LeaseGuard::new(self.pool.clone(), lease.id, 1800))
         } else {
             None
         };
@@ -4291,12 +4288,7 @@ impl AgencyCoordinator {
                 None,
                 600,
             ) {
-                Ok(lease) => {
-                    return Ok(LeaseGuard {
-                        pool: self.pool.clone(),
-                        lease_id: Some(lease.id),
-                    })
-                }
+                Ok(lease) => return Ok(LeaseGuard::new(self.pool.clone(), lease.id, 600)),
                 Err(AppError::ValidationFailed {
                     field: Some(field), ..
                 }) if field == "resource_busy" => {
@@ -9475,15 +9467,48 @@ pub(crate) struct BatchChapterArtifacts {
     pub contract: Option<crate::agency::narrative_contract::SceneContract>,
 }
 
-/// 幕前 Append 的场景租约守卫：Drop 时释放，防止同一场景被两个 Append
-/// run 同时改写。释放失败由 TTL 兜底。
+/// 幕前 Append / 资产引导租约守卫：Drop 时释放，防止同一资源被两个 run
+/// 同时改写。长 LLM 阶段（创世资产、批量续写）会超过 TTL，因此守卫自带
+/// 后台续期：每 `ttl/3` 秒把 expires_at 推到 `now + ttl`，run 活着租约就不
+/// 会过期；Drop 先 abort 续期再删除租约。
 struct LeaseGuard {
     pool: DbPool,
     lease_id: Option<String>,
+    heartbeat_handle: Option<tauri::async_runtime::JoinHandle<()>>,
+}
+
+impl LeaseGuard {
+    fn new(pool: DbPool, lease_id: String, ttl_secs: u64) -> Self {
+        let pool_c = pool.clone();
+        let id = lease_id.clone();
+        let extend_secs = ttl_secs.max(60);
+        let tick_secs = (extend_secs / 3).max(20);
+        let heartbeat_handle = tauri::async_runtime::spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_secs(tick_secs));
+            // 第一次 tick 立即返回，跳过它，等一个周期后再续期。
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                let manager = crate::agency::lease::LeaseManager::new(pool_c.clone());
+                if manager.heartbeat(&id, extend_secs).is_err() {
+                    log::warn!("agency: lease {} heartbeat failed, stop renewing", id);
+                    break;
+                }
+            }
+        });
+        Self {
+            pool,
+            lease_id: Some(lease_id),
+            heartbeat_handle: Some(heartbeat_handle),
+        }
+    }
 }
 
 impl Drop for LeaseGuard {
     fn drop(&mut self) {
+        if let Some(handle) = self.heartbeat_handle.take() {
+            handle.abort();
+        }
         if let Some(id) = self.lease_id.take() {
             let _ = crate::agency::lease::LeaseManager::new(self.pool.clone()).release(&id);
         }

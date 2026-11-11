@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.95.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.96.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.96.0 变更说明
+
+- Rust **2139 passed / 17 ignored**：V158 状态守卫 3（未知状态 INSERT/UPDATE ABORT、历史清理、合法 waiting）；agency task 终态守卫 2；租约续期/回收；agency waiting/stale；TrainingStage 单调；CAS FNV 指纹；Falling 叙事阶段。
+- Vitest **720 passed / 3 skipped**：`update_scene` CAS 参数与指纹（+1）。
+- Playwright **144 passed / 5 skipped**：入口互锁、CAS、租约改造后全量复跑通过（含 frontstage-agency-append 3 项）。
+- 验收命令：`cargo test --lib`、`npx tsc --noEmit`、`npx vitest run`、`npx playwright test`、`cargo +nightly-2026-10-05 fmt`、`cargo clippy --lib`、`python3 scripts/architecture_guard.py`、`npm run format:check`。
 
 ### v0.95.0 变更说明
 

@@ -1,14 +1,40 @@
 #![allow(dead_code)]
+use std::sync::Mutex;
+
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 use ts_rs::TS;
 
 use crate::error::AppError;
 
+/// 窗口显式状态。`Hidden`（存在但不可见）与 `Closed`（已销毁）必须可区分；
+/// 旧实现两个 bool 无法表达 closed，前端只能猜。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WindowVisibility {
+    Visible,
+    Hidden,
+    Closed,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WindowState {
     pub frontstage_visible: bool,
     pub backstage_visible: bool,
+    /// v0.96.0：显式窗口生命周期，避免 closed/hidden 歧义。
+    pub frontstage: WindowVisibility,
+    pub backstage: WindowVisibility,
+}
+
+/// toggle 的读后写必须串行；并发 toggle 曾会互相覆盖。
+static TOGGLE_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+
+fn visibility_of(app: &AppHandle, label: &str) -> WindowVisibility {
+    match app.get_webview_window(label) {
+        None => WindowVisibility::Closed,
+        Some(window) if window.is_visible().unwrap_or(false) => WindowVisibility::Visible,
+        Some(_) => WindowVisibility::Hidden,
+    }
 }
 
 /// 窗口管理器 - 管理幕前和幕后窗口
@@ -51,6 +77,7 @@ impl WindowManager {
 
     /// 切换幕前窗口显示状态
     pub fn toggle_frontstage(app: &AppHandle) -> Result<bool, AppError> {
+        let _guard = TOGGLE_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(window) = Self::get_frontstage(app) {
             let is_visible = window
                 .is_visible()
@@ -95,6 +122,8 @@ impl WindowManager {
         Ok(WindowState {
             frontstage_visible,
             backstage_visible,
+            frontstage: visibility_of(app, "frontstage"),
+            backstage: visibility_of(app, "backstage"),
         })
     }
 

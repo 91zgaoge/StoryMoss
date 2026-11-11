@@ -140,6 +140,12 @@ impl TaskScheduler {
                 Some("role"),
             ));
         }
+        // 生产回收点：每次派发前把心跳已超过 600s 的 running 任务置 stale，
+        // 让巡检/导演能看见卡住任务并可 retry；不依赖外部 cron。
+        let reap_pool = self.pool.clone();
+        let _ = tokio::task::spawn_blocking(move || TaskRepository::new(reap_pool).reap_stale(600))
+            .await;
+
         let mut task =
             AgencyAgentTask::new(run_id, story_id, role, instruction, parent_task_id, meta);
         let pool = self.pool.clone();
@@ -276,6 +282,15 @@ impl TaskScheduler {
         depends_on_task_id: Option<String>,
     ) {
         if let Some(parent) = depends_on_task_id.clone() {
+            // 依赖等待是显式状态：任务在排队后先落 waiting，父任务结束后
+            // reporter.start() 再把 waiting→running 推进。此前等待期间状态
+            // 一直是 queued，UI/巡检无法区分“排队中”与“等父任务”。
+            let pool = self.pool.clone();
+            let id = task.id.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                TaskRepository::new(pool).set_status(&id, "waiting")
+            })
+            .await;
             if !self.wait_for_parent(&parent).await {
                 let reporter = TaskReporter::new(
                     self.pool.clone(),
@@ -406,6 +421,12 @@ impl TaskScheduler {
         target_end_chapter: Option<i32>,
     ) {
         if let Some(parent) = depends_on_task_id {
+            let pool = self.pool.clone();
+            let id = task.id.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                TaskRepository::new(pool).set_status(&id, "waiting")
+            })
+            .await;
             if !self.wait_for_parent(&parent).await {
                 let reporter = TaskReporter::new(
                     self.pool.clone(),
@@ -1259,7 +1280,10 @@ mod tests {
             .get_task(&child)
             .unwrap()
             .unwrap();
-        assert_eq!(child_task.status, "queued");
+        assert_eq!(
+            child_task.status, "waiting",
+            "依赖等待必须是显式 waiting，而不是伪装成 queued"
+        );
         tokio::time::sleep(Duration::from_millis(500)).await;
         let parent_task = TaskRepository::new(sched.pool.clone())
             .get_task(&parent)

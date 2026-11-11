@@ -40,6 +40,61 @@ const STYLE_SAMPLE_CHARS: usize = 12_000;
 /// 训练判分前正文的最低实质字数（低于此值视为空稿/拒绝话术）
 const MIN_GENERATED_CHARS: usize = 300;
 
+/// 训练阶段显式枚举：进度不再是散落的 5/20/30/35/40/75/90/100 常量，
+/// 而是每个阶段唯一的进度/step/文案。新增阶段必须在这里登记，保证单调。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TrainingStage {
+    Fetch,
+    Sandbox,
+    Style,
+    Assets,
+    Continue,
+    Compare,
+    Report,
+    Done,
+}
+
+impl TrainingStage {
+    fn progress(self) -> i32 {
+        match self {
+            TrainingStage::Fetch => 5,
+            TrainingStage::Sandbox => 20,
+            TrainingStage::Style => 30,
+            TrainingStage::Assets => 35,
+            TrainingStage::Continue => 40,
+            TrainingStage::Compare => 75,
+            TrainingStage::Report => 90,
+            TrainingStage::Done => 100,
+        }
+    }
+
+    fn step(self) -> &'static str {
+        match self {
+            TrainingStage::Fetch => "fetch",
+            TrainingStage::Sandbox => "sandbox",
+            TrainingStage::Style => "style",
+            TrainingStage::Assets => "assets",
+            TrainingStage::Continue => "continue",
+            TrainingStage::Compare => "compare",
+            TrainingStage::Report => "report",
+            TrainingStage::Done => "done",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            TrainingStage::Fetch => "正在获取原书章节…",
+            TrainingStage::Sandbox => "正在创建训练沙盒故事…",
+            TrainingStage::Style => "正在从真实章节学习文风…",
+            TrainingStage::Assets => "正在重建世界观/大纲/角色/故事线…",
+            TrainingStage::Continue => "正在按原文风格续写下一章…",
+            TrainingStage::Compare => "正在取真实后续章并对比评审…",
+            TrainingStage::Report => "正在保存训练报告…",
+            TrainingStage::Done => "训练完成",
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct TrainingPayload {
     pub book_title: String,
@@ -221,7 +276,11 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         let n_chapters = payload.chapter_count.clamp(2, 20);
 
         // ── 1. 取源章节 ──────────────────────────────────────────
-        ctx.update_progress("fetch", 5, "正在获取原书章节…");
+        ctx.update_progress(
+            TrainingStage::Fetch.step(),
+            TrainingStage::Fetch.progress(),
+            TrainingStage::Fetch.label(),
+        );
         let (chapters, source_kind) = self.fetch_chapters(&payload, &ctx, n_chapters).await?;
         if chapters.len() < 2 {
             let msg = format!(
@@ -241,7 +300,11 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         );
 
         // ── 2. 独立沙盒故事 ─────────────────────────────────────
-        ctx.update_progress("sandbox", 20, "正在创建训练沙盒故事…");
+        ctx.update_progress(
+            TrainingStage::Sandbox.step(),
+            TrainingStage::Sandbox.progress(),
+            TrainingStage::Sandbox.label(),
+        );
         let story_repo = StoryRepository::new(self.pool.clone());
         let stamp = Local::now().format("%m%d-%H%M");
         let story = story_repo.create(crate::db::dto::CreateStoryRequest {
@@ -262,7 +325,11 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             .await?;
 
         // ── 3. 风格 DNA（真实章节 → StyleAnalyzer → 绑定故事）────
-        ctx.update_progress("style", 30, "正在从真实章节学习文风…");
+        ctx.update_progress(
+            TrainingStage::Style.step(),
+            TrainingStage::Style.progress(),
+            TrainingStage::Style.label(),
+        );
         let style_applied = self
             .apply_style_dna(&story.id, &payload.book_title, &chapters, &ctx)
             .await;
@@ -271,7 +338,11 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         // 训练沙盒不是“从零创世”：先把上下文章归一为世界观/故事大纲/角色/
         // 关系/逐章梗概，再进入既有续写与编审管线。这样 writer 拿到的资产
         // 与正作续写同源，不再因资产区为空拒绝或另起新故事。
-        ctx.update_progress("assets", 35, "正在重建世界观/大纲/角色/故事线…");
+        ctx.update_progress(
+            TrainingStage::Assets.step(),
+            TrainingStage::Assets.progress(),
+            TrainingStage::Assets.label(),
+        );
         let asset_llm = crate::llm::LlmService::new(self.app_handle.clone());
         let asset_input: Vec<(usize, String)> = context_chapters(&chapters)
             .iter()
@@ -355,7 +426,11 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         }
 
         // ── 5. 走既有续写管线（含 gate/装配）────────────────────
-        ctx.update_progress("continue", 40, "正在按原文风格续写下一章…");
+        ctx.update_progress(
+            TrainingStage::Continue.step(),
+            TrainingStage::Continue.progress(),
+            TrainingStage::Continue.label(),
+        );
         let run_id = uuid::Uuid::new_v4().to_string();
         let coordinator = crate::agency::coordinator::AgencyCoordinator::new(
             self.app_handle.clone(),
@@ -425,7 +500,11 @@ impl TaskExecutor for ContinuationTrainingExecutor {
                 error_message: Some(msg),
             });
         }
-        ctx.update_progress("compare", 75, "正在取真实后续章并对比评审…");
+        ctx.update_progress(
+            TrainingStage::Compare.step(),
+            TrainingStage::Compare.progress(),
+            TrainingStage::Compare.label(),
+        );
 
         // ── 6. 真实后续章作基准 ─────────────────────────────────
         let truth_index = chapters.last().map(|c| c.0).unwrap_or(0);
@@ -480,7 +559,11 @@ impl TaskExecutor for ContinuationTrainingExecutor {
              - 对比评审：五维评分 + 上一章结尾承接基准\n\
              - 下一轮：自动注入本报告 improvement 与重叠区间历史建议\n"
         );
-        ctx.update_progress("report", 90, "正在保存训练报告…");
+        ctx.update_progress(
+            TrainingStage::Report.step(),
+            TrainingStage::Report.progress(),
+            TrainingStage::Report.label(),
+        );
 
         // ── 8. 报告落库 + 清理旧沙盒 ───────────────────────────
         let report_id = uuid::Uuid::new_v4().to_string();
@@ -513,7 +596,11 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         }
         self.cleanup_old_sandboxes(&payload.book_title, KEEP_SANDBOXES);
 
-        ctx.update_progress("done", 100, "训练完成");
+        ctx.update_progress(
+            TrainingStage::Done.step(),
+            TrainingStage::Done.progress(),
+            TrainingStage::Done.label(),
+        );
         let summary = format!(
             "训练完成：沙盒 {}，续写沙盒第 {} 章（对应真实第 {} 章），报告 {report_id}（保留最近 {KEEP_SANDBOXES} 个沙盒）",
             story.title, next_chapter, truth_index
@@ -1534,5 +1621,27 @@ mod tests {
         assert_eq!(number, 106);
         assert!(tail.contains("桐人镇魇"));
         assert!(!tail.contains("真实基准答案"), "判官衔接基准不得含答案");
+    }
+
+    #[test]
+    fn training_stages_are_unique_and_monotonic() {
+        let stages = [
+            TrainingStage::Fetch,
+            TrainingStage::Sandbox,
+            TrainingStage::Style,
+            TrainingStage::Assets,
+            TrainingStage::Continue,
+            TrainingStage::Compare,
+            TrainingStage::Report,
+            TrainingStage::Done,
+        ];
+        let progresses: Vec<i32> = stages.iter().map(|s| s.progress()).collect();
+        assert_eq!(progresses, vec![5, 20, 30, 35, 40, 75, 90, 100]);
+        assert!(progresses.windows(2).all(|w| w[0] < w[1]));
+        let steps: Vec<&str> = stages.iter().map(|s| s.step()).collect();
+        assert_eq!(
+            steps,
+            vec!["fetch", "sandbox", "style", "assets", "continue", "compare", "report", "done"]
+        );
     }
 }

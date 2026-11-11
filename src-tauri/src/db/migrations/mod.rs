@@ -1162,6 +1162,7 @@ pub mod V154__backfill_foreshadow_payoff_windows;
 pub mod V155__inherit_fragment_payoff_windows;
 pub mod V156__mcp_server_configs;
 pub mod V157__continuation_training_reports;
+pub mod V158__lifecycle_status_guards;
 
 /// Returns all Rust-coded migrations (versions 28-103, 115-117) ordered by
 /// version.
@@ -1261,5 +1262,6 @@ pub fn all_rust_migrations() -> Vec<Box<dyn RustMigration>> {
         Box::new(V155__inherit_fragment_payoff_windows::Migration),
         Box::new(V156__mcp_server_configs::Migration),
         Box::new(V157__continuation_training_reports::Migration),
+        Box::new(V158__lifecycle_status_guards::Migration),
     ]
 }

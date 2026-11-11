@@ -269,4 +269,41 @@ mod tests {
         assert_eq!(repo.reap_stale(300).unwrap(), 1);
         assert_eq!(repo.get_task(&t.id).unwrap().unwrap().status, "stale");
     }
+
+    #[test]
+    fn terminal_task_cannot_be_overwritten_or_resurrected() {
+        let repo = repo();
+        let t = task();
+        repo.create_task(&t).unwrap();
+        repo.set_status(&t.id, "cancelling").unwrap();
+        repo.finish(&t.id, "cancelled", Some("取消"), None).unwrap();
+
+        // 已 cancelled：finish 不能再写 completed，set_status 也不能复活。
+        assert_eq!(
+            repo.finish(&t.id, "completed", Some("迟到结果"), None)
+                .unwrap(),
+            0
+        );
+        assert_eq!(repo.set_status(&t.id, "running").unwrap(), 0);
+        let loaded = repo.get_task(&t.id).unwrap().unwrap();
+        assert_eq!(loaded.status, "cancelled");
+    }
+
+    #[test]
+    fn cancelling_cannot_finish_completed() {
+        let repo = repo();
+        let t = task();
+        repo.create_task(&t).unwrap();
+        repo.start(&t.id).unwrap();
+        repo.set_status(&t.id, "cancelling").unwrap();
+        assert_eq!(
+            repo.finish(&t.id, "completed", Some("ok"), None).unwrap(),
+            0
+        );
+        assert_eq!(
+            repo.finish(&t.id, "cancelled", Some("取消"), None).unwrap(),
+            1
+        );
+        assert_eq!(repo.get_task(&t.id).unwrap().unwrap().status, "cancelled");
+    }
 }

@@ -505,6 +505,11 @@ impl CanonicalStateManager {
         // 7）都已回收，且场景数足够多，进入收尾期
         let has_major_pending = pending_payoffs.iter().any(|p| p.importance >= 7);
         let has_any_payoff = !pending_payoffs.is_empty();
+        // v0.96.0：Falling 此前在枚举里存在但永不产生。40–49 场景且主要伏笔
+        // 已回收 = 回落期；50+ 才进入 Resolution。让 UI/写作指导能看到回落段。
+        if has_any_payoff && !has_major_pending && (40..50).contains(&total_scenes) {
+            return NarrativePhase::Falling;
+        }
         if has_any_payoff && !has_major_pending && total_scenes >= 50 {
             return NarrativePhase::Resolution;
         }
@@ -575,5 +580,39 @@ impl crate::domain::creative_engine::PayoffLedgerPort for CanonicalStateManager 
 
         let (_, overdue) = self.fetch_payoffs(story_id, current_sequence)?;
         Ok(overdue.into_iter().map(|p| p.content).collect())
+    }
+}
+
+#[cfg(test)]
+mod phase_tests {
+    use super::*;
+
+    fn payoff(importance: i32) -> PayoffRef {
+        PayoffRef {
+            foreshadowing_id: "f1".into(),
+            content: "低重要性伏笔".into(),
+            importance,
+            setup_scene_id: None,
+        }
+    }
+
+    #[test]
+    fn falling_is_reachable_when_major_payoffs_resolved_in_mid_book() {
+        assert_eq!(
+            CanonicalStateManager::calculate_narrative_phase(45, &[], false, &[payoff(3)]),
+            NarrativePhase::Falling
+        );
+        assert_eq!(
+            CanonicalStateManager::calculate_narrative_phase(55, &[], false, &[payoff(3)]),
+            NarrativePhase::Resolution
+        );
+    }
+
+    #[test]
+    fn overdue_payoff_still_forces_conflict_active() {
+        assert_eq!(
+            CanonicalStateManager::calculate_narrative_phase(10, &[], true, &[payoff(8)]),
+            NarrativePhase::ConflictActive
+        );
     }
 }

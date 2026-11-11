@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.95.0 项目完成状态
+# StoryMoss (草苔) v0.96.0 项目完成状态
+
+> 最后更新: 2026-11-11（**v0.96.0：未尽状态机债务收口**——租约后台续期 + acquire 前过期回收；agency 依赖等待显式 waiting + dispatch 前 reap_stale；V158 为 6 张状态表建触发器并清理历史未知状态；`update_scene` 正文 FNV-1a CAS；Request/Smart 入口 ref 互锁（生成开始即释放）；TrainingStage 8 阶段枚举；删除 auth/oauth/session；WindowVisibility + toggle 锁；AutomationLifecycle 单循环；Falling 阶段可达；前端布局单源。Rust **2139/17**，tsc 0，Vitest **720/3**，Playwright **144/5**。**未关闭**：Gate verdict 三副本、Sidebar 与 renderView 仍各自维护；真机复测租约/CAS/入口互锁。）
 
 > 最后更新: 2026-11-10（**v0.95.0：隐式状态机治理**——新增 Rust `lifecycle` 转移表与 RAII `CancelHub`；任务/agency/聊天/审批终态不可被迟到结果覆盖；前端 `state/generation.ts` 唯一解释器 + 后台活动单一 reducer；章节选择 epoch、幽灵/保存/切书失败恢复；拆书/Prompts/日志上传/导出/Tasks/Training/向导/技能执行流程状态收敛；MCP Unknown 权限、updater 多源、重复日志包、projection 前缀、style-learning/recompute RAII、PostProcess 解析失败、订阅过期门控、拆书终态重试。Rust **2130/17**，tsc 0，Vitest **719/3**，Playwright **144/5**。**未关闭**：真机复测取消/审批/训练/日志上传；租约续期与 DB CHECK、P2/P3 窗口/自动化/叙事阶段/视图单源。）
 

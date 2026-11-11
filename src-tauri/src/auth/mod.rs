@@ -1,13 +1,12 @@
-//! Authentication Module — 多账号OAuth登录系统
+//! Authentication Module — server 中转型登录
 //!
-//! 支持 Google / GitHub OAuth2 登录
-//! 微信/QQ 预留框架（二期补充）
+//! v0.34 起登录走 `server_client` 桌面授权轮询；旧本地 OAuth 回调
+//! (`oauth.rs`) 与 JWT session (`session.rs`) 是死代码，v0.96.0 删除。
+//! 当前模块只保留 provider 枚举与 Tauri 命令。
 
 use serde::{Deserialize, Serialize};
 
 pub mod commands;
-pub mod oauth;
-pub mod session;
 
 /// OAuth提供商
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -49,20 +49,7 @@ import {
 import type { ViewType, Story } from '@/types';
 import toast from 'react-hot-toast';
 import { showTaskToast } from '@/utils/taskToast';
-
-const FULL_HEIGHT_VIEWS = new Set<ViewType>([
-  'dashboard',
-  'settings',
-  'scenes',
-  'corpus',
-  'knowledge-graph',
-  'book-deconstruction',
-  'guidebook-distillation',
-  'story-system',
-  'agency-studio',
-  'logs',
-  'tracing',
-]);
+import { FULL_HEIGHT_VIEWS } from '@/navigation/views';
 
 function App() {
   const queryClient = useQueryClient();

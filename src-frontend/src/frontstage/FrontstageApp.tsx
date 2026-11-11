@@ -298,6 +298,10 @@ const FrontstageApp: React.FC = () => {
   // 使 centralized generatedText guard 能够直接调用 isTextAlreadyInEditor。
   const editorRef = useRef<RichTextEditorRef>(null);
   const latestContentRef = useRef<string>('');
+  // v0.96.0: 当前 scene 的正文基线。每次加载章节/成功保存后刷新；
+  // persistSceneContent 对基线算指纹作为 CAS 期望值，防止幕前旧快照覆盖
+  // 幕后新稿；标题等元数据变化不参与冲突判定。
+  const sceneBaselineContentRef = useRef<string | null>(null);
   // v0.23.92: 用 ref 持有 appendAiContent，避免 listener 回调因 textual order 产生 TDZ
   const appendAiContentRef = useRef<
     (rawText: string, source: 'tab' | 'auto' | 'ContentUpdate' | 'AppendContent') => void
@@ -1383,6 +1387,10 @@ const FrontstageApp: React.FC = () => {
 
   // A4-1.9: 打字机效果改为 requestAnimationFrame 驱动
   const typewriterFrameRef = useRef<number | null>(null);
+  // v0.96.0: 生成入口互锁。两个 Ctrl+Enter / 智能输入在同一渲染周期到达时
+  // React state 仍是 false；用 ref 占位锁把整条入口（含意图分类 await）
+  // 串行化，finally 释放。
+  const generationEntryLockRef = useRef(false);
   // v5.2.0: 标记刚完成自动保存的时间戳，避免循环刷新
   const justSavedRef = useRef<number>(0);
 
@@ -1397,7 +1405,13 @@ const FrontstageApp: React.FC = () => {
     saveError,
     cancelPersistRetry,
     markSceneContentLoaded,
-  } = useScenePersistence({ editorRef, latestContentRef, justSavedRef, setIsSaved });
+  } = useScenePersistence({
+    editorRef,
+    latestContentRef,
+    justSavedRef,
+    sceneBaselineContentRef,
+    setIsSaved,
+  });
   // markSceneContentLoaded：selectChapter 应用后端正文后调用（v0.59.2 载入期空写保护）
   // A4-1.7/1.9: 生成任务计时器（仅记录开始时间，不启用 1s setInterval 心跳）
   const generationStartTimeRef = useRef<number | null>(null);
@@ -3051,6 +3065,14 @@ const FrontstageApp: React.FC = () => {
       const scenesForResolve = opts?.scenes ?? scenesRef.current ?? scenes;
       const sceneFromList = scenesForResolve?.find(s => s.chapter_id === chapter.id)?.id;
       const linkedSceneId = chapter.scene_id || sceneFromList;
+      // CAS 基准必须是 DB 里实际的 scene.content（而不是前端格式化后的
+      // formattedContent）；否则第一次保存就会因文本形态差异误判冲突。
+      const baselineScene =
+        scenesForResolve?.find(s => s.id === linkedSceneId) ??
+        scenesForResolve?.find(s => s.chapter_id === chapter.id);
+      sceneBaselineContentRef.current = skipContent
+        ? null
+        : (baselineScene?.content ?? chapter.content ?? null);
       const sceneIdSource = chapter.scene_id
         ? 'chapter.scene_id'
         : sceneFromList
@@ -3093,6 +3115,9 @@ const FrontstageApp: React.FC = () => {
                   );
                 });
                 setCurrentScene(fullScene);
+                if (!skipContent) {
+                  sceneBaselineContentRef.current = fullScene.content ?? null;
+                }
               }
             } catch (e) {
               frontstageLogger.error('Failed to lazy-load associated scene', { error: e });
@@ -3594,6 +3619,7 @@ const FrontstageApp: React.FC = () => {
                 content: latestHtml,
               })
             );
+            sceneBaselineContentRef.current = latestHtml;
           } catch (e) {
             frontstageLogger.warn('[ensureUntitledStory] flush latest content failed', {
               error: e,
@@ -3681,6 +3707,7 @@ const FrontstageApp: React.FC = () => {
               title,
             })
           );
+          // 标题更新不改变正文基线，不需要刷新 CAS；保留当前加载基线。
           setSceneInfo(sceneId, title, chapter.id, currentStoryRef.current?.title);
         } else {
           // 无关联 scene 时退回 update_chapter（旧数据路径）
@@ -3866,11 +3893,11 @@ const FrontstageApp: React.FC = () => {
   );
 
   // Request AI generation -- now routes through backend smart_execute
-  const handleRequestGeneration = useCallback(
+  const runRequestGeneration = useCallback(
     async (context?: string) => {
       // 入口互锁用 ref，而不是 React state：两个 Ctrl+Enter 在同一渲染周期
       // 到达时 state 仍是 false，旧实现会让两次请求都通过预检并发执行。
-      if (isGenerating || isGeneratingRef.current) {
+      if (isGenerating) {
         // 续写已在底栏进行。不要弹窗、不要顶栏再喊一声——那是前台干预。
         return;
       }
@@ -3931,6 +3958,9 @@ const FrontstageApp: React.FC = () => {
       postAcceptLockRef.current = 0;
       setHideGhostUntil(0);
       setIsGenerating(true);
+      // 真正的生成已开始：释放入口锁，允许文思 active 在生成结束后触发下一轮
+      // auto-continue；生成期间的重复提交由 isGenerating + 禁用输入拦截。
+      generationEntryLockRef.current = false;
       setGenerationStatus('正在续写...');
       setOrchestratorStatus(null);
       startElapsedTimer();
@@ -4341,6 +4371,22 @@ const FrontstageApp: React.FC = () => {
     ]
   );
 
+  /// 生成入口的唯一互斥点：整条请求（含预检/分类 await）只允许一个实例。
+  const handleRequestGeneration = useCallback(
+    async (context?: string) => {
+      // 只锁入口调用本身；不要读 isGeneratingRef（它在 setIsGenerating(false)
+      // 之后的 effect 才同步，会误拦合法的 auto-continue 下一轮）。
+      if (generationEntryLockRef.current) return;
+      generationEntryLockRef.current = true;
+      try {
+        await runRequestGeneration(context);
+      } finally {
+        generationEntryLockRef.current = false;
+      }
+    },
+    [runRequestGeneration]
+  );
+
   // Accept AI generation
   const handleAcceptGeneration = useCallback(() => {
     if (isAcceptingRef.current) {
@@ -4730,7 +4776,7 @@ const FrontstageApp: React.FC = () => {
   const intentClassificationCacheRef = useRef<Map<string, WritingIntentClassification>>(new Map());
 
   // 智能生成入口 -- 简化为直接调用后端 smart_execute
-  const handleSmartGeneration = useCallback(
+  const runSmartGeneration = useCallback(
     async (userInput: string) => {
       // v0.23.94: 新请求开始时清空已接受指纹，避免旧内容阻塞新内容
       clearAccepted();
@@ -4983,6 +5029,8 @@ const FrontstageApp: React.FC = () => {
       }
 
       setIsGenerating(true);
+      // 入口锁只覆盖意图分类/预检窗口；生成开始后释放，auto-continue 不被拦。
+      generationEntryLockRef.current = false;
       const isContinuation = classification.is_continuation;
       const initialStatusMsg = isBootstrap
         ? '🎨 正在构思故事概念...'
@@ -5451,6 +5499,20 @@ const FrontstageApp: React.FC = () => {
       stories,
       commitPendingGhostBeforeContinue,
     ]
+  );
+
+  /// 智能入口与续写入口共享同一把入口锁；意图分类期间第二个提交直接忽略。
+  const handleSmartGeneration = useCallback(
+    async (userInput: string) => {
+      if (generationEntryLockRef.current) return;
+      generationEntryLockRef.current = true;
+      try {
+        await runSmartGeneration(userInput);
+      } finally {
+        generationEntryLockRef.current = false;
+      }
+    },
+    [runSmartGeneration]
   );
 
   // 底部输入栏提交

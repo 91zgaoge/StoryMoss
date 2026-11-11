@@ -16,7 +16,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { loggedInvoke } from '@/services/tauri';
 import { createLogger } from '@/utils/logger';
 import { cancelAutoSave } from '../autoSave';
-import { buildUpdateSceneIpcArgs } from '../updateSceneIpc';
+import { buildUpdateSceneIpcArgs, sceneContentHash } from '../updateSceneIpc';
 import { useFrontstageStore } from '../store/frontstageStore';
 import type { RichTextEditorRef } from '../components/RichTextEditor';
 
@@ -63,14 +63,19 @@ export interface UseScenePersistenceParams {
   latestContentRef: MutableRefObject<string>;
   /** 组件内 onChapterUpdated / ensureUntitledStory 也读写的「刚保存」时间戳 */
   justSavedRef: MutableRefObject<number>;
+  /** v0.96.0：当前 scene 加载/成功保存后的正文基线，用于 CAS 指纹。 */
+  sceneBaselineContentRef: MutableRefObject<string | null>;
   /** store 保存状态写入（组件内包装 setSaveStatus） */
   setIsSaved: (saved: boolean) => void;
 }
+
+type UpdateSceneResponse = number | { updated?: number; updated_at?: string | null };
 
 export default function useScenePersistence({
   editorRef,
   latestContentRef,
   justSavedRef,
+  sceneBaselineContentRef,
   setIsSaved,
 }: UseScenePersistenceParams) {
   // v0.30.34: 序列化场景持久化链 - 确保 update_scene 调用串行执行，消除
@@ -154,13 +159,22 @@ export default function useScenePersistence({
       try {
         // v0.30.50: 读取影响行数——此前丢弃返回值，scene 不存在时后端
         // 静默 0 行更新，UI 显示"已保存"但正文从未落库，重启即丢失。
-        const updated = await loggedInvoke<number>(
+        const baseline = sceneBaselineContentRef.current;
+        const response = await loggedInvoke<UpdateSceneResponse>(
           'update_scene',
-          buildUpdateSceneIpcArgs({ sceneId, content })
+          buildUpdateSceneIpcArgs({
+            sceneId,
+            content,
+            expectedContentHash: baseline ? sceneContentHash(baseline) : null,
+          })
         );
+        const updated = typeof response === 'number' ? response : (response.updated ?? 0);
         if (updated === 0) {
           throw new Error(`update_scene 影响 0 行（scene ${sceneId.slice(0, 8)} 不存在）`);
         }
+        // 成功保存后刷新正文基线；下一次保存以刚写入的内容作为 CAS 期望，
+        // 否则会把自己的上一次写入判成冲突。
+        sceneBaselineContentRef.current = content;
         setIsSaved(true);
         justSavedRef.current = Date.now();
         // v0.33.x: 失败后的成功写一次恢复日志并清除可见错误态
@@ -191,8 +205,28 @@ export default function useScenePersistence({
           willRetry: retryCount < SAVE_RETRY_DELAYS_MS.length,
           retryCount,
         });
+        const errObj = (e && typeof e === 'object' ? e : {}) as {
+          message?: string;
+          field?: string;
+          data?: { field?: string };
+        };
+        const conflict =
+          errObj.field === 'scene_conflict' ||
+          errObj.data?.field === 'scene_conflict' ||
+          String(e).includes('scene_conflict') ||
+          (errObj.message || '').includes('另一窗口更新');
         saveFailedRef.current = true;
         setIsSaved(false);
+        if (conflict) {
+          // CAS 冲突：另一窗口已经改了 DB 正文。继续重试只会用同一份旧稿
+          // 反复被拒绝，直接停止并提示用户重新加载本章。
+          setSaveError('另一窗口已更新本章正文，已停止覆盖。请切换章节重新加载后再保存。');
+          logToBackend('frontstage:persist_conflict', 'scene CAS conflict, stop retrying', {
+            sceneId,
+            contentLen: content.length,
+          });
+          return;
+        }
         if (retryCount < SAVE_RETRY_DELAYS_MS.length) {
           const delay = SAVE_RETRY_DELAYS_MS[retryCount];
           saveRetryTimerRef.current = setTimeout(() => {

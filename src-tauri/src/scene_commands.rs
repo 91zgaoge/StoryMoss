@@ -280,15 +280,29 @@ fn advance_methodology_step(pool: &crate::db::DbPool, story_id: &str) -> bool {
     }
 }
 
+/// v0.96.0 CAS 指纹：FNV-1a 64（UTF-8 bytes），前端用同构实现。
+fn content_hash(text: &str) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in text.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
+}
+
 #[command(rename_all = "snake_case")]
 pub async fn update_scene(
     scene_id: String,
     updates: SceneUpdate,
+    // v0.96.0: CAS 期望值。幕前保存携带加载时正文的 FNV-1a 指纹；与 DB
+    // 当前 content 指纹不一致说明幕后/另一窗口已改正文，拒绝旧快照覆盖。
+    // 只比较 content，标题/状态等元数据变更不会误判为冲突。
+    expected_content_hash: Option<String>,
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
     automation_service: State<'_, crate::automation::service::AutomationService>,
     vector_store: State<'_, std::sync::Arc<dyn crate::ports::VectorStore>>,
-) -> Result<usize, AppError> {
+) -> Result<serde_json::Value, AppError> {
     log::info!(
         "[story_commands] {} called: scene_id={}",
         "update_scene",
@@ -298,14 +312,32 @@ pub async fn update_scene(
     let pool_clone = pool.inner().clone();
     let scene_id_clone = scene_id.clone();
     let updates_clone = updates.clone();
-    let (result, story_id_opt, had_content_before, prior_content) = tokio::task::spawn_blocking(
-        move || -> Result<(usize, Option<String>, bool, Option<String>), AppError> {
+    let expected_content_hash_clone = expected_content_hash.clone();
+    let (result, story_id_opt, had_content_before, prior_content, updated_at) =
+        tokio::task::spawn_blocking(
+            move || -> Result<(usize, Option<String>, bool, Option<String>, Option<String>), AppError> {
             let pool_for_life = pool_clone.clone();
             let repo = SceneRepository::new(pool_clone);
             // 获取 story_id 用于同步事件（P0-3 修复: 避免 unwrap_or_default
             // 导致空字符串）
             let prior_scene = repo.get_by_id(&scene_id_clone).ok().flatten();
             let story_id_opt = prior_scene.as_ref().map(|s| s.story_id.clone());
+            // v0.96.0 CAS：只有 content 保存携带 expected_content_hash 才校验。
+            // 第一次命中 chapter.id 的自愈场景（prior_scene=None）不校验。
+            // 比较正文指纹而不是 updated_at：标题/自动取名等元数据变更不应
+            // 被误判为正文冲突。
+            if let (Some(expected), Some(prior_content)) = (
+                expected_content_hash_clone.as_deref(),
+                prior_scene.as_ref().and_then(|s| s.content.as_deref()),
+            ) {
+                let actual = content_hash(prior_content);
+                if actual != expected {
+                    return Err(AppError::validation_failed(
+                        "正文已被另一窗口更新，拒绝用旧快照覆盖；请重新加载本章后再保存",
+                        Some("scene_conflict"),
+                    ));
+                }
+            }
             // v0.31.0: 章节完成检测——正文（或草稿）从无到有视为本章完成
             let had_content_before = prior_scene
                 .as_ref()
@@ -388,7 +420,12 @@ pub async fn update_scene(
                     log::warn!("[story_commands] 撤回关系证据失败（非阻塞）: {e}");
                 }
             }
-            Ok((result, story_id_opt, had_content_before, prior_content))
+            let updated_at = repo
+                .get_by_id(&scene_id_clone)
+                .ok()
+                .flatten()
+                .map(|s| s.updated_at.to_rfc3339());
+            Ok((result, story_id_opt, had_content_before, prior_content, updated_at))
         },
     )
     .await
@@ -494,7 +531,10 @@ pub async fn update_scene(
             .await;
         }
     }
-    Ok(result)
+    Ok(serde_json::json!({
+        "updated": result,
+        "updated_at": updated_at,
+    }))
 }
 
 #[command(rename_all = "snake_case")]
@@ -1418,5 +1458,20 @@ mod tests {
             .expect("get")
             .expect("story exists");
         assert_eq!(reloaded.methodology_step, Some(2));
+    }
+
+    #[test]
+    fn test_content_hash_is_fnv1a64_utf8() {
+        // 与前端 sceneContentHash 同构：FNV-1a 64 over UTF-8 bytes。
+        assert_eq!(content_hash(""), "cbf29ce484222325");
+        assert_eq!(content_hash("abc"), "e71fa2190541574b");
+        assert_eq!(content_hash("中文"), {
+            let mut hash: u64 = 0xcbf29ce484222325;
+            for byte in "中文".as_bytes() {
+                hash ^= *byte as u64;
+                hash = hash.wrapping_mul(0x100000001b3);
+            }
+            format!("{hash:016x}")
+        });
     }
 }

@@ -4,7 +4,7 @@
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         Arc,
     },
 };
@@ -30,6 +30,30 @@ struct QueuedEvent {
     retry_count: u32,
 }
 
+/// 自动化生命周期。旧实现用两个 bool（is_processing/is_shutdown）表达
+/// Idle/Processing/Shutdown，三者可同时为 true；现在用单一 AtomicU8。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+enum AutomationLifecycle {
+    Idle = 0,
+    Processing = 1,
+    Shutdown = 2,
+}
+
+impl AutomationLifecycle {
+    fn from_u8(v: u8) -> Self {
+        match v {
+            0 => Self::Idle,
+            1 => Self::Processing,
+            _ => Self::Shutdown,
+        }
+    }
+
+    fn load(state: &AtomicU8) -> Self {
+        Self::from_u8(state.load(Ordering::SeqCst))
+    }
+}
+
 /// 自动化服务
 pub struct AutomationService {
     app_handle: AppHandle<Wry>,
@@ -38,8 +62,9 @@ pub struct AutomationService {
     handlers: Arc<RwLock<HashMap<String, AutomationHandler>>>,
     trigger_history: Arc<RwLock<HashMap<String, chrono::DateTime<chrono::Utc>>>>,
     event_queue: Arc<RwLock<Vec<QueuedEvent>>>,
-    is_processing: Arc<RwLock<bool>>,
-    is_shutdown: Arc<AtomicBool>,
+    lifecycle: Arc<AtomicU8>,
+    /// initialize() 被调用两次时只启动一个处理循环。
+    processor_started: Arc<AtomicBool>,
 }
 
 impl AutomationService {
@@ -52,8 +77,8 @@ impl AutomationService {
             handlers: Arc::new(RwLock::new(HashMap::new())),
             trigger_history: Arc::new(RwLock::new(HashMap::new())),
             event_queue: Arc::new(RwLock::new(Vec::new())),
-            is_processing: Arc::new(RwLock::new(false)),
-            is_shutdown: Arc::new(AtomicBool::new(false)),
+            lifecycle: Arc::new(AtomicU8::new(AutomationLifecycle::Idle as u8)),
+            processor_started: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -291,16 +316,21 @@ impl AutomationService {
 
     /// 优雅关闭自动化服务
     pub fn shutdown(&self) {
-        self.is_shutdown.store(true, Ordering::Relaxed);
+        self.lifecycle
+            .store(AutomationLifecycle::Shutdown as u8, Ordering::SeqCst);
         log::info!("Automation service shutdown requested");
     }
 
     /// 启动事件处理循环
     async fn start_event_processor(&self) {
+        if self.processor_started.swap(true, Ordering::SeqCst) {
+            log::warn!("Automation service event processor already started");
+            return;
+        }
         let service = self.clone();
         tokio::spawn(async move {
             loop {
-                if service.is_shutdown.load(Ordering::Relaxed) {
+                if AutomationLifecycle::load(&service.lifecycle) == AutomationLifecycle::Shutdown {
                     log::info!("Automation service event processor shutting down");
                     break;
                 }
@@ -314,12 +344,19 @@ impl AutomationService {
 
     /// 处理事件队列
     async fn process_event_queue(&self) -> Result<(), AppError> {
-        let mut is_processing = self.is_processing.write().await;
-        if *is_processing {
+        // Idle→Processing 原子转移：两个处理协程不可能同时处理同一批。
+        if self
+            .lifecycle
+            .compare_exchange(
+                AutomationLifecycle::Idle as u8,
+                AutomationLifecycle::Processing as u8,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            )
+            .is_err()
+        {
             return Ok(());
         }
-        *is_processing = true;
-        drop(is_processing);
 
         let mut queue = self.event_queue.write().await;
         let events_to_process: Vec<QueuedEvent> = queue.drain(..).collect();
@@ -339,8 +376,13 @@ impl AutomationService {
             }
         }
 
-        let mut is_processing = self.is_processing.write().await;
-        *is_processing = false;
+        // 如果处理期间已 shutdown，保持 Shutdown；否则回 Idle。
+        let next = if AutomationLifecycle::load(&self.lifecycle) == AutomationLifecycle::Shutdown {
+            AutomationLifecycle::Shutdown
+        } else {
+            AutomationLifecycle::Idle
+        };
+        self.lifecycle.store(next as u8, Ordering::SeqCst);
 
         Ok(())
     }
@@ -921,8 +963,8 @@ impl Clone for AutomationService {
             handlers: self.handlers.clone(),
             trigger_history: self.trigger_history.clone(),
             event_queue: self.event_queue.clone(),
-            is_processing: self.is_processing.clone(),
-            is_shutdown: self.is_shutdown.clone(),
+            lifecycle: self.lifecycle.clone(),
+            processor_started: self.processor_started.clone(),
         }
     }
 }

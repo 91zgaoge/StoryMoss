@@ -1,5 +1,7 @@
 # StoryMoss (草苔) 开发路线图
 
+> 最后更新: 2026-11-11（v0.96.0：未尽状态机债务——租约续期/回收、agency waiting/stale、V158 状态触发器、正文 CAS、入口互锁、TrainingStage、auth 死模块、窗口/automation 显式状态、Falling 叙事阶段、布局单源。Rust **2139/17**，Vitest **720/3**，Playwright **144/5**。**未关闭**：Gate verdict 三副本、Sidebar/renderView 未完全单源；真机复测租约/CAS/入口互锁。）
+
 > 最后更新: 2026-11-10（v0.95.0：隐式状态机治理——`lifecycle` 转移表/终态守卫/RAII CancelHub；任务/agency/聊天/审批收尾单一化；前端生成协议唯一解释器、活动 reducer、章节 epoch、幽灵/保存/切书恢复；拆书/Prompts/日志/导出/Tasks/Training/向导状态收敛；MCP 权限保守化、updater 多源、日志重复包、projection 前缀、运行集合 RAII、订阅过期门控、拆书终态重试。Rust **2130/17**，Vitest **719/3**，Playwright **144/5**。**未关闭**：真机复测取消/审批/训练/日志上传；租约续期与 DB CHECK、P2/P3 窗口/自动化/叙事阶段/视图单源。）
 
 > 最后更新: 2026-11-10（v0.94.0：续写训练资产重建——训练先用上下文章重建世界观/故事大纲（含下一节点）/角色卡/角色关系/逐章梗概，再走既有 writer→gate/revision→assembly；资产分析只使用前文实际人名、未接地人名跳过；JSON 失败复用资产刷新 salvage；判官增加上一章结尾承接基准；报告记录「资产重建→编审→对比」三段流程。Rust **2107/17**（+6），Vitest **706/3**，Playwright **144/5** 基线不变。**未关闭**：升级后真机跑第 97 章训练验证资产重建/编审/承接评分；旧沙盒空稿正文恢复。）
