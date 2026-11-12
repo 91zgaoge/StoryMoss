@@ -47,19 +47,47 @@ interface TrainingReportSummary {
   story_id: string;
   start_chapter: number;
   context_chapters: number;
+  continuation_chapters: number;
   generated_chapter: number | null;
   overall: number | null;
   created_at: string;
 }
 
+interface ChapterReviewRow {
+  generated_chapter: number;
+  truth_chapter: number;
+  verdict: string;
+  overall: number | null;
+  scores: Record<string, number>;
+  continuity: number | null;
+  comments: string;
+  prose_available: boolean;
+}
+
 interface TrainingReportDetail {
   id: string;
   book_title: string;
+  start_chapter: number;
+  context_chapters: number;
+  continuation_chapters: number;
+  generated_chapter: number | null;
   report_md: string;
   improvement_md: string | null;
+  chapter_reviews_json: string | null;
   truth_content: string | null;
   scores_json: string | null;
   created_at: string;
+}
+
+/** 逐章编审结果 JSON → 表格行（解析失败返回空，不阻塞报告正文） */
+function parseChapterReviews(raw: string | null): ChapterReviewRow[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as ChapterReviewRow[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 const DEFAULT_CRON = '0 9 * * *';
@@ -130,6 +158,7 @@ export default function TrainingLab() {
   const [argsTemplate, setArgsTemplate] = useState('');
   const [filePath, setFilePath] = useState('');
   const [chapterCount, setChapterCount] = useState(10);
+  const [continuationChapters, setContinuationChapters] = useState(10);
   const [strategy, setStrategy] = useState('fixed');
   const [startChapter, setStartChapter] = useState(1);
   const [estTotal, setEstTotal] = useState(0);
@@ -238,6 +267,7 @@ export default function TrainingLab() {
       loggedInvoke<TrainingReportDetail>('training_get_report', { report_id: detailId! }),
     enabled: !!detailId,
   });
+  const reportChapterReviews = parseChapterReviews(detailQuery.data?.chapter_reviews_json ?? null);
 
   const buildPayload = () => {
     if (!bookTitle.trim()) throw new Error('请填写书名');
@@ -252,6 +282,7 @@ export default function TrainingLab() {
       return {
         book_title: bookTitle.trim(),
         chapter_count: chapterCount,
+        continuation_chapters: continuationChapters,
         est_total_chapters: estTotal,
         strategy,
         start_chapter: strategy === 'fixed' ? startChapter : undefined,
@@ -267,6 +298,7 @@ export default function TrainingLab() {
     return {
       book_title: bookTitle.trim(),
       chapter_count: chapterCount,
+      continuation_chapters: continuationChapters,
       est_total_chapters: estTotal,
       strategy,
       start_chapter: strategy === 'fixed' ? startChapter : undefined,
@@ -386,7 +418,7 @@ export default function TrainingLab() {
     >
       <PageHeader
         title="续写训练"
-        meta="取原书章节 → 沙盒续写 → 与真实后续章五维对比 → 改进建议自动注入下一轮"
+        meta="取原书上下文 → 沙盒连续续写（默认 10 章）→ 编审 Agent 对照原书后 10 章逐章对比 + 跨章总评 → 改进项自动注入下一轮"
       />
 
       {/* v0.93.12: 常驻训练任务状态（完成/失败/执行中）——此前训练页只有报告，
@@ -573,14 +605,23 @@ export default function TrainingLab() {
                   />
                 </Field>
               )}
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="上下文章数（2-20）">
+              <div className="grid grid-cols-3 gap-3">
+                <Field label="上下文章数（2-30）">
                   <Input
                     type="number"
                     value={chapterCount}
                     min={2}
-                    max={20}
+                    max={30}
                     onChange={e => setChapterCount(Number(e.target.value) || 10)}
+                  />
+                </Field>
+                <Field label="续写章数（1-20）">
+                  <Input
+                    type="number"
+                    value={continuationChapters}
+                    min={1}
+                    max={20}
+                    onChange={e => setContinuationChapters(Number(e.target.value) || 10)}
                   />
                 </Field>
                 <Field label="取章策略">
@@ -710,8 +751,9 @@ export default function TrainingLab() {
                       <Dumbbell className="h-3.5 w-3.5 shrink-0 text-ai-accent-ink" />
                       <span className="w-28 shrink-0 truncate text-ai-ink">{r.book_title}</span>
                       <span className="text-[10px] text-ai-ink-3">
-                        第 {r.start_chapter}–{r.start_chapter + r.context_chapters - 1} 章 → 续写第{' '}
-                        {r.generated_chapter ?? '?'} 章
+                        上下文第 {r.start_chapter}–{r.start_chapter + r.context_chapters - 1} 章 →
+                        续写 {r.continuation_chapters ?? 1} 章（沙盒第 {r.generated_chapter ?? '?'}{' '}
+                        起）
                       </span>
                       <span
                         className={cn(
@@ -765,6 +807,42 @@ export default function TrainingLab() {
                 },
               ]}
             />
+            {reportChapterReviews.length > 0 && (
+              <div className="overflow-x-auto rounded border border-ai-line">
+                <table className="w-full text-[11px]" data-testid="training-chapter-reviews">
+                  <thead className="bg-ai-inset text-ai-ink-3">
+                    <tr>
+                      <th className="px-2 py-1 text-left">沙盒章</th>
+                      <th className="px-2 py-1 text-left">原书章</th>
+                      <th className="px-2 py-1 text-left">总分</th>
+                      <th className="px-2 py-1 text-left">文/情/人/节/钩</th>
+                      <th className="px-2 py-1 text-left">承接</th>
+                      <th className="px-2 py-1 text-left">裁决</th>
+                      <th className="px-2 py-1 text-left">编审摘要</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportChapterReviews.map(row => (
+                      <tr key={`${row.generated_chapter}-${row.truth_chapter}`}>
+                        <td className="px-2 py-1 text-ai-ink">{row.generated_chapter}</td>
+                        <td className="px-2 py-1 text-ai-ink">{row.truth_chapter}</td>
+                        <td className="px-2 py-1 text-ai-ink-2">
+                          {row.overall != null ? row.overall.toFixed(2) : '—'}
+                        </td>
+                        <td className="px-2 py-1 text-ai-ink-2">
+                          {['style', 'plot', 'voice', 'pacing', 'hooks']
+                            .map(k => row.scores?.[k] ?? '—')
+                            .join('/')}
+                        </td>
+                        <td className="px-2 py-1 text-ai-ink-2">{row.continuity ?? '—'}</td>
+                        <td className="px-2 py-1 text-ai-ink-2">{row.verdict}</td>
+                        <td className="px-2 py-1 text-ai-ink-3">{row.comments}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             <pre className="whitespace-pre-wrap rounded border border-ai-line bg-ai-inset p-3 font-mono text-xs leading-5 text-ai-ink">
               {detailQuery.data.report_md}
             </pre>

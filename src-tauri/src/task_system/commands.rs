@@ -185,6 +185,7 @@ pub struct TrainingReportSummary {
     pub story_id: String,
     pub start_chapter: i64,
     pub context_chapters: i64,
+    pub continuation_chapters: i64,
     pub generated_chapter: Option<i64>,
     pub scores_json: Option<String>,
     pub overall: Option<f64>,
@@ -204,7 +205,7 @@ pub async fn training_list_reports(
     let mut stmt = conn
         .prepare(
             "SELECT id, book_title, story_id, start_chapter, context_chapters, \
-             generated_chapter, scores_json, created_at \
+             continuation_chapters, generated_chapter, scores_json, created_at \
              FROM continuation_training_reports \
              WHERE (?1 IS NULL OR book_title = ?1) \
              ORDER BY created_at DESC LIMIT 50",
@@ -212,7 +213,7 @@ pub async fn training_list_reports(
         .map_err(|e| crate::error::AppError::internal(e.to_string()))?;
     let rows = stmt
         .query_map(rusqlite::params![book_title.as_deref()], |r| {
-            let scores_json: Option<String> = r.get(6)?;
+            let scores_json: Option<String> = r.get(7)?;
             let overall = scores_json.as_deref().and_then(|s| {
                 serde_json::from_str::<serde_json::Value>(s)
                     .ok()
@@ -224,10 +225,11 @@ pub async fn training_list_reports(
                 story_id: r.get(2)?,
                 start_chapter: r.get(3)?,
                 context_chapters: r.get(4)?,
-                generated_chapter: r.get(5)?,
+                continuation_chapters: r.get(5)?,
+                generated_chapter: r.get(6)?,
                 scores_json,
                 overall,
-                created_at: r.get(7)?,
+                created_at: r.get(8)?,
             })
         })
         .map_err(|e| crate::error::AppError::internal(e.to_string()))?;
@@ -245,8 +247,12 @@ pub struct TrainingReportDetail {
     pub story_id: String,
     pub run_id: Option<String>,
     pub start_chapter: i64,
+    pub context_chapters: i64,
+    pub continuation_chapters: i64,
     pub generated_chapter: Option<i64>,
     pub truth_content: Option<String>,
+    pub truth_chapters_json: Option<String>,
+    pub chapter_reviews_json: Option<String>,
     pub scores_json: Option<String>,
     pub report_md: String,
     pub improvement_md: Option<String>,
@@ -263,8 +269,9 @@ pub async fn training_get_report(
         .get()
         .map_err(|e| crate::error::AppError::internal(e.to_string()))?;
     conn.query_row(
-        "SELECT id, book_title, story_id, run_id, start_chapter, generated_chapter, \
-         truth_content, scores_json, report_md, improvement_md, created_at \
+        "SELECT id, book_title, story_id, run_id, start_chapter, context_chapters, \
+         continuation_chapters, generated_chapter, truth_content, truth_chapters_json, \
+         chapter_reviews_json, scores_json, report_md, improvement_md, created_at \
          FROM continuation_training_reports WHERE id = ?1",
         rusqlite::params![report_id],
         |r| {
@@ -274,12 +281,16 @@ pub async fn training_get_report(
                 story_id: r.get(2)?,
                 run_id: r.get(3)?,
                 start_chapter: r.get(4)?,
-                generated_chapter: r.get(5)?,
-                truth_content: r.get(6)?,
-                scores_json: r.get(7)?,
-                report_md: r.get(8)?,
-                improvement_md: r.get(9)?,
-                created_at: r.get(10)?,
+                context_chapters: r.get(5)?,
+                continuation_chapters: r.get(6)?,
+                generated_chapter: r.get(7)?,
+                truth_content: r.get(8)?,
+                truth_chapters_json: r.get(9)?,
+                chapter_reviews_json: r.get(10)?,
+                scores_json: r.get(11)?,
+                report_md: r.get(12)?,
+                improvement_md: r.get(13)?,
+                created_at: r.get(14)?,
             })
         },
     )

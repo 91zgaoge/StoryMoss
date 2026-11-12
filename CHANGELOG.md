@@ -2,6 +2,20 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.98.0（2026-11-12）
+
+**续写训练升级：连续续写 10 章，编审 Agent 对照原书后 10 章全面对比，报告驱动能力优化。**
+
+- **多章训练**：`TrainingPayload` 拆分为 `chapter_count`（上下文，默认 10，2–30）与 `continuation_chapters`（续写章数，默认 10，1–20）。取章 = 上下文 N 章 + 原书后续真实基准 M 章；沙盒灌入 N 章，一次批量续写 M 章（`run_continue_batch_with_cancel` 走同一 gate/装配/章号管线）。真实基准章仍绝不进入 writer 指令。
+- **编审 Agent 逐章对比**：每对「沙盒续写章 vs 原书真实后续章」调用编审 Agent（`agency_editor_auditor_system`，经 PromptRegistry 生效，支持用户 agent.md 覆盖），六维评分（文笔/情节/人物/节奏/钩子 + 承接 continuity）与裁决；两次重试后仍不可用时只降级该章，不落假 0 分、不判死整轮（对齐既有「质检失败降级保产出」口径）。
+- **跨章总评与质量报告**：编审 Agent 汇总逐章对比 + 开头/结尾摘录做跨章分析（走势/一致性/与真实后续差距/可执行改进），生成《续写质量分析报告》：区间、五维均值、逐章对比表、跨章对比、强项、短板、编审评语、下一轮改进、训练流程。总评不可用时确定性降级（逐章走势 + 低分维度），报告永不空。
+- **报告驱动优化（闭环）**：`load_training_feedback` 读取同书同区间上一轮报告的维度均分，低于 6.0/10 的维度自动转成本轮硬性修正：承接低 → 承接锚点由 900 字扩大到 1400 字并强制同现场/同人物/同时代；文笔低 → 即使 StyleDNA 已绑定也强制注入原文末尾风格锚点；情节/口吻/节奏/钩子低 → 写入对应写作要求。低分维度也从本报告生成改进项写入 `improvement_md`，下一轮自动注入。
+- **存储与 UI**：V160 给 `continuation_training_reports` 加 `continuation_chapters`（默认 1，兼容旧报告）、`truth_chapters_json`、`chapter_reviews_json`；训练命令与类型补齐；训练页新增「续写章数」配置、报告列表显示续写章数、报告弹窗新增逐章对比表。
+- **测试**：Rust +7（多章默认值/自定义解析、编审 continuity+verdict 解析、结构化总评解析、低分维度修正、确定性报告排版、改进项去重限长、V160 迁移幂等+旧报告默认值）；既有风格/承接锚点/判官测试改为显式上下文切片。
+
+**验证**：Rust **2152 passed / 17 ignored**；tsc 0；Vitest **723 passed / 3 skipped**；Playwright **144 passed / 5 skipped**；fmt/clippy/guard/prettier 全绿。
+**未关闭**：真机复测一次完整 10 章训练（编审逐章对比/跨章总评/报告落库/下一轮修正生效）；长时间批量续写依赖模型配额与网关稳定。
+
 ## v0.97.0（2026-11-12）
 
 **状态机剩余两项收口：Gate verdict 单一权威与导航/页面单一 registry。**

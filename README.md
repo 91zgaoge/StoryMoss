@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.97.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.98.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,13 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.98.0 · 续写训练升级：连续续写 10 章 + 编审 Agent 全面对比
+
+- **一次训练写 10 章**：续写训练默认连续续写 **10 章**（可在训练页配置 1–20 章），上下文默认 10 章；沙盒按章号连续承接，不再只写 1 章。
+- **编审 Agent 对照原书后 10 章**：续写完成后调用编审 Agent（`agency_editor_auditor_system`，支持你在工作室自定义的人设），逐章对照原小说后 10 章真实原文，从文笔风格、情节推进、人物口吻、节奏密度、钩子悬念与承接六个维度出具裁决，再做跨章总评（人物弧/冲突升级/线索经营/风格漂移），生成《续写质量分析报告》。
+- **报告驱动能力优化**：报告中的低分维度会自动转成下一轮硬性修正——承接失败则强制注入上一章结尾现场锚点（更长窗口），文笔偏低则即使 StyleDNA 已绑定也强制原文风格锚点，钩子/节奏偏低则写入章末钩子与信息密度要求；改进项自动注入下一轮续写指令，形成闭环。
+- **报告可视化**：训练报告弹窗新增逐章对比表（沙盒章 / 原书章 / 总分 / 五维 / 承接 / 裁决 / 编审摘要），趋势仍按书聚合、自动跳过评分不可用的轮次。
 
 ### v0.97.0 · Gate 裁决只有一个权威，导航与页面清单同源
 

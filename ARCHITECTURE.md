@@ -1,4 +1,6 @@
-# StoryMoss v0.97.0 架构文档
+# StoryMoss v0.98.0 架构文档
+
+> **v0.98.0**：**续写训练多章化 + 编审 Agent 全面对比**——`TrainingPayload.chapter_count`（上下文，默认 10）+ `continuation_chapters`（续写章数，默认 10）；`ContinuationTrainingExecutor::execute` 取「上下文 N + 原书真实基准 M」两段切片，沙盒灌 N 章后一次批量续写 M 章（同 `run_continue_batch_with_cancel` gate/装配管线）。`review_chapter` 对每对续写/真实章调用编审 Agent（`agency_editor_auditor_system` via PromptRegistry，支持用户覆盖），输出五维 + continuity + verdict；`review_synthesis` 做跨章总评；`build_report` 确定性排版《续写质量分析报告》。`load_training_feedback` 读同书同区间上一轮报告维度均分，`correction_block` 把低分维度落成本轮硬性修正（承接锚点 900→1400 字、强制风格锚点等），`improvement_md` 下一轮自动注入。V160 扩报告表 `continuation_chapters`/`truth_chapters_json`/`chapter_reviews_json`。
 
 > **v0.97.0**：**Gate 单一权威 + 导航单一 registry**——V159 为 `editor_gate_records` 加 `run_id`；`persist_gate_record` 在 `evaluate_gate_impl` 内 await 落库；`apply_gate_records_to_run` 读取 run+chapter 最新裁决回填 `agency_runs.result_json`（batch 逐章；QC 先于/晚于 finish 均幂等）。前端 `navigation/views.ts` 统一 NAV_GROUPS/label/icon/impact/fullHeight，FULL_HEIGHT 从分组派生；`navigation/viewComponents.tsx` 用 `Record<ViewType, ComponentType>` 穷举页面映射；App 删除 renderView switch，Sidebar 迁出 NAV 并兼容导出。
 
