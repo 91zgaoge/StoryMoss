@@ -863,12 +863,17 @@ impl ContinuationTrainingExecutor {
                 }
                 let total = parsed.chapters.len();
                 let start = Self::pick_start(payload, total);
-                let end = (start + total_want).min(total);
-                let slice = &parsed.chapters[start.min(total)..end];
+                let (begin, end) = Self::file_slice_bounds(start, total_want, total);
+                if begin >= end {
+                    return Err(format!("起始章号 {start} 超出书籍总章数 {total}，无法取章"));
+                }
+                let slice = &parsed.chapters[begin..end];
+                // v0.98.1：start 是 1-based 章号，切片起点为 start-1；此前
+                // `[start..end]` 会跳过首章并整体错一位。
                 let out = slice
                     .iter()
                     .enumerate()
-                    .map(|(i, c)| (start + i + 1, Self::cap(&c.content)))
+                    .map(|(i, c)| (start + i, Self::cap(&c.content)))
                     .collect::<Vec<_>>();
                 Ok((out, "file"))
             }
@@ -917,6 +922,13 @@ impl ContinuationTrainingExecutor {
                 Ok((out, "mcp"))
             }
         }
+    }
+
+    /// 1-based 起始章号 → 0-based 切片边界（v0.98.1 回归修复）。
+    fn file_slice_bounds(start: usize, total_want: usize, total: usize) -> (usize, usize) {
+        let begin = start.saturating_sub(1).min(total);
+        let end = (begin + total_want).min(total);
+        (begin, end)
     }
 
     fn pick_start(payload: &TrainingPayload, total: usize) -> usize {
@@ -2694,5 +2706,27 @@ mod tests {
         assert!(text.contains("承接"));
         assert!(!text.contains("情节推进"), "高分维度不落改进");
         assert!(text.chars().count() <= 1600);
+    }
+
+    #[test]
+    fn file_slice_bounds_include_requested_start_chapter() {
+        // v0.98.1：固定起点训练曾把 `[start..end]` 当切片起点，跳过第 1 章
+        // 并整体错一位；1-based 章号必须先转 0-based 索引。
+        assert_eq!(
+            ContinuationTrainingExecutor::file_slice_bounds(1, 20, 100),
+            (0, 20)
+        );
+        assert_eq!(
+            ContinuationTrainingExecutor::file_slice_bounds(10, 20, 100),
+            (9, 29)
+        );
+        assert_eq!(
+            ContinuationTrainingExecutor::file_slice_bounds(95, 20, 100),
+            (94, 100)
+        );
+        assert_eq!(
+            ContinuationTrainingExecutor::file_slice_bounds(101, 20, 100),
+            (100, 100)
+        );
     }
 }

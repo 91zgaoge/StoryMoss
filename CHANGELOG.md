@@ -2,6 +2,14 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.98.1（2026-11-12）
+
+**本地书籍训练源取章起点修复。**
+
+- `fetch_chapters` 的 `file` 分支此前把 1-based 起始章号直接当 0-based 切片索引：`parsed.chapters[start..end]` 会跳过指定章本身并整体错一位（从第 10 章起训练实际取第 11 章起）。新增 `file_slice_bounds` 先做 `start-1` 转换，越界时给出可操作错误；章号标签同步改为 `start + i`。MCP 源与默认第 1 章起不受影响。
+- **测试**：Rust **2153 passed / 17 ignored**（+1：`file_slice_bounds_include_requested_start_chapter`，覆盖 1 / 10 / 95 / 越界）。tsc/Vitest/Playwright 基线不变；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：真机复测本地书籍源与 MCP 源的 10 章训练全链路（含编审报告与下一轮修正）。
+
 ## v0.98.0（2026-11-12）
 
 **续写训练升级：连续续写 10 章，编审 Agent 对照原书后 10 章全面对比，报告驱动能力优化。**

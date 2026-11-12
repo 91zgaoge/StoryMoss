@@ -1,4 +1,6 @@
-# StoryMoss v0.98.0 架构文档
+# StoryMoss v0.98.1 架构文档
+
+> **v0.98.1**：**本地书籍训练源取章边界修复**——`fetch_chapters` 的 `file` 分支把 1-based `start_chapter` 直接当 0-based 切片索引（`parsed.chapters[start..end]`），跳过指定章并整体错一位；新增 `ContinuationTrainingExecutor::file_slice_bounds(start, total_want, total)` 做 `start-1` 转换与边界收敛，越界给可操作错误，章号标签改 `start + i`。MCP 源与默认第 1 章起不受影响。
 
 > **v0.98.0**：**续写训练多章化 + 编审 Agent 全面对比**——`TrainingPayload.chapter_count`（上下文，默认 10）+ `continuation_chapters`（续写章数，默认 10）；`ContinuationTrainingExecutor::execute` 取「上下文 N + 原书真实基准 M」两段切片，沙盒灌 N 章后一次批量续写 M 章（同 `run_continue_batch_with_cancel` gate/装配管线）。`review_chapter` 对每对续写/真实章调用编审 Agent（`agency_editor_auditor_system` via PromptRegistry，支持用户覆盖），输出五维 + continuity + verdict；`review_synthesis` 做跨章总评；`build_report` 确定性排版《续写质量分析报告》。`load_training_feedback` 读同书同区间上一轮报告维度均分，`correction_block` 把低分维度落成本轮硬性修正（承接锚点 900→1400 字、强制风格锚点等），`improvement_md` 下一轮自动注入。V160 扩报告表 `continuation_chapters`/`truth_chapters_json`/`chapter_reviews_json`。
 

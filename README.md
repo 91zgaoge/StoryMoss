@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.98.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.98.1-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.98.1 · 本地书籍训练的取章起点修复
+
+- **固定起点不再跳过首章**：本地 epub/txt 作为训练源时，起始章号现在按 1-based 正确转换为 0-based 切片起点；此前「从指定章连取」会跳过指定章本身并整体错一位。默认（第 1 章起）与 MCP 源不受影响。
 
 ### v0.98.0 · 续写训练升级：连续续写 10 章 + 编审 Agent 全面对比
 
