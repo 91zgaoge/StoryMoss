@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 
 use crate::{agency::coordinator::EditorVerdict, db::DbPool};
 
@@ -98,6 +98,7 @@ pub fn quote_survives(quote: &str, final_text: &str) -> bool {
 #[allow(clippy::too_many_arguments)]
 pub fn persist_gate_record(
     pool: &DbPool,
+    run_id: &str,
     story_id: &str,
     chapter_number: i32,
     round: u32,
@@ -116,8 +117,8 @@ pub fn persist_gate_record(
     conn.execute(
         "INSERT INTO editor_gate_records \
          (id, story_id, chapter_number, round, outcome, verdict, score, weighted, \
-          dimension_scores_json, findings_json, source, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11)",
+          dimension_scores_json, findings_json, source, created_at, run_id) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11, ?12)",
         params![
             uuid::Uuid::new_v4().to_string(),
             story_id,
@@ -130,10 +131,192 @@ pub fn persist_gate_record(
             dimension_scores_json,
             findings_json,
             chrono::Local::now().to_rfc3339(),
+            run_id,
         ],
     )
     .map_err(|e| format!("gate 裁决记录落库失败: {e}"))?;
     Ok(())
+}
+
+/// 一条 gate 裁决记录（run QC 的单一权威）。
+#[derive(Debug, Clone)]
+pub struct RunGateRecord {
+    pub run_id: Option<String>,
+    pub story_id: String,
+    pub chapter_number: i32,
+    pub round: u32,
+    pub outcome: String,
+    pub verdict: Option<String>,
+    pub score: Option<f64>,
+    pub weighted: Option<f64>,
+    pub dimension_scores_json: Option<String>,
+    pub findings_json: String,
+}
+
+fn map_gate_record(row: &rusqlite::Row<'_>) -> Result<RunGateRecord, rusqlite::Error> {
+    Ok(RunGateRecord {
+        run_id: row.get(0)?,
+        story_id: row.get(1)?,
+        chapter_number: row.get(2)?,
+        round: row.get::<_, i64>(3)? as u32,
+        outcome: row.get(4)?,
+        verdict: row.get(5)?,
+        score: row.get(6)?,
+        weighted: row.get(7)?,
+        dimension_scores_json: row.get(8)?,
+        findings_json: row.get(9)?,
+    })
+}
+
+/// 某 run 某章的最新裁决。
+pub fn latest_gate_record_for_run_chapter(
+    pool: &DbPool,
+    run_id: &str,
+    chapter_number: i32,
+) -> Result<Option<RunGateRecord>, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    conn.query_row(
+        "SELECT run_id, story_id, chapter_number, round, outcome, verdict, score, \
+                weighted, dimension_scores_json, findings_json \
+         FROM editor_gate_records \
+         WHERE run_id = ?1 AND chapter_number = ?2 \
+         ORDER BY created_at DESC, round DESC LIMIT 1",
+        params![run_id, chapter_number],
+        map_gate_record,
+    )
+    .optional()
+    .map_err(|e| e.to_string())
+}
+
+/// 某 run 的最新裁决（不限定章；用于创世/单章续写顶层 verdict）。
+pub fn latest_gate_record_for_run(
+    pool: &DbPool,
+    run_id: &str,
+) -> Result<Option<RunGateRecord>, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    conn.query_row(
+        "SELECT run_id, story_id, chapter_number, round, outcome, verdict, score, \
+                weighted, dimension_scores_json, findings_json \
+         FROM editor_gate_records \
+         WHERE run_id = ?1 \
+         ORDER BY created_at DESC, round DESC LIMIT 1",
+        params![run_id],
+        map_gate_record,
+    )
+    .optional()
+    .map_err(|e| e.to_string())
+}
+
+fn verdict_value(record: &RunGateRecord) -> serde_json::Value {
+    let blocking_issues: Vec<serde_json::Value> =
+        serde_json::from_str::<Vec<serde_json::Value>>(&record.findings_json).unwrap_or_default();
+    let dimension_scores: serde_json::Value = record
+        .dimension_scores_json
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or(serde_json::Value::Null);
+    serde_json::json!({
+        "verdict": record.verdict.clone().unwrap_or_else(|| record.outcome.clone()),
+        "blocking_issues": blocking_issues,
+        "suggestions": [],
+        "comments": format!("后台质检 {}（round {}）", record.outcome, record.round),
+        "score": record.score,
+        "dimension_scores": dimension_scores,
+    })
+}
+
+fn patch_result_doc(doc: &mut serde_json::Value, record: &RunGateRecord) {
+    if let serde_json::Value::Object(map) = doc {
+        map.insert("verdict".to_string(), verdict_value(record));
+        map.insert(
+            "qc".to_string(),
+            serde_json::json!({
+                "authority": "editor_gate_records",
+                "outcome": record.outcome,
+                "round": record.round,
+                "chapter_number": record.chapter_number,
+            }),
+        );
+    }
+}
+
+/// 把 `editor_gate_records` 的最新裁决回填到 run.result_json。
+///
+/// 单一权威收口点：
+/// - QC 先于 finish_run 完成 → 记录已落库，finish_run 完成后调用本函数回填；
+/// - QC 晚于 finish_run 完成 → run 已 completed，QC 收尾调用本函数回填。
+/// run 未 completed 时返回 0（幂等），完成后再次调用即可。
+pub fn apply_gate_records_to_run(
+    pool: &DbPool,
+    run_id: &str,
+    chapter_number: Option<i32>,
+) -> Result<usize, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    let row: Option<(String, Option<String>)> = conn
+        .query_row(
+            "SELECT status, result_json FROM agency_runs WHERE id = ?1",
+            params![run_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    let Some((status, Some(result_json))) = row else {
+        return Ok(0);
+    };
+    if status != "completed" {
+        return Ok(0);
+    }
+    let Ok(mut doc) = serde_json::from_str::<serde_json::Value>(&result_json) else {
+        return Ok(0);
+    };
+
+    let mut applied = 0usize;
+    if let Some(chapters) = doc.get_mut("chapters").and_then(|v| v.as_array_mut()) {
+        for chapter in chapters {
+            let Some(ch) = chapter
+                .get("chapter_number")
+                .and_then(|v| v.as_i64())
+                .map(|v| v as i32)
+            else {
+                continue;
+            };
+            if let Ok(Some(record)) = latest_gate_record_for_run_chapter(pool, run_id, ch) {
+                if let serde_json::Value::Object(map) = chapter {
+                    map.insert("verdict".to_string(), verdict_value(&record));
+                    applied += 1;
+                }
+            }
+        }
+        if applied > 0 {
+            if let serde_json::Value::Object(map) = &mut doc {
+                map.insert(
+                    "qc".to_string(),
+                    serde_json::json!({
+                        "authority": "editor_gate_records",
+                        "merged_chapters": applied,
+                    }),
+                );
+            }
+        }
+    } else {
+        let record = match chapter_number {
+            Some(ch) => latest_gate_record_for_run_chapter(pool, run_id, ch)?,
+            None => latest_gate_record_for_run(pool, run_id)?,
+        };
+        if let Some(record) = record {
+            patch_result_doc(&mut doc, &record);
+            applied = 1;
+        }
+    }
+
+    if applied > 0 {
+        conn.execute(
+            "UPDATE agency_runs SET result_json = ?2 WHERE id = ?1 AND status = 'completed'",
+            params![run_id, doc.to_string()],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(applied)
 }
 
 /// 每章一致率（以该章**最新**一条 gate 记录为准）。
@@ -293,7 +476,10 @@ pub fn compute_editor_agreement(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::create_test_pool;
+    use crate::{
+        agency::{models::AgencyRun, repository::AgencyRepository},
+        db::create_test_pool,
+    };
 
     #[test]
     fn quote_survival_three_states() {
@@ -373,6 +559,7 @@ mod tests {
         ];
         persist_gate_record(
             &pool,
+            "run-test",
             &story_id,
             2,
             1,
@@ -387,6 +574,7 @@ mod tests {
         // 更新一条同章记录（应取最新）——只有一条可判且被采纳。
         persist_gate_record(
             &pool,
+            "run-test",
             &story_id,
             2,
             2,
@@ -438,6 +626,7 @@ mod tests {
         let story_id = seed_story_with_scene(&pool, 1, "");
         persist_gate_record(
             &pool,
+            "run-test",
             &story_id,
             1,
             1,
@@ -458,5 +647,151 @@ mod tests {
         assert_eq!(report.chapters[0].findings, 1);
         assert_eq!(report.chapters[0].judgeable, 0, "短引用/无成稿不可判");
         assert_eq!(report.adoption_rate, 0.0);
+    }
+
+    fn seed_completed_run(pool: &DbPool, story_id: &str, run_id: &str, result_json: &str) {
+        let repo = AgencyRepository::new(pool.clone());
+        let mut run = AgencyRun::new(run_id, "前提");
+        run.story_id = Some(story_id.to_string());
+        repo.create_run(&run).unwrap();
+        repo.finish_run(run_id, "completed", Some(result_json), None)
+            .unwrap();
+    }
+
+    #[test]
+    fn gate_record_is_single_authority_for_run_verdict() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story_with_scene(&pool, 1, "");
+        seed_completed_run(
+            &pool,
+            &story_id,
+            "run-qc",
+            r#"{"run_id":"run-qc","story_id":"s1","scene_id":"sc1","revised":false,"verdict":{"verdict":"pending"},"chapter_chars":10}"#,
+        );
+        persist_gate_record(
+            &pool,
+            "run-qc",
+            &story_id,
+            1,
+            1,
+            "pass",
+            Some("pass"),
+            Some(4.5),
+            Some(0.9),
+            Some(r#"{"logic":4.5}"#.to_string()),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            apply_gate_records_to_run(&pool, "run-qc", Some(1)).unwrap(),
+            1
+        );
+        let run = AgencyRepository::new(pool.clone())
+            .get_run("run-qc")
+            .unwrap()
+            .unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(run.result_json.as_deref().unwrap()).unwrap();
+        assert_eq!(v["verdict"]["verdict"], "pass");
+        assert_eq!(v["qc"]["authority"], "editor_gate_records");
+        assert_eq!(v["verdict"]["score"], 4.5);
+        assert_eq!(v["verdict"]["dimension_scores"]["logic"], 4.5);
+    }
+
+    #[test]
+    fn batch_result_gets_each_chapter_verdict_from_gate_records() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story_with_scene(&pool, 1, "");
+        seed_completed_run(
+            &pool,
+            &story_id,
+            "run-batch",
+            r#"{"run_id":"run-batch","story_id":"s1","chapters":[{"chapter_number":1,"verdict":{"verdict":"pending"}},{"chapter_number":2,"verdict":{"verdict":"pending"}}]}"#,
+        );
+        persist_gate_record(
+            &pool,
+            "run-batch",
+            &story_id,
+            1,
+            1,
+            "pass",
+            Some("pass"),
+            Some(4.0),
+            None,
+            None,
+            &[],
+        )
+        .unwrap();
+        persist_gate_record(
+            &pool,
+            "run-batch",
+            &story_id,
+            2,
+            1,
+            "revise",
+            Some("revise"),
+            Some(2.0),
+            None,
+            None,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            apply_gate_records_to_run(&pool, "run-batch", None).unwrap(),
+            2
+        );
+        let run = AgencyRepository::new(pool.clone())
+            .get_run("run-batch")
+            .unwrap()
+            .unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(run.result_json.as_deref().unwrap()).unwrap();
+        assert_eq!(v["chapters"][0]["verdict"]["verdict"], "pass");
+        assert_eq!(v["chapters"][1]["verdict"]["verdict"], "revise");
+    }
+
+    #[test]
+    fn qc_early_and_finish_late_converge_idempotently() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story_with_scene(&pool, 1, "");
+        let repo = AgencyRepository::new(pool.clone());
+        let mut run = AgencyRun::new("run-race", "前提");
+        run.story_id = Some(story_id.clone());
+        repo.create_run(&run).unwrap();
+        persist_gate_record(
+            &pool,
+            "run-race",
+            &story_id,
+            1,
+            1,
+            "failed",
+            Some("failed"),
+            None,
+            None,
+            None,
+            &[],
+        )
+        .unwrap();
+        // QC 先到、run 仍 pending：返回 0，不提前改写。
+        assert_eq!(
+            apply_gate_records_to_run(&pool, "run-race", Some(1)).unwrap(),
+            0
+        );
+        repo.finish_run(
+            "run-race",
+            "completed",
+            Some(r#"{"run_id":"run-race","story_id":"s1","verdict":{"verdict":"pending"}}"#),
+            None,
+        )
+        .unwrap();
+        // finish 后再调用同一权威：幂等地回填 failed。
+        assert_eq!(
+            apply_gate_records_to_run(&pool, "run-race", Some(1)).unwrap(),
+            1
+        );
+        let run = repo.get_run("run-race").unwrap().unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(run.result_json.as_deref().unwrap()).unwrap();
+        assert_eq!(v["verdict"]["verdict"], "failed");
     }
 }

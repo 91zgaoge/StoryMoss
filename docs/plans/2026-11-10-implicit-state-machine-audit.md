@@ -4,7 +4,7 @@
 > 依据用户三条永久原则：①找全隐式状态机，收敛为更少更深的模块与更小接口；②数据入口校验一次后直接使用；③分析透彻、建议大胆。
 > 本文是**决策与实施蓝图**，审计期间未修改任何代码。
 >
-> **实施状态**：v0.95.0 已落地 Phase 0–4 与订阅门控；v0.96.0 继续收口租约续期/回收、agency waiting/stale、V158 状态触发器、正文 CAS、入口互锁、TrainingStage、auth 死模块、窗口/automation/叙事阶段、布局单源。仍未完全单源的是 Gate verdict 三副本与 Sidebar/renderView 清单；详见 CHANGELOG v0.95.0/v0.96.0。
+> **实施状态**：v0.95.0 落地 Phase 0–4 与订阅门控；v0.96.0 收口租约续期/回收、agency waiting/stale、V158 状态触发器、正文 CAS、入口互锁、TrainingStage、auth 死模块、窗口/automation/叙事阶段、布局单源；v0.97.0 完成最后两项——V159 `editor_gate_records.run_id` + `apply_gate_records_to_run` 使 run.result/board/gate record 同源，`navigation/views.ts` + `viewComponents.tsx` 使 Nav/页面/布局同源。详见 CHANGELOG v0.95.0–v0.97.0。
 
 ---
 

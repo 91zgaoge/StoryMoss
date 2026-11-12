@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.97.0（2026-11-12）
+
+**状态机剩余两项收口：Gate verdict 单一权威与导航/页面单一 registry。**
+
+- **Gate verdict 单一落点**：`editor_gate_records` 增加 `run_id`（V159），成为 run QC 的唯一权威。`persist_gate_record` 改为 `evaluate_gate_impl` 内 await 落库；`apply_gate_records_to_run` 把最新裁决回填 `agency_runs.result_json`——QC 先于 finish 完成时由 finish 收尾回填，QC 晚于 finish 完成时由 QC 收尾回填，两向幂等。batch 结果按 chapter_number 逐章回填；`run.result.verdict` 不再长期停在 `pending`。
+- **导航单一 registry**：`navigation/views.ts` 成为唯一视图清单（六组 IA、label/icon/impact/fullHeight 同源），`FULL_HEIGHT_VIEWS` 从 NAV_GROUPS 派生；`navigation/viewComponents.tsx` 用 `Record<ViewType, ComponentType>` 穷举页面映射，新增 ViewType 漏映射直接 tsc 失败。App 删除 renderView switch，Sidebar 的 NAV_GROUPS/IMPACT_LABELS 迁出并兼容导出；废弃别名 mcp/writing-stats/creation-wizard 仅保留渲染映射。
+- **测试**：新增 Gate 权威三向测试（单 run 回填、batch 逐章、QC/finish 早迟到收敛）与导航清单测试（六组唯一 id、布局派生、废弃别名排除）。
+
+**验证**：Rust **2145 passed / 17 ignored**；tsc 0；Vitest **723 passed / 3 skipped**；Playwright **144 passed / 5 skipped**；fmt/clippy/guard/prettier 全绿。
+
+**未关闭**：真机复测 Gate verdict 回填（含 batch QC 晚到）、导航 registry 全页点击；`editor_gate_records.run_id` 迁移需在存量库执行一次。
+
 ## v0.96.1（2026-11-11，日志巡检修复）
 
 **日志分析机器人首轮真实修复（v0.95.0 真机日志包）：agency trace 终态收尾 + update_scene 错误语义化。**

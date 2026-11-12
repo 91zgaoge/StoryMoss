@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.96.1-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.97.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.97.0 · Gate 裁决只有一个权威，导航与页面清单同源
+
+- **Gate verdict 不再「run 说完成、gate 说失败」**：`editor_gate_records` 增加 `run_id` 成为 run QC 的唯一权威。后台质检无论先于还是晚于 run 收尾完成，都会把最新裁决回填 `run.result.verdict`；batch 逐章回填，不再长期停在 `pending`。
+- **导航不再三份清单**：`navigation/views.ts` 统一分组/label/图标/布局标记，`navigation/viewComponents.tsx` 用 `Record<ViewType, ComponentType>` 强制穷举页面映射；新增视图漏页面会 tsc 失败，不再静默落到 Dashboard。Sidebar 与 App 都从同一份 VIEW 清单派生。
 
 ### v0.96.1 · 日志巡检首轮修复：生成链路状态不再「永远进行中」
 

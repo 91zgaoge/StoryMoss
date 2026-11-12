@@ -1,35 +1,5 @@
 import { useMemo, useState } from 'react';
-import {
-  Dumbbell,
-  LayoutDashboard,
-  BookOpen,
-  Users,
-  Clapperboard,
-  Wand2,
-  Settings,
-  Film,
-  Sparkles,
-  MonitorPlay,
-  Network,
-  BookMarked,
-  BookText,
-  ListChecks,
-  Eye,
-  GitBranch,
-  ShieldCheck,
-  BarChart3,
-  Globe,
-  BrainCircuit,
-  Brain,
-  ScrollText,
-  Activity,
-  Gauge,
-  Library,
-  ChevronDown,
-  Bot,
-  Workflow,
-  Wrench,
-} from 'lucide-react';
+import { ChevronDown, Film, MonitorPlay, Sparkles } from 'lucide-react';
 import { UserMenu } from '@/components/UserMenu';
 import { cn } from '@/utils/cn';
 import { useAppStore } from '@/stores/appStore';
@@ -45,100 +15,12 @@ interface SidebarProps {
   onNavigate: (view: ViewType) => void;
 }
 
-/** 是否影响默认生成（TimeSliced/TriShot）的认知标签 */
-export type NavImpact = 'hot' | 'warm' | 'cold' | 'config';
+import { IMPACT_LABELS, NAV_GROUPS } from '@/navigation/views';
+import type { NavImpact } from '@/navigation/views';
 
-export const IMPACT_LABELS: Record<NavImpact, string> = {
-  hot: '影响默认生成',
-  warm: '写后回流 / 条件注入',
-  cold: '诊断运维',
-  config: '配置生成行为',
-};
-
-type NavItem = {
-  id: ViewType;
-  label: string;
-  icon: React.ElementType;
-  impact: NavImpact;
-};
-
-type NavGroup = {
-  id: string;
-  label: string;
-  /** 非当前组时是否默认折叠（诊断组默认折叠） */
-  defaultCollapsed?: boolean;
-  items: NavItem[];
-};
-
-/** v0.93.9: 六组 IA（创作/任务/故事资产/运维/分析/系统）；「任务」提升为一级菜单并收纳拆书/指导书提炼/续写训练 */
-export const NAV_GROUPS: NavGroup[] = [
-  {
-    id: 'create',
-    label: '创作',
-    items: [
-      { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard, impact: 'warm' },
-      { id: 'stories', label: '故事', icon: BookOpen, impact: 'hot' },
-      { id: 'agency-studio', label: '代理工作室', icon: Bot, impact: 'hot' },
-      { id: 'skills', label: '技能', icon: Wand2, impact: 'hot' },
-    ],
-  },
-  {
-    id: 'tasks',
-    label: '任务',
-    items: [
-      { id: 'tasks', label: '全部任务', icon: ListChecks, impact: 'warm' },
-      { id: 'book-deconstruction', label: '拆书', icon: BookMarked, impact: 'warm' },
-      {
-        id: 'guidebook-distillation',
-        label: '指导书提炼',
-        icon: BookText,
-        impact: 'warm',
-      },
-      { id: 'training-lab', label: '续写训练', icon: Dumbbell, impact: 'warm' },
-    ],
-  },
-  {
-    id: 'assets',
-    label: '故事资产',
-    items: [
-      { id: 'scenes', label: '场景', icon: Clapperboard, impact: 'hot' },
-      { id: 'characters', label: '角色', icon: Users, impact: 'hot' },
-      { id: 'corpus', label: '语料', icon: Library, impact: 'warm' },
-      { id: 'world_building', label: '世界构建', icon: Globe, impact: 'hot' },
-      { id: 'foreshadowing', label: '伏笔', icon: Eye, impact: 'hot' },
-      { id: 'knowledge-graph', label: '知识图谱', icon: Network, impact: 'warm' },
-      { id: 'story-system', label: '故事合同', icon: ShieldCheck, impact: 'hot' },
-    ],
-  },
-  {
-    id: 'ops',
-    label: '运维',
-    defaultCollapsed: true,
-    items: [
-      { id: 'maintenance', label: '运行维护', icon: Wrench, impact: 'cold' },
-      { id: 'cascade-center', label: '级联中心', icon: Workflow, impact: 'warm' },
-      { id: 'logs', label: '日志', icon: ScrollText, impact: 'cold' },
-      { id: 'tracing', label: '生成链路', icon: Activity, impact: 'cold' },
-    ],
-  },
-  {
-    id: 'analysis',
-    label: '分析',
-    defaultCollapsed: true,
-    items: [
-      { id: 'usage-stats', label: '数据洞察', icon: BarChart3, impact: 'cold' },
-      { id: 'narrative-analysis', label: '叙事分析', icon: GitBranch, impact: 'cold' },
-      { id: 'agency-eval', label: '创作评估', icon: Gauge, impact: 'warm' },
-      { id: 'agency-learning', label: '学习中心', icon: Brain, impact: 'warm' },
-      { id: 'intention-graph', label: '意图诊断', icon: BrainCircuit, impact: 'cold' },
-    ],
-  },
-  {
-    id: 'system',
-    label: '系统',
-    items: [{ id: 'settings', label: '设置', icon: Settings, impact: 'config' }],
-  },
-];
+// 兼容既有测试/调用方的导出面：实现已迁到 navigation/views.ts。
+export { IMPACT_LABELS, NAV_GROUPS };
+export type { NavImpact };
 
 function resolveActiveView(view: ViewType): ViewType {
   if (view === 'writing-stats') return 'usage-stats';

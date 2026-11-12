@@ -6,30 +6,7 @@ import { confirmDialog } from '@/components/ui/confirm';
 import { createLogger } from '@/utils/logger';
 import { useQueryClient } from '@tanstack/react-query';
 import { Sidebar } from '@/components/Sidebar';
-import { Dashboard } from '@/pages/Dashboard';
-import { Stories } from '@/pages/Stories';
-import { Characters } from '@/pages/Characters';
-import { Scenes } from '@/pages/Scenes';
-import Corpus from '@/pages/Corpus';
-import { WorldBuilding } from '@/pages/WorldBuilding';
-import { KnowledgeGraph } from '@/pages/KnowledgeGraph';
-import { Skills } from '@/pages/Skills';
-import { Settings } from '@/pages/Settings';
-import { BookDeconstruction } from '@/pages/BookDeconstruction';
-import { Tasks } from '@/pages/Tasks';
-import { CascadeCenter } from '@/pages/CascadeCenter';
-import { Maintenance } from '@/pages/Maintenance';
-import { Foreshadowing } from '@/pages/Foreshadowing';
-import { NarrativeAnalysis } from '@/pages/NarrativeAnalysis';
-import { StorySystem } from '@/pages/StorySystem';
-import { Insights } from '@/pages/Insights';
-import { IntentionGraphDiagnostics } from '@/pages/IntentionGraphDiagnostics';
-import AgencyEval from '@/pages/AgencyEval';
-import TrainingLab from '@/pages/TrainingLab';
-import AgencyLearning from '@/pages/AgencyLearning';
-import AgencyStudio from '@/pages/AgencyStudio';
-import { Logs } from '@/pages/Logs';
-import { TracingPanel } from '@/pages/TracingPanel';
+import { VIEW_COMPONENTS } from '@/navigation/viewComponents';
 import { DataLoader } from '@/components/DataLoader';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { UpdateNotification } from '@/components/updater';
@@ -452,61 +429,11 @@ function App() {
   useBackstageTheme();
 
   const renderView = () => {
-    switch (currentView) {
-      case 'dashboard':
-        return <Dashboard />;
-      case 'stories':
-        return <Stories />;
-      case 'characters':
-        return <Characters />;
-      case 'world_building':
-        return <WorldBuilding />;
-      case 'scenes':
-        return <Scenes />;
-      case 'corpus':
-        return <Corpus />;
-      case 'knowledge-graph':
-        return <KnowledgeGraph />;
-      case 'skills':
-        return <Skills />;
-      case 'settings':
-        return <Settings />;
-      case 'book-deconstruction':
-        return <BookDeconstruction />;
-      case 'guidebook-distillation':
-        return <BookDeconstruction initialTab="guidebooks" />;
-      case 'tasks':
-        return <Tasks />;
-      case 'cascade-center':
-        return <CascadeCenter />;
-      case 'maintenance':
-        return <Maintenance />;
-      case 'foreshadowing':
-        return <Foreshadowing />;
-      case 'narrative-analysis':
-        return <NarrativeAnalysis />;
-      case 'story-system':
-        return <StorySystem />;
-      case 'usage-stats':
-      case 'writing-stats':
-        return <Insights />;
-      case 'intention-graph':
-        return <IntentionGraphDiagnostics />;
-      case 'agency-eval':
-        return <AgencyEval />;
-      case 'training-lab':
-        return <TrainingLab />;
-      case 'agency-learning':
-        return <AgencyLearning />;
-      case 'agency-studio':
-        return <AgencyStudio />;
-      case 'logs':
-        return <Logs />;
-      case 'tracing':
-        return <TracingPanel />;
-      default:
-        return <Dashboard />;
-    }
+    // v0.97.0：页面映射由 navigation/viewComponents.tsx 的
+    // Record<ViewType, ComponentType> 穷举，新增 ViewType 漏映射会 tsc 失败，
+    // 不再静默落到 Dashboard（旧 switch 的 default 掩盖过漏页面）。
+    const Component = VIEW_COMPONENTS[currentView];
+    return <Component />;
   };
 
   return (

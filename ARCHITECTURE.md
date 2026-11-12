@@ -1,4 +1,6 @@
-# StoryMoss v0.96.0 架构文档
+# StoryMoss v0.97.0 架构文档
+
+> **v0.97.0**：**Gate 单一权威 + 导航单一 registry**——V159 为 `editor_gate_records` 加 `run_id`；`persist_gate_record` 在 `evaluate_gate_impl` 内 await 落库；`apply_gate_records_to_run` 读取 run+chapter 最新裁决回填 `agency_runs.result_json`（batch 逐章；QC 先于/晚于 finish 均幂等）。前端 `navigation/views.ts` 统一 NAV_GROUPS/label/icon/impact/fullHeight，FULL_HEIGHT 从分组派生；`navigation/viewComponents.tsx` 用 `Record<ViewType, ComponentType>` 穷举页面映射；App 删除 renderView switch，Sidebar 迁出 NAV 并兼容导出。
 
 > **v0.96.1**：**观测收尾**——`agency/coordinator.rs` 的 `RunTraceGuard` 携带 TraceStore 句柄并新增 `finish(status, error)`：genesis/continue 在结果后按「Ok→completed / Err+cancel→cancelled / Err→failed」调 `finish_trace`，role 任务按 completed/failed 收尾（此前 guard 只在 drop 摘注册，trace 永久停在 running）。`scene_commands::map_scene_update_error` 把仓储 `QueryReturnedNoRows`（id 既非 scene 也非 chapter，防丢稿拒绝）映射为可操作 validation 文案，其余错误保持 `AppError::from`。
 >

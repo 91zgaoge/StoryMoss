@@ -1268,6 +1268,31 @@ impl AgencyCoordinator {
             .map_err(|e| AppError::from(format!("agency db join error: {}", e)))?
     }
 
+    /// v0.97.0：把 `editor_gate_records` 的最新裁决回填到 run.result。
+    /// finish 后调用一次（QC 可能已先完成）；QC 完成后再调用一次（run 可能
+    /// 已先 finished）。两向幂等，run.result 与 gate record 不再长期分叉。
+    async fn merge_gate_record_into_run(&self, run_id: &str, chapter_number: Option<i32>) {
+        let pool = self.pool.clone();
+        let rid = run_id.to_string();
+        if let Err(e) = self
+            .db(move || {
+                crate::agency::editor_agreement::apply_gate_records_to_run(
+                    &pool,
+                    &rid,
+                    chapter_number,
+                )
+                .map_err(AppError::from)
+            })
+            .await
+        {
+            log::warn!(
+                "agency: merge gate record into run {} failed: {}",
+                run_id,
+                e
+            );
+        }
+    }
+
     /// run 阶段推进（协调器运行期间 status 恒为 running）。
     async fn update_phase(
         &self,
@@ -1611,6 +1636,7 @@ impl AgencyCoordinator {
                     .unwrap_or(0);
                 if applied > 0 {
                     self.emit_progress(run_id, "assembly", "completed", "创世完成");
+                    self.merge_gate_record_into_run(run_id, None).await;
                 } else {
                     log::warn!(
                         "agency: run {} 已终态（取消/失败），拒绝写入 completed，不发送完成事件",
@@ -3405,6 +3431,35 @@ impl AgencyCoordinator {
                 }
             }
             let _ = app.emit(EVENT_GENESIS_QC_RESULT, payload);
+            // v0.97.0：QC 完成时回填 run.result verdict。若 run 尚未 completed
+            // 则返回 0，finish_run 收尾会再从 gate record 回填（两向幂等）。
+            {
+                let pool_qc = pool.clone();
+                let rid_qc = run_id.clone();
+                let ch_qc = chapter_number;
+                let applied = tauri::async_runtime::spawn_blocking(move || {
+                    crate::agency::editor_agreement::apply_gate_records_to_run(
+                        &pool_qc, &rid_qc, ch_qc,
+                    )
+                })
+                .await;
+                match applied {
+                    Ok(Ok(n)) if n > 0 => {
+                        log::info!(
+                            "agency: 后台 QC 已回填 run.result verdict (run={}, chapter={:?})",
+                            run_id,
+                            chapter_number
+                        );
+                    }
+                    Ok(Ok(_)) => {}
+                    Ok(Err(e)) => {
+                        log::warn!("agency: QC 回填 run.result 失败 (run={}): {}", run_id, e);
+                    }
+                    Err(e) => {
+                        log::warn!("agency: QC 回填 join 失败 (run={}): {}", run_id, e);
+                    }
+                }
+            }
             // 后台质检 fail-open：章节已落库。不合格走
             // toast，顶栏不得报「后台审查失败」 （否则 friendlyText
             // 会拼成「编辑审计已完成后台审查失败」）。
@@ -3691,6 +3746,8 @@ impl AgencyCoordinator {
                     .unwrap_or(0);
                 if applied > 0 {
                     self.emit_progress(run_id, "assembly", "completed", "续写完成");
+                    self.merge_gate_record_into_run(run_id, Some(r.chapter_number))
+                        .await;
                 } else {
                     log::warn!(
                         "agency: run {} 已终态（取消/失败），拒绝写入 completed，不发送完成事件",
@@ -7718,6 +7775,7 @@ impl AgencyCoordinator {
                     .unwrap_or(0);
                 if applied > 0 {
                     self.emit_progress(run_id, "assembly", "completed", "批量续写完成");
+                    self.merge_gate_record_into_run(run_id, None).await;
                 } else {
                     log::warn!(
                         "agency: run {} 已终态（取消/失败），拒绝写入 completed，不发送完成事件",
@@ -9224,9 +9282,13 @@ pub(crate) async fn evaluate_gate_impl(
             let weighted = gate_score.weighted;
             let pool = pool.clone();
             let story_id_owned = story_id.to_string();
-            tauri::async_runtime::spawn_blocking(move || {
-                if let Err(e) = crate::agency::editor_agreement::persist_gate_record(
+            let run_id_owned = run_id.to_string();
+            // v0.97.0：改为 await——gate 记录是 run QC 的单一权威，必须
+            // 在 evaluate_gate_impl 返回前落库，run 收尾才能回填 result。
+            match tauri::async_runtime::spawn_blocking(move || {
+                crate::agency::editor_agreement::persist_gate_record(
                     &pool,
+                    &run_id_owned,
                     &story_id_owned,
                     chapter_number,
                     round,
@@ -9236,10 +9298,18 @@ pub(crate) async fn evaluate_gate_impl(
                     Some(weighted),
                     dimension_scores_json,
                     &findings,
-                ) {
-                    log::warn!("[editor_agreement] gate 裁决记录落库失败（非阻塞）: {e}");
+                )
+            })
+            .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    log::warn!("[editor_agreement] gate 裁决记录落库失败: {e}")
                 }
-            });
+                Err(e) => {
+                    log::warn!("[editor_agreement] gate 裁决记录落库 join 失败: {e}")
+                }
+            }
         }
     }
     Ok((outcome, Some(gate_score)))
