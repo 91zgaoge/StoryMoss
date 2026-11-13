@@ -1,5 +1,6 @@
 pub mod death_text;
 pub mod file;
+pub mod json;
 pub mod style_align;
 pub mod text;
 pub mod validation;

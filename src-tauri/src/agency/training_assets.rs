@@ -35,7 +35,7 @@ use crate::{
         },
         DbPool,
     },
-    llm::LlmService,
+    llm::{adapter::ResponseFormat, LlmService},
     router::TaskType,
 };
 
@@ -91,16 +91,21 @@ pub async fn rebuild_from_context(
             prompt.clone()
         } else {
             format!(
-                "上一次输出无法解析。这次严格只输出一个 JSON 对象（不要 markdown、不要解释、不要代码围栏）。\n\n{prompt}"
+                "上一次输出为空、被截断或无法解析。这次严格只输出一个完整、合法的 JSON \
+                 对象（不要 markdown、不要解释、不要代码围栏），字段可精简但必须闭合所有括号。\n\n{prompt}"
             )
         };
+        // v0.98.3：JSON mode + 8192 tokens。真机 deepseek-v4 在 4096 下把
+        // 全部额度烧在 reasoning_content（7770 字），content 为空；JSON mode
+        // 允许适配器在 content 为空时从思维链提取最终 JSON。
         let resp = match llm
-            .generate_for_task(
+            .generate_for_task_with_format(
                 TaskType::Analysis,
                 req,
-                Some(4096),
+                Some(8192),
                 Some(0.2),
                 Some("continuation_training_assets"),
+                Some(ResponseFormat::JsonObject),
             )
             .await
         {
@@ -202,7 +207,19 @@ pub(crate) fn sample_chapter_text(content: &str, cap: usize) -> String {
 
 fn parse_bundle(raw: &str) -> Option<RawBundle> {
     if let Some(bundle) = parse_lenient::<RawBundle>(raw) {
-        return Some(bundle);
+        if bundle_has_content(&bundle) {
+            return Some(bundle);
+        }
+    }
+    // v0.98.3：输出在 JSON 中途被截断时补全括号再解析（RawBundle 字段
+    // 全部可选，截断在 chapter_outlines 也能保住世界/大纲/角色）。
+    if let Some(fixed) = crate::utils::json::complete_truncated_json(raw) {
+        if let Ok(bundle) = serde_json::from_str::<RawBundle>(&fixed) {
+            if bundle_has_content(&bundle) {
+                log::warn!("[ContinuationTraining] 资产重建 JSON 被截断，已补全括号并采用可用字段");
+                return Some(bundle);
+            }
+        }
     }
     // 本地思考模型偶尔把 JSON 留在思维链、content 只剩一段归纳散文。
     // 复用现有资产刷新解析器 salvage 世界观/故事大纲/角色；关系与逐章梗概
@@ -226,7 +243,7 @@ fn parse_bundle(raw: &str) -> Option<RawBundle> {
             })
             .collect::<Vec<RawCharacter>>()
     });
-    Some(RawBundle {
+    let bundle = RawBundle {
         logline: None,
         world: payload.world.map(|w| {
             serde_json::json!({
@@ -238,7 +255,27 @@ fn parse_bundle(raw: &str) -> Option<RawBundle> {
         characters: characters.and_then(|c| serde_json::to_value(c).ok()),
         relationships: None,
         chapter_outlines: None,
-    })
+    };
+    bundle_has_content(&bundle).then_some(bundle)
+}
+
+/// 至少有一个实质字段才算有效 bundle；避免把空对象/随机 `{}` 当成功。
+fn bundle_has_content(bundle: &RawBundle) -> bool {
+    fn value_has_content(value: &Option<Value>) -> bool {
+        match value {
+            None | Some(Value::Null) => false,
+            Some(Value::String(s)) => !s.trim().is_empty(),
+            Some(Value::Array(a)) => !a.is_empty(),
+            Some(Value::Object(o)) => !o.is_empty(),
+            Some(_) => true,
+        }
+    }
+    !bundle.logline.as_deref().unwrap_or("").trim().is_empty()
+        || value_has_content(&bundle.world)
+        || value_has_content(&bundle.story_outline)
+        || value_has_content(&bundle.characters)
+        || value_has_content(&bundle.relationships)
+        || value_has_content(&bundle.chapter_outlines)
 }
 
 /// LLM 可能返回字符串、对象或数组；字段全部以 Value 接收再由本模块归一。
@@ -873,6 +910,24 @@ mod tests {
         assert!(sampled.contains("开篇"));
         assert!(sampled.contains("结尾线索"));
         assert!(sampled.contains("中间省略"));
+    }
+
+    #[test]
+    fn parse_bundle_repairs_truncated_json() {
+        // v0.98.3 真机：deepseek-v4 在 JSON 中途被截断（chapter_outlines
+        // 未闭合）。
+        let raw = r#"{"world":{"concept":"金城江湖","history":"三理教"},"characters":[{"name":"周先生","personality":"谨慎"}],"chapter_outlines":[{"chapter":97,"summary":"拜神仙"},{"chapter":98,"summary":"切料"#;
+        let bundle = parse_bundle(raw).expect("截断 JSON 应能补全括号");
+        assert!(bundle.world.is_some());
+        assert!(bundle.characters.is_some());
+        assert!(bundle_has_content(&bundle));
+    }
+
+    #[test]
+    fn parse_bundle_rejects_empty_object() {
+        // 思维链里随机提取到的 `{}` 不得被当成资产成功。
+        assert!(parse_bundle("{}").is_none());
+        assert!(parse_bundle("").is_none());
     }
 
     #[test]

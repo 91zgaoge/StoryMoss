@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.98.2-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.98.3-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.98.3 · 训练风格 DNA 与资产重建适配推理模型
+
+- **JSON 截断可修复**：风格分析 JSON 中途被截断时，自动补全未闭合括号并采用已生成字段；两次尝试仍不完整才降级。
+- **思维链里的 JSON 可用**：推理模型（如 deepseek-v4）把答案留在 `reasoning_content`、正文为空时，结构化任务（资产重建/风格分析）会从思维链提取最终 JSON；普通写作请求仍不会把思维链当正文。
+- **不再空手重建**：资产重建提高输出额度并启用 JSON mode，世界观/大纲/角色/关系不再因一次空响应整段丢失。
 
 ### v0.98.2 · 续写训练 10 章不再被 token 预算中途熔断
 

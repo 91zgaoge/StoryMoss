@@ -27,7 +27,10 @@ pub use dna::StyleDNA;
 pub use drift_checker::StyleDriftChecker;
 
 pub use crate::domain::style::StyleCheckResult;
-use crate::{llm::service::LlmService, router::TaskType};
+use crate::{
+    llm::{adapter::ResponseFormat, service::LlmService},
+    router::TaskType,
+};
 
 /// 风格分析器 - 从文本样例解析风格特征
 ///
@@ -158,31 +161,107 @@ impl StyleAnalyzer {
     /// 使用 LLM 深度分析文本样例，生成 StyleDNA
     ///
     /// 调用 LLM 进行专业文学风格分析，精度远高于规则分析。
+    ///
+    /// v0.98.3：改用 JSON mode + 两次尝试（4096 → 8192 tokens）。真机
+    /// `deepseek-v4` 曾在 2000 tokens 下把 JSON 截断在 vocabulary 块
+    /// （`EOF while parsing an object at line 5`）；第二次失败时再用
+    /// `complete_truncated_json` 补全括号 salvage 已生成的部分字段。
     pub async fn analyze_with_llm(
         text: &str,
         name: &str,
         llm: &LlmService,
     ) -> Result<StyleDNA, String> {
         let prompt = Self::build_llm_analysis_prompt(text);
-        let response = llm
-            .generate_for_task(
-                TaskType::Analysis,
-                prompt,
-                Some(2000),
-                Some(0.3),
-                Some("style_dna_analysis"),
-            )
-            .await
-            .map_err(|e| format!("LLM 生成失败: {}", e))?;
+        let mut last_error = String::new();
+        let mut salvaged: Option<StyleDNA> = None;
+        for attempt in 0..2 {
+            let req = if attempt == 0 {
+                prompt.clone()
+            } else {
+                format!(
+                    "上一次输出在 JSON 中途被截断或无法解析。这次只输出一个完整、紧凑、\
+                     合法的 JSON 对象（不要解释、不要 markdown 代码围栏），字段可精简，\
+                     但必须闭合所有括号。\n\n{prompt}"
+                )
+            };
+            let max_tokens = if attempt == 0 { 4096 } else { 8192 };
+            match llm
+                .generate_for_task_with_format(
+                    TaskType::Analysis,
+                    req,
+                    Some(max_tokens),
+                    Some(0.3),
+                    Some("style_dna_analysis"),
+                    Some(ResponseFormat::JsonObject),
+                )
+                .await
+            {
+                Ok(response) => {
+                    if let Some(mut dna) = Self::parse_dna_response(&response.content, false) {
+                        dna.meta.name = name.to_string();
+                        return Ok(dna);
+                    }
+                    // 完整解析失败：记住补全后的部分字段，继续重试拿完整数据。
+                    if let Some(mut dna) = Self::parse_dna_response(&response.content, true) {
+                        dna.meta.name = name.to_string();
+                        salvaged = Some(dna);
+                    }
+                    last_error = format!("JSON 解析失败或字段为空\n原始内容: {}", response.content);
+                }
+                Err(e) => last_error = format!("LLM 生成失败: {}", e),
+            }
+        }
+        if let Some(dna) = salvaged {
+            log::warn!("[StyleAnalyzer] LLM 两次尝试均不完整，采用补全后的部分风格字段");
+            return Ok(dna);
+        }
+        Err(last_error)
+    }
 
-        let json_str = Self::extract_json(&response.content);
-        let mut dna: StyleDNA = serde_json::from_str(&json_str)
-            .map_err(|e| format!("JSON 解析失败: {}\n原始内容: {}", e, &response.content))?;
+    /// 解析 LLM 返回的 StyleDNA；`allow_truncated` 为真时尝试补全截断 JSON。
+    fn parse_dna_response(raw: &str, allow_truncated: bool) -> Option<StyleDNA> {
+        let json_str = Self::extract_json(raw);
+        if let Ok(dna) = serde_json::from_str::<StyleDNA>(&json_str) {
+            if Self::dna_has_content(&dna) {
+                return Some(dna);
+            }
+        }
+        if allow_truncated {
+            if let Some(fixed) = crate::utils::json::complete_truncated_json(raw) {
+                if let Ok(dna) = serde_json::from_str::<StyleDNA>(&fixed) {
+                    if Self::dna_has_content(&dna) {
+                        log::warn!(
+                            "[StyleAnalyzer] LLM 输出 JSON 被截断，已补全括号并采用可用字段"
+                        );
+                        return Some(dna);
+                    }
+                }
+            }
+        }
+        None
+    }
 
-        // 确保名称使用用户指定的名称
-        dna.meta.name = name.to_string();
-
-        Ok(dna)
+    /// 至少有一个实质字段才算有效 DNA，避免把 `{}`/仅 name 的空壳当成功。
+    fn dna_has_content(dna: &StyleDNA) -> bool {
+        !dna.meta.description.trim().is_empty()
+            || dna
+                .meta
+                .author
+                .as_deref()
+                .map(|a| !a.trim().is_empty())
+                .unwrap_or(false)
+            || !dna.vocabulary.density.trim().is_empty()
+            || !dna.vocabulary.abstraction.trim().is_empty()
+            || !dna.vocabulary.preferred_categories.is_empty()
+            || !dna.vocabulary.signature_words.is_empty()
+            || dna.syntax.avg_sentence_length > 0
+            || !dna.syntax.rhythm_pattern.trim().is_empty()
+            || dna.rhetoric.metaphor_density > 0.0
+            || !dna.rhetoric.preferred_devices.is_empty()
+            || !dna.perspective.pov_type.trim().is_empty()
+            || !dna.emotion.expressiveness.trim().is_empty()
+            || !dna.emotion.dominant_mood.trim().is_empty()
+            || dna.dialogue.dialogue_ratio > 0.0
     }
 
     /// 从 LLM 响应中提取 JSON（支持 markdown 代码块包裹）
@@ -528,6 +607,28 @@ mod tests {
         assert_eq!(dna.meta.name, "测试风格");
         assert!(dna.syntax.avg_sentence_length > 0);
         assert!(dna.rhetoric.metaphor_density >= 0.0);
+    }
+
+    #[test]
+    fn parse_dna_response_salvages_truncated_json() {
+        // v0.98.3 真机：deepseek-v4 在 vocabulary 块中途截断。
+        let raw = r#"{"meta":{"name":"市井江湖口语体","description":"第一人称短句口语"},"vocabulary":{"density":"high","preferred_categories":["江湖术语"],"#;
+        let dna = StyleAnalyzer::parse_dna_response(raw, true).expect("截断 JSON 应能补全");
+        assert_eq!(dna.vocabulary.density, "high");
+        assert_eq!(dna.meta.description, "第一人称短句口语");
+        assert_eq!(dna.vocabulary.preferred_categories, vec!["江湖术语"]);
+    }
+
+    #[test]
+    fn parse_dna_response_rejects_empty_object() {
+        // 思维链里随机提取到的 `{}` 不得被当成有效风格。
+        assert!(StyleAnalyzer::parse_dna_response("{}", true).is_none());
+    }
+
+    #[test]
+    fn parse_dna_response_does_not_salvage_before_retry() {
+        let raw = r#"{"meta":{"name":"x"},"vocabulary":{"density":"high","#;
+        assert!(StyleAnalyzer::parse_dna_response(raw, false).is_none());
     }
 
     #[test]

@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.98.3（2026-11-13）
+
+**续写训练的风格 DNA 与资产重建适配推理模型输出。**
+
+- 本机训练日志（2026-11-13 14:21–14:23）：`deepseek-v4` 的风格分析 JSON 在 556 字处截断（`EOF while parsing an object at line 5 column 3`）；资产重建两次调用的 `content` 全空、`reasoning_content` 有 7770 字（CoT-only），训练全程无风格 DNA、无资产。
+- 新增 `utils/json.rs`：`extract_last_json_object` 从思维链提取最后一个完整 JSON；`complete_truncated_json` 补全未闭合括号、截断键名（`:null`）。
+- OpenAI 适配器：仅当请求带 JSON mode 时，`content` 为空才从 `reasoning_content` 提取最终 JSON；普通创作请求仍不回退 CoT。
+- 风格分析改 JSON mode + 4096→8192 两次尝试；两次都不完整时采用补全后的部分字段，空壳 `{}` 判无效。
+- 资产重建改 JSON mode + 8192 tokens；`parse_bundle` 支持截断括号修复，并拒绝空 bundle。
+- **测试**：Rust **2167 passed / 17 ignored**（+14：JSON 工具 7、风格 3、资产 2、OpenAI 2）。tsc/Vitest/Playwright 基线不变；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：真机复测同书训练的风格 DNA/资产重建成功与报告落库；模型持续 CoT-only 时仍会退化为原文锚点/空资产兜底。
+
 ## v0.98.2（2026-11-13）
 
 **续写训练 10 章不再被 run 级 token 预算中途熔断。**

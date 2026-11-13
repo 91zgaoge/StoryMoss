@@ -131,10 +131,31 @@ struct Choice {
 /// "这是一个小说续写任务，需要我以专业作者身份..."等推理过程而非小说正文。
 /// 现在当 content 为空时不再回退到 reasoning_content，而是返回空字符串，
 /// 让调用方处理（重试或报错）。
+///
+/// v0.98.3：结构化任务（请求带 JSON mode）例外——CoT 末尾常含完整 JSON
+/// 答案（真机：资产重建 content 空、reasoning_content 7770 字）。仅在这种
+/// 场景下提取最后一个 JSON 对象；创作类请求仍严格不转发 CoT。
 fn resolve_content(content: &str, reasoning_content: &Option<String>) -> String {
+    resolve_content_with_options(content, reasoning_content, false)
+}
+
+fn resolve_content_with_options(
+    content: &str,
+    reasoning_content: &Option<String>,
+    allow_reasoning_json: bool,
+) -> String {
     if content.is_empty() {
         if let Some(ref rc) = reasoning_content {
             if !rc.is_empty() {
+                if allow_reasoning_json {
+                    if let Some(json) = crate::utils::json::extract_last_json_object(rc) {
+                        log::info!(
+                            "[OpenAI] 结构化请求（JSON mode）已从 reasoning_content 提取最终 JSON（{} 字符）",
+                            json.chars().count()
+                        );
+                        return json;
+                    }
+                }
                 log::warn!(
                     "[OpenAI] content 为空但 reasoning_content 有 {} 字符（思维链/CoT）。\
                      不回退到 reasoning_content--它是模型的推理过程而非正文。\
@@ -165,10 +186,25 @@ struct ParsedCompletion {
 /// 关键不变量（v0.30.45）：`content` 为空时**不得**回退到
 /// `reasoning_content`——那是思维链（CoT）不是正文。
 fn parse_chat_completion_bytes(bytes: &[u8]) -> Result<ParsedCompletion, serde_json::Error> {
+    parse_chat_completion_bytes_with_options(bytes, false)
+}
+
+/// v0.98.3：JSON mode 的结构化请求允许从 reasoning_content 提取最终 JSON
+/// （仅当 content 为空时）；其余请求保持 v0.30.45 语义，绝不转发 CoT。
+fn parse_chat_completion_bytes_with_options(
+    bytes: &[u8],
+    allow_reasoning_json: bool,
+) -> Result<ParsedCompletion, serde_json::Error> {
     let resp: OpenAiResponse = serde_json::from_slice(bytes)?;
     let first = resp.choices.first();
     let content = first
-        .map(|c| resolve_content(&c.message.content, &c.message.reasoning_content))
+        .map(|c| {
+            resolve_content_with_options(
+                &c.message.content,
+                &c.message.reasoning_content,
+                allow_reasoning_json,
+            )
+        })
         .unwrap_or_default();
     let tool_calls = first
         .map(|c| {
@@ -322,6 +358,7 @@ impl OpenAiAdapter {
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
         use super::adapter::{read_body_with_generation_timeout_ex, send_with_response_timeout};
 
+        let json_mode = request.response_format.is_some();
         let openai_req = OpenAiRequest {
             model: self.model.clone(),
             messages: self.build_messages(
@@ -383,10 +420,12 @@ impl OpenAiAdapter {
 
         // 将同步 JSON 反序列化隔离到 blocking 线程池，避免大响应阻塞 async
         // runtime。
-        let parsed = tokio::task::spawn_blocking(move || parse_chat_completion_bytes(&bytes))
-            .await
-            .map_err(|e| format!("deserialization task panicked: {}", e))?
-            .map_err(|e| format!("OpenAI response parse error: {}", e))?;
+        let parsed = tokio::task::spawn_blocking(move || {
+            parse_chat_completion_bytes_with_options(&bytes, json_mode)
+        })
+        .await
+        .map_err(|e| format!("deserialization task panicked: {}", e))?
+        .map_err(|e| format!("OpenAI response parse error: {}", e))?;
 
         let cost = self.calculate_cost(&parsed.model, parsed.total_tokens);
 
@@ -524,7 +563,8 @@ impl LlmAdapter for OpenAiAdapter {
 mod tests {
     use super::{
         classify_sse_line, content_delta_from_sse_payload, parse_chat_completion_bytes,
-        resolve_content, sanitize_top_p, OpenAiAdapter, OutboundMessage, SseLine,
+        parse_chat_completion_bytes_with_options, resolve_content, resolve_content_with_options,
+        sanitize_top_p, OpenAiAdapter, OutboundMessage, SseLine,
     };
 
     #[test]
@@ -559,6 +599,22 @@ mod tests {
     fn resolve_content_returns_empty_when_both_empty() {
         assert_eq!(resolve_content("", &None), "");
         assert_eq!(resolve_content("", &Some("".to_string())), "");
+    }
+
+    #[test]
+    fn resolve_content_json_mode_salvages_json_from_reasoning() {
+        let rc =
+            Some("先列草稿 {\"a\":1}，再给最终答案 {\"verdict\":\"pass\",\"score\":4}".to_string());
+        // v0.98.3: 结构化请求允许从 CoT 提取最后一个 JSON 对象。
+        assert_eq!(
+            resolve_content_with_options("", &rc, true),
+            r#"{"verdict":"pass","score":4}"#
+        );
+        // 非结构化请求保持 v0.30.45 语义：不转发 CoT。
+        assert_eq!(resolve_content_with_options("", &rc, false), "");
+        // CoT 里没有 JSON → 仍为空，不得把散文当答案。
+        let prose = Some("这是一段纯思维链，没有 JSON".to_string());
+        assert_eq!(resolve_content_with_options("", &prose, true), "");
     }
 
     #[test]
@@ -635,6 +691,21 @@ mod tests {
         format!(
             r#"{{"id":"chatcmpl-9xYz","object":"chat.completion","created":1730000000,"model":"deepseek-v4","choices":[{{"index":0,"message":{message_json},"finish_reason":"{finish_reason}"}}],"usage":{{"prompt_tokens":1200,"completion_tokens":2048,"total_tokens":3248}}}}"#
         )
+    }
+
+    #[test]
+    fn payload_json_mode_extracts_answer_from_reasoning_when_content_empty() {
+        // v0.98.3 真机：资产重建 content 为空、reasoning_content 7770 字，
+        // 最终 JSON 在思维链里。JSON mode 请求允许提取。
+        let raw = gateway_payload(
+            r#"{"role":"assistant","content":"","reasoning_content":"先梳理前文……最终输出：{\"world\":{\"concept\":\"民国江湖\"}}"}"#,
+            "length",
+        );
+        let parsed = parse_chat_completion_bytes_with_options(raw.as_bytes(), true).unwrap();
+        assert_eq!(parsed.content, r#"{"world":{"concept":"民国江湖"}}"#);
+        // 同一响应在非 JSON mode 下仍返回空（不得把 CoT 当正文）。
+        let parsed = parse_chat_completion_bytes_with_options(raw.as_bytes(), false).unwrap();
+        assert!(parsed.content.is_empty());
     }
 
     #[test]

@@ -1,4 +1,6 @@
-# StoryMoss v0.98.2 架构文档
+# StoryMoss v0.98.3 架构文档
+
+> **v0.98.3**：**推理模型结构化输出的 JSON 容错**——`utils/json.rs` 新增 `extract_last_json_object`（从 `reasoning_content` 取最后一个完整 JSON）与 `complete_truncated_json`（补全未闭合括号/截断键名）。OpenAI 适配器仅在请求带 JSON mode 时启用 CoT JSON 提取，普通创作路径保持 v0.30.45「不转发思维链」。`StyleAnalyzer::analyze_with_llm` 改 JSON mode + 4096→8192 两次尝试，两次均不完整时采用补全后的部分字段；`training_assets::parse_bundle` 支持截断修复并拒绝空 bundle。
 
 > **v0.98.2**：**agency run 级 token 硬熔断暂停**——`run_continue_batch_body` 此前整批只创建一个 `AgencyBudget(300_000)`，writer/gate/修订/装配共用；10 章批量训练累计 314,545 时在编审阶段报「运行 token 预算耗尽」并判死整批。现 `AgencyBudget::check()` 恒放行，`BudgetedLlm` 仍逐次 `record_usage`，`tokens_used()` 继续供 run 检查点与成本观测；恢复限制只需在 `check()` 内比较 `token_budget`，所有调用方不变。
 
