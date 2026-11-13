@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.98.1-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.98.2-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.98.2 · 续写训练 10 章不再被 token 预算中途熔断
+
+- **长批量训练不再中途判死**：run 级 token 硬熔断已暂停（`AgencyBudget::check()` 恒放行），10 章批量续写不会在 gate（编辑审计）阶段因累计 30 万 token 报「预算耗尽」而整批失败；token 用量仍照常记账，运行检查点与成本观测不受影响。
 
 ### v0.98.1 · 本地书籍训练的取章起点修复
 

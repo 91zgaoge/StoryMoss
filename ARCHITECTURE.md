@@ -1,4 +1,6 @@
-# StoryMoss v0.98.1 架构文档
+# StoryMoss v0.98.2 架构文档
+
+> **v0.98.2**：**agency run 级 token 硬熔断暂停**——`run_continue_batch_body` 此前整批只创建一个 `AgencyBudget(300_000)`，writer/gate/修订/装配共用；10 章批量训练累计 314,545 时在编审阶段报「运行 token 预算耗尽」并判死整批。现 `AgencyBudget::check()` 恒放行，`BudgetedLlm` 仍逐次 `record_usage`，`tokens_used()` 继续供 run 检查点与成本观测；恢复限制只需在 `check()` 内比较 `token_budget`，所有调用方不变。
 
 > **v0.98.1**：**本地书籍训练源取章边界修复**——`fetch_chapters` 的 `file` 分支把 1-based `start_chapter` 直接当 0-based 切片索引（`parsed.chapters[start..end]`），跳过指定章并整体错一位；新增 `ContinuationTrainingExecutor::file_slice_bounds(start, total_want, total)` 做 `start-1` 转换与边界收敛，越界给可操作错误，章号标签改 `start + i`。MCP 源与默认第 1 章起不受影响。
 

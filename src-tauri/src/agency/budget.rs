@@ -65,13 +65,10 @@ impl AgencyBudget {
     }
 
     pub fn check(&self) -> Result<(), AppError> {
-        if self.tokens_used() >= self.token_budget {
-            return Err(AppError::from(format!(
-                "运行 token 预算耗尽（{}/{}），已熔断",
-                self.tokens_used(),
-                self.token_budget
-            )));
-        }
+        // v0.98.2：暂停 run 级 token 硬熔断（用户要求暂不需要预算限制）。
+        // tokens_used 仍逐次记账，供 run 检查点、成本观测与后续恢复预算
+        // 判定使用；恢复时在此按 token_budget 比较即可，调用方无需改动。
+        let _ = self.token_budget;
         Ok(())
     }
 
@@ -259,8 +256,10 @@ mod tests {
         assert_eq!(budget.tokens_used(), 200);
     }
 
+    /// v0.98.2：run 级 token 硬熔断暂停——真机 10 章训练在 314,545 tokens
+    /// 时被 gate 阶段判「预算耗尽」，整条管线判死；现在只记账不拦截。
     #[tokio::test]
-    async fn test_budget_exhaustion_blocks_call() {
+    async fn test_budget_exhaustion_does_not_block_call() {
         let budget = Arc::new(AgencyBudget::new(100));
         let llm = Arc::new(MeteredMock {
             tokens: 100,
@@ -274,12 +273,13 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(budget.tokens_used(), 100);
-        // 第二次：已达预算上限 → Err
-        let err = limited
+        // 第二次：已超预算上限，但熔断暂停 → 仍成功且继续记账
+        limited
             .complete("s", "u", TaskType::CreativeWriting, 100)
             .await
-            .unwrap_err();
-        assert!(err.to_string().contains("预算"));
+            .unwrap();
+        assert_eq!(budget.tokens_used(), 200);
+        assert!(budget.check().is_ok());
     }
 
     #[tokio::test]

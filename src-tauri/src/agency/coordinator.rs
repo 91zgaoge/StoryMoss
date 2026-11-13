@@ -7739,7 +7739,9 @@ impl AgencyCoordinator {
         cancel: &Arc<AtomicBool>,
     ) -> Result<AgencyBatchResult, AppError> {
         let repo = AgencyRepository::new(self.pool.clone());
-        // run 级并发预算：外层创建，收尾 run_final 检查点可读取 tokens_used
+        // run 级并发预算：外层创建，收尾 run_final 检查点可读取 tokens_used。
+        // v0.98.2：run 级 token 硬熔断已暂停（budget.check 恒放行），
+        // 预算值仅作记账基线；批量 10 章不再中途「预算耗尽」判死。
         let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
         // v0.30.20: 批量续写也设 run 级 deadline（与创世一致），tool_loop 每轮
         // 检查，剩余 <30s 时熔断保产出。app_handle=None（测试环境）时 no-op。

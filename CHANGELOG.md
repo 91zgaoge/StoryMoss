@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.98.2（2026-11-13）
+
+**续写训练 10 章不再被 run 级 token 预算中途熔断。**
+
+- 本机续写训练在第 11–12 章报「续写管线失败：编辑审计 Agent 阶段失败: 运行 token 预算耗尽（314545/300000），已熔断」。根因：`run_continue_batch_body` 整批只创建一个 `AgencyBudget(300_000)`，writer、gate、修订、装配全部共用；v0.98.0 起训练一次批量续写 10 章（最多 20 章），固定单章额度在 gate 阶段必然耗尽，整批被判死。
+- 按用户要求暂停 run 级 token 硬熔断：`AgencyBudget::check()` 恒放行，不再输出「运行 token 预算耗尽」；`tokens_used` 记账保留，run 检查点与成本观测仍能看到真实消耗。恢复限制只需在 `check()` 内按 `token_budget` 比较，调用方无需改动。
+- **测试**：Rust **2153 passed / 17 ignored**（数量不变；`test_budget_exhaustion_blocks_call` 反转为 `test_budget_exhaustion_does_not_block_call`——超额度后仍成功且继续记账）。tsc/Vitest/Playwright 基线不变；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：真机复测 10 章训练完成、逐章编审与报告落库；run 检查点 `tokens_used` 仍随真实消耗增长。
+
 ## v0.98.1（2026-11-12）
 
 **本地书籍训练源取章起点修复。**
