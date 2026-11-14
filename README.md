@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.98.3-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.98.4-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.98.4 · 续写训练取章不再被栗子读书「请求不完整」中断
+
+- **取章竞态可自愈**：Legado MCP 在 TCP 连接建立后立即读取请求，客户端若在连接与写请求之间被调度延迟（本机 LLM 高负载时偶发），body 未到达就会返回 400「请求不完整」。现在这类拒绝被识别为「JSON-RPC 尚未解析、工具未执行」，回环请求会安全重发一次；只读工具另有退避重试，写工具不会重复执行副作用。
+- **训练不再在第 136/137 章中途判死**：同一本书连续取 20 章、风格/资产重建、续写与编审链路可继续推进。
 
 ### v0.98.3 · 训练风格 DNA 与资产重建适配推理模型
 

@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.98.3)
+# 🧪 StoryMoss 自动化测试环境 (v0.98.4)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.98.4 变更说明
+
+- Rust **2170 passed / 17 ignored**（+3）：Legado 回环 HTTP 400/-32600「请求不完整」判定为工具未执行、只读工具请求不完整重试、写工具不在客户端层重发。
+- tsc/Vitest **723 passed / 3 skipped**/Playwright **144 passed / 5 skipped** 基线不变（Rust-only 改动）。
+- 验收命令：`cargo test --lib`、`npx tsc --noEmit`、`npx vitest run`、`npx playwright test`、`cargo +nightly-2026-10-05 fmt`、`cargo clippy --lib`、`python3 scripts/architecture_guard.py`、`npm run format:check`。
 
 ### v0.98.3 变更说明
 

@@ -175,16 +175,20 @@ impl HttpTransport {
 
     /// 回环地址的原生 HTTP/1 请求：Legado 的 MCP 服务器对 request header 与
     /// body 分开到达的请求会返回 400「请求不完整」。把整个请求拼好后用一次
-    /// write_all 发出，避免 hyper 分次写请求。initialize/tools/list 等幂等请求
-    /// 遇到偶发 400/connection reset 时重试一次；tools/call
-    /// 不重试（避免副作用）。
+    /// write_all 发出，避免 hyper 分次写请求。但服务端在 accept 后立即读取，
+    /// 若客户端在 connect 与 write 之间被调度延迟（本机 LLM 高负载时可达毫秒
+    /// 级），body 尚未到达就会被判为「请求不完整」。此时 JSON-RPC 尚未解析、
+    /// 工具未执行，即使 tools/call 也可安全重发一次；initialize/tools/list 等
+    /// 幂等请求遇到偶发 400/connection reset 时同样重试一次。
     async fn send_raw_http(&mut self, request: JsonRpcRequest) -> Result<(), McpError> {
         let retry_safe = request.method != "tools/call";
         let mut attempt = 0;
         loop {
             match self.send_raw_http_once(&request).await {
                 Ok(()) => return Ok(()),
-                Err(error) if retry_safe && attempt == 0 => {
+                Err(error)
+                    if attempt == 0 && (retry_safe || is_request_not_executed_error(&error)) =>
+                {
                     attempt += 1;
                     log::warn!(
                         "[MCP] 回环 HTTP 请求失败，重试一次: method={} error={}",
@@ -330,6 +334,18 @@ fn is_loopback_host(url: &reqwest::Url) -> bool {
     host.parse::<std::net::IpAddr>()
         .map(|address| address.is_loopback())
         .unwrap_or(false)
+}
+
+/// 「请求从未执行」判定：Legado 回环 MCP 的服务端在 accept 后立即读取请求，
+/// 客户端在 connect 与 write 之间的调度延迟会让 body 未送达，服务端回
+/// 400/-32600「请求不完整」。此时 JSON-RPC 没有被解析、工具未执行，重发
+/// 不会产生重复副作用（写工具也安全）。
+fn is_request_not_executed_error(error: &McpError) -> bool {
+    let McpError::TransportError(message) = error else {
+        return false;
+    };
+    let lower = message.to_ascii_lowercase();
+    lower.contains("http 400") && (lower.contains("请求不完整") || lower.contains("-32600"))
 }
 
 struct RawHttpResponse {
@@ -573,6 +589,23 @@ mod tests {
         assert!(!is_loopback_url("http://192.168.1.10:1122/mcp"));
         assert!(!is_loopback_url("https://example.com/mcp"));
         assert!(!is_loopback_url("not a url"));
+    }
+
+    #[test]
+    fn incomplete_request_400_is_classified_as_not_executed() {
+        let incomplete = McpError::TransportError(
+            r#"HTTP 400: {"error":{"code":-32600,"message":"请求不完整"},"jsonrpc":"2.0"}"#.into(),
+        );
+        assert!(is_request_not_executed_error(&incomplete));
+        // 参数错误等常规 400 已经解析过 JSON-RPC，不属于「未执行」重发范围。
+        assert!(!is_request_not_executed_error(&McpError::TransportError(
+            r#"HTTP 400: {"error":{"code":-32602,"message":"缺少字符串参数 book_url"},"id":"x","jsonrpc":"2.0"}"#
+                .into()
+        )));
+        assert!(!is_request_not_executed_error(&McpError::TransportError(
+            "HTTP 500: internal".into()
+        )));
+        assert!(!is_request_not_executed_error(&McpError::Timeout));
     }
 
     #[test]

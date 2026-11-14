@@ -209,8 +209,10 @@ impl McpClient {
         }
 
         // v0.93.15：只读工具遇到瞬时传输故障（栗子读书回环 HTTP 偶发
-        // Connection reset）时重发；写/隐私工具绝不重试，避免重复副作用。
-        // 续写训练一次取 n+1 章，单次网络抖动曾把整条训练判死。
+        // Connection reset / 400「请求不完整」）时重发；写/隐私工具绝不重试，
+        // 避免重复副作用。续写训练一次取 n+1 章，单次网络抖动曾把整条训练判死。
+        // 400「请求不完整」是服务端未读到 body 的拒绝，工具尚未执行；传输层
+        // 对 tools/call 也会先安全重发一次，这里保留只读工具的额外退避重试。
         let retry_safe = permission_is_retry_safe(
             self.mapping
                 .as_ref()
@@ -370,7 +372,8 @@ const TOOL_CALL_RETRY_LIMIT: usize = 2;
 const TOOL_CALL_RETRY_BACKOFF_MS: [u64; 2] = [150, 400];
 
 /// 瞬时传输故障判定：连接重置/拒绝/断开属于网络抖动，可重试；
-/// 协议、序列化与 RPC 错误不可重试。
+/// 协议、序列化与 RPC 错误不可重试。Legado 回环 HTTP 的 400/-32600
+/// 「请求不完整」是服务端未读到 body 的竞态拒绝（工具未执行），也属于可重试。
 fn is_transient_transport_error(error: &McpError) -> bool {
     match error {
         McpError::TransportError(message) => {
@@ -387,6 +390,8 @@ fn is_transient_transport_error(error: &McpError) -> bool {
             ]
             .iter()
             .any(|needle| lower.contains(needle))
+                || (lower.contains("http 400")
+                    && (lower.contains("请求不完整") || lower.contains("-32600")))
         }
         McpError::Timeout => true,
         _ => false,
@@ -471,19 +476,35 @@ mod tests {
         }
     }
 
-    /// 首次 send 模拟回环 HTTP 被对端重置，之后正常返回。
+    /// 首次 send 模拟一次已配置的传输故障，之后正常返回。
     struct ResetOnceTransport {
         attempts: Arc<AtomicUsize>,
         pending: VecDeque<JsonRpcResponse>,
         payload: serde_json::Value,
+        first_error: McpError,
     }
 
     impl ResetOnceTransport {
         fn new(attempts: Arc<AtomicUsize>, payload: serde_json::Value) -> Self {
+            Self::with_first_error(
+                attempts,
+                payload,
+                McpError::TransportError(
+                    "读取响应失败: Connection reset by peer (os error 54)".into(),
+                ),
+            )
+        }
+
+        fn with_first_error(
+            attempts: Arc<AtomicUsize>,
+            payload: serde_json::Value,
+            first_error: McpError,
+        ) -> Self {
             Self {
                 attempts,
                 pending: VecDeque::new(),
                 payload,
+                first_error,
             }
         }
     }
@@ -497,9 +518,7 @@ mod tests {
         async fn send(&mut self, request: JsonRpcRequest) -> Result<(), McpError> {
             let attempt = self.attempts.fetch_add(1, Ordering::SeqCst) + 1;
             if attempt == 1 {
-                return Err(McpError::TransportError(
-                    "读取响应失败: Connection reset by peer (os error 54)".into(),
-                ));
+                return Err(self.first_error.clone());
             }
             self.pending.push_back(JsonRpcResponse {
                 jsonrpc: "2.0".into(),
@@ -538,6 +557,15 @@ mod tests {
             "写入请求失败: Broken pipe (os error 32)".into()
         )));
         assert!(is_transient_transport_error(&McpError::Timeout));
+        // Legado 回环 HTTP 未读到 body 的竞态拒绝：工具未执行，可重发。
+        assert!(is_transient_transport_error(&McpError::TransportError(
+            r#"HTTP 400: {"error":{"code":-32600,"message":"请求不完整"},"jsonrpc":"2.0"}"#.into()
+        )));
+        // 参数错误等常规 400 不应无限重试。
+        assert!(!is_transient_transport_error(&McpError::TransportError(
+            r#"HTTP 400: {"error":{"code":-32602,"message":"缺少字符串参数 book_url"},"id":"x","jsonrpc":"2.0"}"#
+                .into()
+        )));
         assert!(!is_transient_transport_error(
             &McpError::SerializationError("响应不是合法 JSON-RPC".into())
         ));
@@ -597,6 +625,55 @@ mod tests {
             .expect("只读工具应在瞬时重置后重试成功");
         assert_eq!(result["content"][0]["text"], "第1章正文");
         assert_eq!(attempts.load(Ordering::SeqCst), 2, "应恰好重试一次");
+    }
+
+    /// v0.98.4 回归：只读工具首次收到 Legado 400/-32600「请求不完整」，
+    /// 重试后成功返回（续写训练取章的真实故障）。
+    #[tokio::test]
+    async fn read_only_tool_retries_after_incomplete_request_400() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let mut client = client_with_transport(
+            fake_tool("get_chapter_content", false),
+            ResetOnceTransport::with_first_error(
+                attempts.clone(),
+                serde_json::json!({ "content": [{ "text": "第136章正文" }] }),
+                McpError::TransportError(
+                    r#"HTTP 400: {"error":{"code":-32600,"message":"请求不完整"},"jsonrpc":"2.0"}"#
+                        .into(),
+                ),
+            ),
+        );
+
+        let result = client
+            .call_tool("get_chapter_content", serde_json::json!({ "index": 136 }))
+            .await
+            .expect("请求不完整拒绝后应重试成功");
+        assert_eq!(result["content"][0]["text"], "第136章正文");
+        assert_eq!(attempts.load(Ordering::SeqCst), 2, "应恰好重试一次");
+    }
+
+    /// 客户端层仍不对写工具重发同类 400（传输层会先做一次未执行安全重发）。
+    #[tokio::test]
+    async fn write_tool_is_not_retried_after_incomplete_request_400() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let mut client = client_with_transport(
+            fake_tool("fake_delete", true),
+            ResetOnceTransport::with_first_error(
+                attempts.clone(),
+                serde_json::json!({}),
+                McpError::TransportError(
+                    r#"HTTP 400: {"error":{"code":-32600,"message":"请求不完整"},"jsonrpc":"2.0"}"#
+                        .into(),
+                ),
+            ),
+        );
+
+        let error = client
+            .call_tool("fake_delete", serde_json::json!({}))
+            .await
+            .expect_err("写工具不应在客户端层重试");
+        assert!(matches!(error, McpError::TransportError(_)));
+        assert_eq!(attempts.load(Ordering::SeqCst), 1, "不得重发");
     }
 
     /// 写工具遇到连接重置必须立即失败，不重复执行副作用。

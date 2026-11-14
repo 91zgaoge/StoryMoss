@@ -1,4 +1,6 @@
-# StoryMoss v0.98.3 架构文档
+# StoryMoss v0.98.4 架构文档
+
+> **v0.98.4**：**Legado 回环 HTTP「请求不完整」重试**——`HttpTransport::send_raw_http` 把 400/-32600「请求不完整」判定为 JSON-RPC 尚未解析、工具未执行（`is_request_not_executed_error`），对 `tools/call` 也安全重发一次，避免 connect 与 write 之间 ≥1ms 调度延迟触发 Legado 的极短读超时；`McpClient::call_tool` 把同类 400 纳入只读工具瞬时故障分类并保留 150/400ms 退避重试，写/隐私工具仍不重发。
 
 > **v0.98.3**：**推理模型结构化输出的 JSON 容错**——`utils/json.rs` 新增 `extract_last_json_object`（从 `reasoning_content` 取最后一个完整 JSON）与 `complete_truncated_json`（补全未闭合括号/截断键名）。OpenAI 适配器仅在请求带 JSON mode 时启用 CoT JSON 提取，普通创作路径保持 v0.30.45「不转发思维链」。`StyleAnalyzer::analyze_with_llm` 改 JSON mode + 4096→8192 两次尝试，两次均不完整时采用补全后的部分字段；`training_assets::parse_bundle` 支持截断修复并拒绝空 bundle。
 

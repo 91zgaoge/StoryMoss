@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.98.4（2026-11-14）
+
+**续写训练取章不再被 Legado 的「请求不完整」中断。**
+
+- 本机续写训练（15:26）两次失败：`get_chapter_content` 报 `HTTP 400: {"error":{"code":-32600,"message":"请求不完整"}}`。探针实测：Legado MCP 的 HTTP reader 在 TCP accept 后立即读取请求，客户端在 `connect` 与 `write_all` 之间只要延迟 ≥1ms（本机 LLM 高负载时偶发），body 未到达就被判「请求不完整」并回 400；同一本书因此有时写到第 136 章、有时第 137 章才失败。
+- `mcp/transport.rs`：新增 `is_request_not_executed_error` 识别 400/-32600「请求不完整」——JSON-RPC 尚未解析、工具未执行；回环 `send_raw_http` 对 `tools/call` 也做一次安全重发（写工具不会重复执行副作用）。
+- `mcp/client.rs`：把同类 400 纳入只读工具瞬时故障分类，保留原有退避重试（150/400ms）；写/隐私工具仍不在客户端层重发。
+- **测试**：Rust **2170 passed / 17 ignored**（+3：未执行 400 分类、只读工具请求不完整重试、写工具不重发）。tsc/Vitest/Playwright 基线不变（Rust-only）；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：安装 v0.98.4 后真机复跑该训练任务，确认取章 20 章、编审与报告落库；Legado 端极短读超时的根本行为仍依赖其实现，客户端以重试兜底。
+
 ## v0.98.3（2026-11-13）
 
 **续写训练的风格 DNA 与资产重建适配推理模型输出。**
