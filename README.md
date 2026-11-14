@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.98.4-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.98.5-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.98.5 · 训练源章节缓存 + 栗子读书 MCP 读竞态修复
+
+- **反复训练不再重复取章**：MCP 源章节按「服务器 + 书 + 章号」缓存到本地 SQLite；第一次训练取章并回写，后续训练直接命中缓存，日志显示命中/新读数量。取章更省时，也不再反复触碰回环 HTTP。
+- **配套栗子读书 v0.14.26**：服务端在 accept 后清除客户端 socket 继承的 `O_NONBLOCK`，header/body 分次到达时不再立即返回 400「请求不完整」；分离写入 1–500ms 实测全部成功。
 
 ### v0.98.4 · 续写训练取章不再被栗子读书「请求不完整」中断
 

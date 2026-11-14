@@ -893,14 +893,32 @@ impl ContinuationTrainingExecutor {
                     .resolve_mcp_book_ref(server_id, &payload.book_title)
                     .await
                     .unwrap_or_else(|| payload.book_title.clone());
-                // 连续取 context_n + truth_n 章；连续两次空结果即止
+                // 连续取 context_n + truth_n 章；连续两次空结果即止。
+                // v0.98.5：同一本书反复训练时优先读本地源章节缓存，命中则
+                // 跳过 MCP 调用（章节正文是稳定的只读源材料）。
                 let mut out: Vec<Chapter> = Vec::new();
                 let mut empty_streak = 0;
+                let mut cache_hits = 0usize;
+                let mut fetched = 0usize;
                 for offset in 0..total_want {
                     if ctx.is_cancelled() {
                         break;
                     }
                     let index = start + offset;
+                    if let Some(cached) =
+                        read_cached_chapter(&self.pool, server_id, &book_ref, index)
+                    {
+                        cache_hits += 1;
+                        empty_streak = 0;
+                        let chars = cached.chars().count();
+                        out.push((index, cached));
+                        ctx.update_progress(
+                            "fetch",
+                            5 + (offset * 10 / total_want.max(1)) as i32,
+                            &format!("已取第 {index} 章（{chars} 字，缓存）"),
+                        );
+                        continue;
+                    }
                     let args = Self::render_args(&template, &book_ref, index);
                     let content = self.call_mcp_chapter_tool(server_id, &tool, args).await?;
                     let trimmed = content.trim().to_string();
@@ -912,11 +930,27 @@ impl ContinuationTrainingExecutor {
                         continue;
                     }
                     empty_streak = 0;
-                    out.push((index, Self::cap(&trimmed)));
+                    fetched += 1;
+                    let content = Self::cap(&trimmed);
+                    if let Err(error) =
+                        write_cached_chapter(&self.pool, server_id, &book_ref, index, &content)
+                    {
+                        ctx.log(
+                            "warn",
+                            &format!("源章节缓存写入失败（第 {index} 章）：{error}"),
+                        );
+                    }
+                    out.push((index, content));
                     ctx.update_progress(
                         "fetch",
                         5 + (offset * 10 / total_want.max(1)) as i32,
                         &format!("已取第 {index} 章（{} 字）", trimmed.chars().count()),
+                    );
+                }
+                if cache_hits > 0 || fetched > 0 {
+                    ctx.log(
+                        "info",
+                        &format!("源章节缓存：命中 {cache_hits} 章，新读取 {fetched} 章"),
                     );
                 }
                 Ok((out, "mcp"))
@@ -2319,6 +2353,57 @@ fn derive_improvements(
     }
 }
 
+/// 源章节缓存读取：命中返回已缓存的正文（写入时已按 `MAX_CHAPTER_CHARS`
+/// 截断）。缓存按 `(server_id, book_ref, chapter_index)` 唯一，不同书/不同源
+/// 互不复用；`fetched_at` 仅供诊断，不参与命中判定。
+fn read_cached_chapter(
+    pool: &DbPool,
+    server_id: &str,
+    book_ref: &str,
+    chapter_index: usize,
+) -> Option<String> {
+    let conn = pool.get().ok()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT content FROM continuation_training_chapter_cache \
+             WHERE server_id = ?1 AND book_ref = ?2 AND chapter_index = ?3",
+        )
+        .ok()?;
+    stmt.query_row(
+        rusqlite::params![server_id, book_ref, chapter_index as i64],
+        |row| row.get::<_, String>(0),
+    )
+    .ok()
+}
+
+/// 源章节缓存写入/更新：同一本书同章再次取到正文时刷新内容与时间。
+fn write_cached_chapter(
+    pool: &DbPool,
+    server_id: &str,
+    book_ref: &str,
+    chapter_index: usize,
+    content: &str,
+) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| format!("获取缓存连接失败：{e}"))?;
+    conn.execute(
+        "INSERT INTO continuation_training_chapter_cache \
+         (server_id, book_ref, chapter_index, content, char_count) \
+         VALUES (?1, ?2, ?3, ?4, ?5) \
+         ON CONFLICT(server_id, book_ref, chapter_index) DO UPDATE SET \
+         content = excluded.content, char_count = excluded.char_count, \
+         fetched_at = datetime('now','localtime')",
+        rusqlite::params![
+            server_id,
+            book_ref,
+            chapter_index as i64,
+            content,
+            content.chars().count() as i64,
+        ],
+    )
+    .map_err(|e| format!("写入缓存失败：{e}"))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2728,5 +2813,40 @@ mod tests {
             ContinuationTrainingExecutor::file_slice_bounds(101, 20, 100),
             (100, 100)
         );
+    }
+
+    #[test]
+    fn chapter_cache_roundtrip_refreshes_and_isolates_books() {
+        let pool = crate::db::create_test_pool().expect("test pool");
+        let book = "https://m.po18.xyz/novel/115880.html";
+        assert!(read_cached_chapter(&pool, "legado", book, 134).is_none());
+
+        write_cached_chapter(&pool, "legado", book, 134, "第134章正文").expect("首次写入");
+        assert_eq!(
+            read_cached_chapter(&pool, "legado", book, 134),
+            Some("第134章正文".to_string())
+        );
+
+        // 同键再次写入应刷新内容与字符数。
+        write_cached_chapter(&pool, "legado", book, 134, "第134章修订正文").expect("刷新");
+        assert_eq!(
+            read_cached_chapter(&pool, "legado", book, 134),
+            Some("第134章修订正文".to_string())
+        );
+        let conn = pool.get().unwrap();
+        let (content, chars): (String, i64) = conn
+            .query_row(
+                "SELECT content, char_count FROM continuation_training_chapter_cache \
+                 WHERE server_id='legado' AND book_ref=?1 AND chapter_index=134",
+                rusqlite::params![book],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(chars as usize, content.chars().count());
+
+        // 不同章号、不同书/源不得互相命中。
+        assert!(read_cached_chapter(&pool, "legado", book, 135).is_none());
+        assert!(read_cached_chapter(&pool, "legado", "https://other/book", 134).is_none());
+        assert!(read_cached_chapter(&pool, "another", book, 134).is_none());
     }
 }

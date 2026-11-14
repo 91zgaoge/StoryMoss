@@ -1165,6 +1165,7 @@ pub mod V157__continuation_training_reports;
 pub mod V158__lifecycle_status_guards;
 pub mod V159__editor_gate_run_id;
 pub mod V160__continuation_training_multi_chapter;
+pub mod V161__continuation_training_chapter_cache;
 
 /// Returns all Rust-coded migrations (versions 28-103, 115-117) ordered by
 /// version.
@@ -1267,5 +1268,6 @@ pub fn all_rust_migrations() -> Vec<Box<dyn RustMigration>> {
         Box::new(V158__lifecycle_status_guards::Migration),
         Box::new(V159__editor_gate_run_id::Migration),
         Box::new(V160__continuation_training_multi_chapter::Migration),
+        Box::new(V161__continuation_training_chapter_cache::Migration),
     ]
 }

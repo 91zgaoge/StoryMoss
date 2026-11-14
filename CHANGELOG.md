@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.98.5（2026-11-14）
+
+**训练源章节本地缓存 + 栗子读书 MCP HTTP 读竞态的服务端修复。**
+
+- v0.98.4 的客户端重试已让偶发「请求不完整」不再中断训练，但每次训练仍要通过 MCP 重新取 20 章：同一本书反复训练会重复读取同样的源章节。新增 V161 表 `continuation_training_chapter_cache`（`server_id + book_ref + chapter_index`），MCP 取章先查本地缓存，命中则跳过 MCP 调用；未命中才取章并回写（含字符数与 `fetched_at`）。训练日志记录「源章节缓存：命中 x 章，新读取 y 章」。
+- 同机栗子读书升级到 v0.14.26（60）：`MCPHTTPServer.configure` 在 accept 后清除客户端 socket 继承的 `O_NONBLOCK`（监听 socket 设置该标志，macOS/BSD 会继承）。header 与 body 分次到达时不再立即 `EAGAIN` 误判「请求不完整」，改由 `SO_RCVTIMEO`（180s）阻塞读；新增 `testSplitHeaderAndBodyRequest` 回归（MCP 测试 29/29 通过），实测分离延迟 1–500ms 均返回 200。
+- **测试**：Rust **2172 passed / 17 ignored**（+2：V161 幂等建表、章节缓存 roundtrip/刷新/跨书隔离）；tsc/Vitest/Playwright 基线不变（Rust-only）；fmt/clippy/guard/prettier 全绿；Swift LegadoCore MCP 测试 29/29。
+- **未关闭**：安装 v0.98.5 后真机复跑训练，确认首轮取章写缓存、次轮日志出现「源章节缓存：命中 20 章，新读取 0 章」；缓存暂不自动过期，书源正文更新后需手动清理缓存（后续可加 TTL/清理入口）。
+
 ## v0.98.4（2026-11-14）
 
 **续写训练取章不再被 Legado 的「请求不完整」中断。**

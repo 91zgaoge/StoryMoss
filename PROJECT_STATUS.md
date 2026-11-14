@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.98.4 项目完成状态
+# StoryMoss (草苔) v0.98.5 项目完成状态
+
+> 最后更新: 2026-11-14（**v0.98.5：训练源章节缓存 + 栗子读书 MCP 读竞态服务端修复**——新增 V161 `continuation_training_chapter_cache`（server_id + book_ref + chapter_index），MCP 取章先命中缓存再调用，任务日志记录命中/新读；栗子读书 v0.14.26 在 accept 后清除客户端 socket 继承的 O_NONBLOCK，header/body 分次到达不再误判「请求不完整」，SO_RCVTIMEO 180s 阻塞读。Rust **2172/17**（+2），tsc 0，Vitest **723/3**，Playwright **144/5**，Swift MCP 29/29。**未关闭**：真机复跑训练确认次轮缓存全命中；缓存暂不自动过期。
 
 > 最后更新: 2026-11-14（**v0.98.4：Legado 回环 HTTP「请求不完整」重试**——本机续写训练 15:26 两次在 `get_chapter_content` 报 400/-32600；实测 Legado MCP reader 在 accept 后立即读请求，客户端 connect 与 write 之间延迟 ≥1ms 即判 body 未到达。新增 `is_request_not_executed_error`（JSON-RPC 未解析、工具未执行）→ 回环 `tools/call` 安全重发一次；客户端把同类 400 纳入只读工具瞬时故障重试，写工具不重发。Rust **2170/17**（+3），tsc 0，Vitest **723/3**，Playwright **144/5**。**未关闭**：真机复跑训练取章 20 章、编审与报告落库。
 

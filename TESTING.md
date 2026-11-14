@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.98.4)
+# 🧪 StoryMoss 自动化测试环境 (v0.98.5)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.98.5 变更说明
+
+- Rust **2172 passed / 17 ignored**（+2）：V161 `continuation_training_chapter_cache` 幂等建表、章节缓存 roundtrip/刷新/跨书隔离。
+- tsc/Vitest **723 passed / 3 skipped**/Playwright **144 passed / 5 skipped** 基线不变（Rust-only 改动）。
+- 配套 Swift 栗子读书 v0.14.26：LegadoCore MCP 测试 **29 passed / 0 failed**（+1：header/body 分离写入）。
+- 验收命令：`cargo test --lib`、`npx tsc --noEmit`、`npx vitest run`、`npx playwright test`、`cargo +nightly-2026-10-05 fmt`、`cargo clippy --lib`、`python3 scripts/architecture_guard.py`、`npm run format:check`。
 
 ### v0.98.4 变更说明
 

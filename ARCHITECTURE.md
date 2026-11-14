@@ -1,4 +1,6 @@
-# StoryMoss v0.98.4 架构文档
+# StoryMoss v0.98.5 架构文档
+
+> **v0.98.5**：**训练源章节缓存**——V161 新增 `continuation_training_chapter_cache`（`server_id + book_ref + chapter_index` 唯一，含 content/char_count/fetched_at）。`ContinuationTrainingExecutor::fetch_chapters` 的 MCP 分支先查缓存，命中跳过 MCP 调用，未命中取章后回写；日志记录命中/新读计数。**配套栗子读书 v0.14.26**：`MCPHTTPServer.configure` 在 accept 后清除客户端 socket 继承的 `O_NONBLOCK`（监听 socket 设置了该标志），header/body 分次到达不再立即 `EAGAIN` 误判「请求不完整」，读超时由 `SO_RCVTIMEO`（180s）承担。
 
 > **v0.98.4**：**Legado 回环 HTTP「请求不完整」重试**——`HttpTransport::send_raw_http` 把 400/-32600「请求不完整」判定为 JSON-RPC 尚未解析、工具未执行（`is_request_not_executed_error`），对 `tools/call` 也安全重发一次，避免 connect 与 write 之间 ≥1ms 调度延迟触发 Legado 的极短读超时；`McpClient::call_tool` 把同类 400 纳入只读工具瞬时故障分类并保留 150/400ms 退避重试，写/隐私工具仍不重发。
 
