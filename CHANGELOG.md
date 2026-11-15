@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.98.6（2026-11-15）
+
+**修复 docs-guard 的重跑比较缺陷，恢复 macOS 公证/发布链路。**
+
+- v0.98.5 构建在 macOS 公证失败（Apple 协议过期）后重跑又卡在 docs-guard：`PREV` 按 `creatordate` 选中了 `v0.98.5-nightly`，它与 `v0.98.5` 指向同一 commit，`nightly..stable` 的 diff 为空，误判「8 份必需文档未更新」。
+- docs-guard 的 `PREV` 选择改为只纳入稳定 tag（`^vX.Y.Z$`），排除 nightly 与其它后缀；rerun 稳定 tag 时改为与上一个稳定版本比较。
+- Apple Developer Program 协议已续签；本版重新触发 macOS 签名/公证与全平台打包。
+- **测试**：Rust **2172 passed / 17 ignored**（数量不变，CI-only）；tsc/Vitest **723/3**/Playwright **144/5** 基线不变；Swift LegadoCore MCP **29/29**。
+- **未关闭**：确认 v0.98.6 tag 构建的 macOS 公证成功、`upload-to-website` 与 `verify-updater-manifest` 完成、官网 latest.json 同步为 0.98.6。
+
 ## v0.98.5（2026-11-14）
 
 **训练源章节本地缓存 + 栗子读书 MCP HTTP 读竞态的服务端修复。**

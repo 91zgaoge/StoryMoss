@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.98.5)
+# 🧪 StoryMoss 自动化测试环境 (v0.98.6)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.98.6 变更说明
+
+- CI-only：docs-guard 的 `PREV` 改为只选择稳定 tag（排除 `vX.Y.Z-nightly`），修复 rerun 时 `nightly..stable` 空 diff 误判文档未更新。
+- Rust **2172 passed / 17 ignored**、tsc/Vitest **723/3**、Playwright **144/5**、Swift LegadoCore MCP **29/29** 基线不变。
+- 验收命令：`cargo test --lib`、`npx tsc --noEmit`、`npx vitest run`、`npx playwright test`、`cargo +nightly-2026-10-05 fmt`、`cargo clippy --lib`、`python3 scripts/architecture_guard.py`、`npm run format:check`。
 
 ### v0.98.5 变更说明
 

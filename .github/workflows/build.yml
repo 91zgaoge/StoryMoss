@@ -57,7 +57,13 @@ jobs:
         run: |
           set -euo pipefail
           REQUIRED="README.md CHANGELOG.md AGENTS.md PROJECT_STATUS.md ROADMAP.md ARCHITECTURE.md TESTING.md docs/USER_GUIDE.md"
-          PREV=$(git tag --sort=-creatordate | grep -v "^${GITHUB_REF_NAME}$" | head -1 || true)
+          # v0.98.6: PREV 必须只看稳定 tag。nightly tag 与对应的稳定 tag 指向同一
+          # commit，rerun 时上一 tag 会选中 nightly，`nightly..stable` 的 diff 为空，
+          # 误判「8 份文档未更新」。仅 vX.Y.Z 纳入比较。
+          PREV=$(git tag --sort=-creatordate \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | grep -v "^${GITHUB_REF_NAME}$" \
+            | head -1 || true)
           if [ -z "${PREV}" ]; then
             echo "无上一个 tag，跳过（首次发布）"
             exit 0

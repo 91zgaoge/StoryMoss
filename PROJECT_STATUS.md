@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.98.5 项目完成状态
+# StoryMoss (草苔) v0.98.6 项目完成状态
+
+> 最后更新: 2026-11-15（**v0.98.6：docs-guard 重跑比较修复 + macOS 公证恢复**——`PREV` 只选稳定 tag，排除 `vX.Y.Z-nightly`，修复 nightly 与稳定 tag 同 commit 时 diff 为空误判文档未更新；Apple 协议续签后重新发版。Rust **2172/17**（数量不变），tsc 0，Vitest **723/3**，Playwright **144/5**，Swift MCP 29/29。**未关闭**：确认 v0.98.6 macOS 公证、官网上传与 updater 校验成功。
 
 > 最后更新: 2026-11-14（**v0.98.5：训练源章节缓存 + 栗子读书 MCP 读竞态服务端修复**——新增 V161 `continuation_training_chapter_cache`（server_id + book_ref + chapter_index），MCP 取章先命中缓存再调用，任务日志记录命中/新读；栗子读书 v0.14.26 在 accept 后清除客户端 socket 继承的 O_NONBLOCK，header/body 分次到达不再误判「请求不完整」，SO_RCVTIMEO 180s 阻塞读。Rust **2172/17**（+2），tsc 0，Vitest **723/3**，Playwright **144/5**，Swift MCP 29/29。**未关闭**：真机复跑训练确认次轮缓存全命中；缓存暂不自动过期。
 

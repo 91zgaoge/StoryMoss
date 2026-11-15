@@ -1,4 +1,6 @@
-# StoryMoss v0.98.5 架构文档
+# StoryMoss v0.98.6 架构文档
+
+> **v0.98.6**：**docs-guard 重跑比较修复**——`.github/workflows/build.yml` 的 `PREV` 只选稳定 tag（`^vX.Y.Z$`），排除 `vX.Y.Z-nightly`；nightly 与稳定 tag 指向同一 commit 时不会再产生空 diff 误判「8 份文档未更新」。Apple Developer Program 协议续签后恢复 macOS 签名/公证与官网同步。
 
 > **v0.98.5**：**训练源章节缓存**——V161 新增 `continuation_training_chapter_cache`（`server_id + book_ref + chapter_index` 唯一，含 content/char_count/fetched_at）。`ContinuationTrainingExecutor::fetch_chapters` 的 MCP 分支先查缓存，命中跳过 MCP 调用，未命中取章后回写；日志记录命中/新读计数。**配套栗子读书 v0.14.26**：`MCPHTTPServer.configure` 在 accept 后清除客户端 socket 继承的 `O_NONBLOCK`（监听 socket 设置了该标志），header/body 分次到达不再立即 `EAGAIN` 误判「请求不完整」，读超时由 `SO_RCVTIMEO`（180s）承担。
 

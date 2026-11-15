@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.98.5-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.98.6-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.98.6 · 修复发布门禁重跑缺陷，恢复 macOS 公证与发布
+
+- **重跑不再被 nightly tag 误拦**：docs-guard 只与上一个稳定 tag 比较，`vX.Y.Z-nightly` 不再参与 `PREV` 选择；此前 nightly 与稳定 tag 指向同一 commit 时 diff 为空，会误判「必需文档未更新」。
+- **macOS 公证恢复**：Apple Developer Program 协议续签后重新触发 macOS 签名/公证与全平台打包、官网同步与 updater 校验。
 
 ### v0.98.5 · 训练源章节缓存 + 栗子读书 MCP 读竞态修复
 
