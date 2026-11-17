@@ -557,9 +557,20 @@ fn save_auto_upload_state(
         .map_err(|e| AppError::internal(format!("{e}")))
 }
 
+/// 自动上传错误计数的扫描目录：日志实际写在 `app_data/logs/`
+/// （tracing 轮转与 creative_workflow.log），不是 app_data 根目录。
+pub(crate) fn log_scan_dir(app_dir: &std::path::Path) -> std::path::PathBuf {
+    app_dir.join("logs")
+}
+
 /// 统计 mtime 晚于 cutoff 的日志文件中的 ERROR
-/// 行数（纯函数，测试可注入临时目录）。 tracing 轮转文件（storymoss.log.*）按 "
-/// ERROR " 匹配；创作工作流 JSONL 按 "level":"ERROR" 匹配。
+/// 行数（纯函数，测试可注入临时目录）。 `dir` 必须是 [`log_scan_dir`] 返回的
+/// `logs/` 目录。
+///
+/// 匹配规则（对齐生产布局）：
+/// - tracing 轮转文件 `storymoss.YYYY-MM-DD`（生产 JSON，按 `"level":"ERROR"`）
+///   与 legacy `storymoss.log*`（开发 compact，按 ` ERROR `）；
+/// - 创作工作流 JSONL `creative_workflow.log`（按 `"level":"ERROR"`）。
 pub(crate) fn count_recent_errors(dir: &std::path::Path, cutoff: std::time::SystemTime) -> u64 {
     let mut total = 0u64;
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -570,7 +581,9 @@ pub(crate) fn count_recent_errors(dir: &std::path::Path, cutoff: std::time::Syst
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        let is_tracing = name.starts_with("storymoss.log");
+        // tracing_appender::rolling::daily 生成 storymoss.YYYY-MM-DD；
+        // storymoss-startup-trace.log 与 traces/ 子目录不计入。
+        let is_tracing = name.starts_with("storymoss.");
         let is_workflow = name == "creative_workflow.log";
         if !is_tracing && !is_workflow {
             continue;
@@ -584,12 +597,10 @@ pub(crate) fn count_recent_errors(dir: &std::path::Path, cutoff: std::time::Syst
         let Ok(content) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let needle = if is_workflow {
-            "\"level\":\"ERROR\""
-        } else {
-            " ERROR "
-        };
-        total += content.lines().filter(|l| l.contains(needle)).count() as u64;
+        total += content
+            .lines()
+            .filter(|l| l.contains("\"level\":\"ERROR\"") || l.contains(" ERROR "))
+            .count() as u64;
     }
     total
 }
@@ -638,7 +649,7 @@ pub async fn maybe_propose_log_upload<R: Runtime>(app: &AppHandle<R>) {
     let cutoff = last_uploaded_at.map(|d| d.into()).unwrap_or_else(|| {
         std::time::SystemTime::now() - std::time::Duration::from_secs(3 * 24 * 3600)
     });
-    let dir = app_dir.clone();
+    let dir = log_scan_dir(&app_dir);
     let error_count = tokio::task::spawn_blocking(move || count_recent_errors(&dir, cutoff))
         .await
         .unwrap_or(0);
@@ -711,15 +722,31 @@ mod auto_upload_tests {
     use super::*;
 
     #[test]
-    fn count_recent_errors_matches_tracing_and_workflow() {
+    fn log_scan_dir_points_into_logs_subdir() {
+        // 回归守卫：日志写在 app_data/logs/，扫描 app_data 根永远数不到 ERROR。
+        let root = std::path::Path::new("/tmp/storymoss-app-data");
+        assert_eq!(log_scan_dir(root), root.join("logs"));
+    }
+
+    #[test]
+    fn count_recent_errors_matches_production_layout() {
         let dir = std::env::temp_dir().join(format!(
             "storymoss-log-report-test-{}",
             uuid::Uuid::new_v4().simple()
         ));
         std::fs::create_dir_all(&dir).unwrap();
+        // 生产 tracing：daily rolling 文件名 storymoss.YYYY-MM-DD，JSON 格式
+        std::fs::write(
+            dir.join("storymoss.2026-11-17"),
+            "{\"timestamp\":\"2026-11-17T08:45:50Z\",\"level\":\"INFO\",\"fields\":{}}\n\
+             {\"timestamp\":\"2026-11-17T09:01:00Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"llm.generate.error\"}}\n\
+             {\"timestamp\":\"2026-11-17T09:02:00Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"second\"}}\n",
+        )
+        .unwrap();
+        // legacy / 开发 compact：storymoss.log.*，级别标记带空格
         std::fs::write(
             dir.join("storymoss.log.2026-11-09"),
-            "[02:52:54.659] INFO ok\n[02:55:40.338] ERROR llm.generate.error — failed\n[02:55:41.000] ERROR second one\n",
+            "[02:52:54.659] INFO ok\n[02:55:40.338] ERROR legacy failure\n",
         )
         .unwrap();
         std::fs::write(
@@ -727,15 +754,16 @@ mod auto_upload_tests {
             "{\"level\":\"INFO\"}\n{\"level\":\"ERROR\"}\n",
         )
         .unwrap();
-        // 无关文件不计入
-        std::fs::write(dir.join("unrelated.log"), "ERROR noise\n").unwrap();
+        // 无关文件与 startup trace 不计入
+        std::fs::write(dir.join("unrelated.log"), " ERROR noise\n").unwrap();
+        std::fs::write(dir.join("storymoss-startup-trace.log"), " ERROR boot\n").unwrap();
 
         let recent_past = SystemTime::now() - Duration::from_secs(60);
         let future = SystemTime::now() + Duration::from_secs(60);
         // cutoff 在未来：新文件 mtime 早于 cutoff → 全部不计
         assert_eq!(count_recent_errors(&dir, future), 0);
-        // cutoff 为近过去：刚写入的文件计入，2 tracing ERROR + 1 workflow ERROR
-        assert_eq!(count_recent_errors(&dir, recent_past), 3);
+        // cutoff 为近过去：2 生产 JSON + 1 legacy + 1 workflow
+        assert_eq!(count_recent_errors(&dir, recent_past), 4);
         std::fs::remove_dir_all(&dir).ok();
     }
 

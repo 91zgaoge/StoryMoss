@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.98.7 项目完成状态
+# StoryMoss (草苔) v0.98.8 项目完成状态
+
+> 最后更新: 2026-11-18（**v0.98.8：日志自动上传提议链路根修**——官网日志包列表连续多日为空、本机 11-11 后无新包且从未生成 `log_upload_state.json`；定位到 `maybe_propose_log_upload` 把 `app_data` 根目录传给 `count_recent_errors`（日志实际在 `app_data/logs/`）、匹配前缀写 `storymoss.log`（滚动文件实为 `storymoss.YYYY-MM-DD`）、tracing 按纯文本 ` ERROR ` 匹配（生产为 JSON `"level":"ERROR"`）——错误计数恒 0，自动提议永不触发。新增 `log_scan_dir` 契约 + 三源匹配修复（兼容 legacy/开发 compact），本机 11-17 日志 100 条 ERROR 修复后可识别。Rust **2181/17**（+1），tsc 0，Vitest **723/3**，Playwright **144/5**（全量复跑），fmt/clippy/guard/prettier 全绿。**未关闭**：安装 v0.98.8 后真机确认启动弹窗与官网上传；仅开幕前窗口时提示可能延迟 24h（已记录改进建议）。
 
 > 最后更新: 2026-11-17（**v0.98.7：续写训练报告驱动修复**——本机 9 份《阴脉先生》报告复核后，修复批量续写「gate(n-1)∥writer(n) 时 DB 只有 n-2」的在途承接断裂（PriorChapterContext 进入 writer+章纲）、编辑审计熔断/降级放行冒充通过（轮数/输出额度/内嵌直裁/报告分离）、StyleDNA 未进入续写 prompt、训练生成正文反灌资产造成的幻觉回灌；训练指令携带权威名册并过滤上一轮幻觉建议，编审/总评改 JSON mode+截断修复。Rust **2180/17**（+8），tsc 0，Vitest **723/3**，Playwright **144/5**（全量复跑），fmt/clippy/guard/prettier 全绿。**未关闭**：安装 v0.98.7 后真机复跑 10 章训练，确认连续承接、编审 10/10 可用、报告区分质检降级与下一轮分数回升。
 

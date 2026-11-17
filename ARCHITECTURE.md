@@ -1,4 +1,6 @@
-# StoryMoss v0.98.7 架构文档
+# StoryMoss v0.98.8 架构文档
+
+> **v0.98.8**：**日志自动上传提议链路根修**——诊断日志的实际布局是 `app_data/logs/`（`tracing_appender::rolling::daily` 生成 `storymoss.YYYY-MM-DD`，生产为 JSON `"level":"ERROR"`；`workflow_logger` 写 `logs/creative_workflow.log`），但 `maybe_propose_log_upload` 过去把 `app_data` 根目录传给 `count_recent_errors`、按 legacy `storymoss.log` 前缀与纯文本 ` ERROR ` 匹配，三处叠加使错误计数恒为 0，授权弹窗永不出现。新增 `log_scan_dir(app_dir) -> app_data/logs` 作为唯一扫描目录契约；`count_recent_errors` 识别 `storymoss.*`（daily rolling + legacy `storymoss.log*`），按 `"level":"ERROR"` 或 ` ERROR ` 计数（兼容生产 JSON / 开发 compact），`storymoss-startup-trace.log` 与 `traces/` 子目录不计入。
 
 > **v0.98.7**：**续写训练质量闭环修复**——`run_batch_inner` 在 gate(n-1)∥writer(n) 并发时把在途上一章 `PriorChapterContext`（正文+章纲）显式传入 `write_chapter` 与 `generate_chapter_outline`，修复 DB latest=n-2 的承接断裂；`roles.rs` 编辑审计 max_turns 6→8、max_output_tokens 2048→4096，`evaluate_gate_impl` 内嵌资产/草稿并直裁 final JSON，`parse_editor_verdict` 支持截断修复；批量 run deadline 按章数放大。`continue_assets::render_continue_assets` 新增 StyleDNA/style_slice 稳定前缀块。训练沙盒 `with_asset_ingest_enabled(false)` 阻断生成正文反灌 character/story_outline；`build_roster_block` + 上下文接地过滤上一轮建议，`extract_truth_beats` 从编审 comments 提取真实后续节点；编审/总评走 JSON mode + `complete_truncated_json`。报告区分 gate 降级/编审判裁并修复重复承接列。
 

@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.98.8（2026-11-18）
+
+**日志巡检机器人修复：日志自动上传提议链路此前从未触发（三处布局不匹配）。**
+
+- 现象：官网 `/api/logs/packages` 连续多日返回 `[]`，本机在 11-11 手动上传后再无日志包；应用数据目录只有 `log_upload_history.json`，从未生成 `log_upload_state.json`——说明自动提议从未越过第一道门。
+- **根因一（扫描目录）**：`maybe_propose_log_upload` 把 `app_data` 根目录传给 `count_recent_errors`，但 tracing 轮转与 `creative_workflow.log` 实际写在 `app_data/logs/`，非递归扫描永远读不到日志文件。
+- **根因二（文件名）**：匹配规则写的是 `storymoss.log` 前缀，而 `tracing_appender::rolling::daily` 生成的是 `storymoss.YYYY-MM-DD`（点号分隔、无 `.log`），即便目录正确也一个都匹配不到。
+- **根因三（格式）**：生产构建写 JSON（`"level":"ERROR"`），旧代码对 tracing 文件却按纯文本 `" ERROR "` 匹配；本机 11-17 日志有 70 条 JSON ERROR 一条都数不到。
+- **修复**：新增 `log_scan_dir(app_dir)` 契约（`app_data/logs`）供调用点使用；`count_recent_errors` 改为识别 `storymoss.*`（daily rolling + legacy `storymoss.log*`），并按 `"level":"ERROR"` 或 `" ERROR "` 计数（兼容生产 JSON 与开发 compact），`storymoss-startup-trace.log` 与 `traces/` 不计入。
+- **测试**：Rust **2181 passed / 17 ignored**（+1：生产布局回归测试用 `storymoss.YYYY-MM-DD` + JSON、legacy 纯文本、workflow 三源计数 + 扫描目录契约守卫）；本机实测 11-17 日志 70 条 tracing ERROR + 30 条 workflow ERROR 在修复后会被计入（旧实现为 0）。
+- **未关闭**：安装 v0.98.8 后真机确认启动即出现「上传日志包协助诊断？」弹窗、上传后官网列表可见；若用户只开幕前窗口（无幕后），事件无监听者而 `last_prompted_at` 已写入，提示会延迟 24h——已在报告记录为后续改进项。
+
 ## v0.98.7（2026-11-17）
 
 **续写训练报告驱动修复：在途上一章承接、质检有效性、风格 DNA 注入与幻觉回灌隔离。**

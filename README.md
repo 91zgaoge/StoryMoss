@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.98.7-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.98.8-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.98.8 · 修复日志自动上传提议从未触发（三处日志布局不匹配）
+
+- **问题定位**：官网日志包列表连续多日为空，本机在 11-11 手动上传后不再出现新包；排查发现自动提议从未执行到打包——诊断日志写在 `应用数据/logs/` 子目录，代码却在应用数据根目录找日志。
+- **三处根因**：扫描目录少了 `logs/`；轮转文件名是 `storymoss.YYYY-MM-DD`（旧规则只认 `storymoss.log` 前缀）；生产日志是 JSON（`"level":"ERROR"`，旧规则只认纯文本 ` ERROR `）。
+- **结果**：错误计数在真实环境恒为 0，自动弹窗永远不会出现；修复后本机 11-17 日志的 70 条 tracing ERROR 与 30 条工作流 ERROR 都能被识别，满足条件时启动即会询问是否上传诊断日志。
 
 ### v0.98.7 · 续写训练报告驱动修复：连续承接、质检可信与风格 DNA 注入
 
