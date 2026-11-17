@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.98.6-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.98.7-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,13 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.98.7 · 续写训练报告驱动修复：连续承接、质检可信与风格 DNA 注入
+
+- **每章承接上一章，不再「续前前章」**：批量续写时质量门与下一章 writer 并发，上一章尚未装配进正文库；旧逻辑会从 DB 读到 n-2 章。现在在途上一章的正文与大纲显式进入下一章 writer 与章纲规划，训练 10 章连续承接同一现场/人物/未完结事件。
+- **质检不再「熔断后假装通过」**：编辑审计增加轮数与输出额度，输入内嵌时直接裁决 JSON，裁断输出可补括号解析；批量 deadline 按章数放大。报告区分真实通过、修订与质检降级，不再出现「10 章通过」与逐章 7 章 revise 的矛盾。
+- **风格 DNA 真正生效**：续写 prompt 现在注入 StyleDNA 六维指标（此前只绑定不进 prompt），文笔有可执行的句式/用词/对话约束。
+- **幻觉不再回流放大**：训练沙盒关闭生成正文的资产 ingest，指令携带原文权威人物名册；上一轮编审建议按上下文接地过滤，并把「真实后续节点」沉淀给下一轮主线对齐。
 
 ### v0.98.6 · 修复发布门禁重跑缺陷，恢复 macOS 公证与发布
 

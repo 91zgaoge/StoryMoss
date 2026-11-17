@@ -57,7 +57,7 @@ pub const STALE_REPLAY_CLOSE: &str = "<!-- END PRIOR-SESSION SUMMARY -->";
 /// 「看房/血红豆眼老鼠」悬停点就在【前文】tail 里，模型仍跳开另起新委托
 /// 事件，导致情节断裂 3/10、口吻错乱 2/10）。三处续写 writer 指令统一
 /// 注入，承接优先于推进。
-pub const CONTINUITY_HARD_RULE: &str = "必须紧接【前文】末尾的现场继续（同一地点、同一对话或同一悬念直接往下写），前文里未完结的事件必须先落地，禁止跳切到新地点/新委托/新事件；";
+pub const CONTINUITY_HARD_RULE: &str = "必须紧接【前文】末尾的现场继续（同一地点、同一对话或同一悬念直接往下写），前文里未完结的事件必须先落地，禁止跳切到新地点/新委托/新事件；不得为前文已有角色改换姓名，也不得发明前文与角色名册之外的新具名人物（路人/次要角色只用身份称呼）；";
 /// 进度回调（Task 7 smart_execute 用）：参数为 (phase, status, message)。
 /// 必须用 Send+Sync：coordinator 在 commands 的 spawn 中跨 await 持有
 /// &self，要求 Self: Sync。
@@ -980,6 +980,25 @@ pub(crate) fn parse_lenient<T: for<'de> Deserialize<'de>>(raw: &str) -> Option<T
     serde_json::from_str(&raw[start..=end]).ok()
 }
 
+/// 编辑裁决的宽容解析（v0.98.7）：宽松 JSON → 补全截断括号 → 取最后一个
+/// 完整对象。真机 gate 曾在 JSON 中途截断时判 Failed/降级放行。
+fn parse_editor_verdict(raw: &str) -> Option<EditorVerdict> {
+    if let Some(fixed) = crate::utils::json::complete_truncated_json(raw) {
+        if let Ok(v) = serde_json::from_str::<EditorVerdict>(&fixed) {
+            return Some(v);
+        }
+    }
+    if let Some(v) = parse_lenient::<EditorVerdict>(raw) {
+        return Some(v);
+    }
+    if let Some(json) = crate::utils::json::extract_last_json_object(raw) {
+        if let Ok(v) = serde_json::from_str::<EditorVerdict>(&json) {
+            return Some(v);
+        }
+    }
+    None
+}
+
 /// 熔断主因判定：末三轮均解析失败（action=None）→ "连续解析失败"；
 /// 否则 "达到最大轮数"。（解析失败连续 3 次即熔断，故末三轮全败 ⇔ 解析熔断。）
 /// 熔断主因判定（v0.30.4）：优先看 `abort_reason`（tool_loop 显式设置），
@@ -1052,6 +1071,11 @@ pub struct AgencyCoordinator {
     run_deadline: Mutex<Option<std::time::Instant>>,
     /// 一次 write_beat_once 内冻结节拍卡/阵容（对照 grok-bot memory freeze）。
     continue_freeze: Arc<crate::agency::continue_freeze::ContinueFreezeMap>,
+    /// v0.98.7：训练沙盒关闭后台 ingest。训练正文是对原书的模拟续写，
+    /// ingest 会把模型臆造的人名/大纲反向写入资产（杨先生/何小满…），
+    /// 后续章节再从资产里读到这些幻觉，逐章放大。关闭后资产重建结果
+    /// 在本轮保持唯一权威。
+    asset_ingest_enabled: bool,
     /// P0-1（v0.66.0）：测试用向量库注入。生产从 Tauri State 取
     /// （见 `retrieval_store`），测试用 `for_test_with_store` 注入。
     #[cfg(test)]
@@ -1072,6 +1096,7 @@ impl AgencyCoordinator {
             model_count_override: None,
             run_deadline: Mutex::new(None),
             continue_freeze: Arc::new(crate::agency::continue_freeze::ContinueFreezeMap::new()),
+            asset_ingest_enabled: true,
             #[cfg(test)]
             test_vector_store: None,
             #[cfg(test)]
@@ -1089,6 +1114,7 @@ impl AgencyCoordinator {
             model_count_override: None,
             run_deadline: Mutex::new(None),
             continue_freeze: Arc::new(crate::agency::continue_freeze::ContinueFreezeMap::new()),
+            asset_ingest_enabled: true,
             #[cfg(test)]
             test_vector_store: None,
             #[cfg(test)]
@@ -1106,6 +1132,12 @@ impl AgencyCoordinator {
         let mut coordinator = Self::for_test(pool, llm);
         coordinator.test_vector_store = Some(store);
         coordinator
+    }
+
+    /// v0.98.7：关闭后台资产 ingest（训练沙盒专用）。返回 builder 供链式调用。
+    pub fn with_asset_ingest_enabled(mut self, enabled: bool) -> Self {
+        self.asset_ingest_enabled = enabled;
+        self
     }
 
     /// P0-1：取向量库。生产从 Tauri State 拿（setup 已 manage；try_state 不
@@ -1162,6 +1194,10 @@ impl AgencyCoordinator {
     /// 与手动编辑同路径（SceneIngestor::spawn_ingest_debounced），best-effort：
     /// app/vector 不可用（测试环境）静默跳过。
     fn spawn_scene_ingest(&self, scene_id: &str) {
+        if !self.asset_ingest_enabled {
+            log::debug!("agency: 训练沙盒跳过场景 ingest scene={scene_id}");
+            return;
+        }
         let Some(app) = self.app_handle.as_ref() else {
             return;
         };
@@ -1476,6 +1512,7 @@ impl AgencyCoordinator {
             model_count_override: self.model_count_override,
             run_deadline: Mutex::new(None),
             continue_freeze: self.continue_freeze.clone(),
+            asset_ingest_enabled: self.asset_ingest_enabled,
             #[cfg(test)]
             test_vector_store: self.test_vector_store.clone(),
             #[cfg(test)]
@@ -1739,6 +1776,32 @@ impl AgencyCoordinator {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(total_timeout);
         *self.run_deadline.lock().unwrap_or_else(|p| p.into_inner()) = Some(deadline);
         log::warn!("agency: run deadline 设置为 {}s 后", total_timeout);
+    }
+
+    /// v0.98.7：批量续写 deadline 按章数放大。smart_execute 单章 600s 的
+    /// 口径套到 10 章批量时，后半程 gate 必然撞 deadline，编辑审计被熔断后
+    /// 降级放行（真机 10 章训练 8/10 章质检未完成）。单章仍用原配置值。
+    fn setup_run_deadline_for_batch(&self, chapter_count: usize) {
+        let Some(app) = &self.app_handle else {
+            return;
+        };
+        let app_dir = match app.path().app_data_dir() {
+            Ok(d) => d,
+            Err(_) => return,
+        };
+        let base = crate::config::AppConfig::load(&app_dir)
+            .map(|c| c.smart_execute_total_timeout_secs)
+            .unwrap_or(600u64);
+        // 每章预留 240s（写 + gate + 修订），另加 120s 资产/会话收尾。
+        let needed = chapter_count.max(1) as u64 * 240 + 120;
+        let total_timeout = base.max(needed).min(7_200);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(total_timeout);
+        *self.run_deadline.lock().unwrap_or_else(|p| p.into_inner()) = Some(deadline);
+        log::warn!(
+            "agency: 批量 run deadline 设置为 {}s 后（{} 章）",
+            total_timeout,
+            chapter_count
+        );
     }
 
     /// 读取当前 run deadline（tool_loop 每轮检查用）。None 表示不限制。
@@ -2685,6 +2748,7 @@ impl AgencyCoordinator {
         premise: &str,
         budget: &Arc<AgencyBudget>,
         chapter_key: &str,
+        prior_override: Option<&str>,
     ) -> Result<BoardItem, AppError> {
         let llm = BudgetedLlm::new(
             self.llm_for_run(run_id, AgentRole::LeadWriter, story_id),
@@ -2697,7 +2761,10 @@ impl AgencyCoordinator {
         // v0.93.16：续写回退必须带上一章真实结尾。旧版复用创世散文提示词，
         // batch writer 熔断后会在已有前文的沙盒里写出一章「新故事开篇」
         // （真机：现代门铃/新委托人，完全脱离《阴脉先生》第 106 章）。
-        let prior_prose = {
+        let prior_prose = if let Some(prior) = prior_override.filter(|s| !s.trim().is_empty()) {
+            // v0.98.7：批量在途上一章（gate 并发、尚未装配）优先于 DB。
+            crate::agency::continue_assets::slice_prior_prose(prior)
+        } else {
             let pool = self.pool.clone();
             let sid = story_id.to_string();
             tokio::task::spawn_blocking(move || -> String {
@@ -3094,12 +3161,14 @@ impl AgencyCoordinator {
                     }
                     _ => {
                         // 黑板无草稿或过短 -> 散文回退（与连续解析失败同路径）
-                        self.writer_prose_fallback(run_id, &story_id, premise, budget, "第1章")
-                            .await?
+                        self.writer_prose_fallback(
+                            run_id, &story_id, premise, budget, "第1章", None,
+                        )
+                        .await?
                     }
                 }
             } else {
-                self.writer_prose_fallback(run_id, &story_id, premise, budget, "第1章")
+                self.writer_prose_fallback(run_id, &story_id, premise, budget, "第1章", None)
                     .await?
             }
         } else {
@@ -3482,6 +3551,15 @@ impl AgencyCoordinator {
     /// KG 持久化（entities/relations，对齐 orchestrator 后台 ingest 做法）。
     /// 测试环境（app_handle=None）no-op；失败仅 log::warn，绝不影响主流程。
     fn spawn_asset_ingest(&self, run_id: &str, story_id: &str, scene_id: &str, content: &str) {
+        if !self.asset_ingest_enabled {
+            // v0.98.7：训练沙盒的正文是模拟续写，不得反向写入资产
+            log::debug!(
+                "agency: 训练沙盒跳过资产回流 scene={} run={}",
+                scene_id,
+                run_id
+            );
+            return;
+        }
         let Some(app) = self.app_handle.clone() else {
             // 测试环境无 app_handle，跳过后台资产回流
             log::info!("agency: 测试环境跳过后台资产回流 (run={})", run_id);
@@ -3588,6 +3666,7 @@ impl AgencyCoordinator {
                 model_count_override: None,
                 run_deadline: Mutex::new(None),
                 continue_freeze: Arc::new(crate::agency::continue_freeze::ContinueFreezeMap::new()),
+                asset_ingest_enabled: true,
                 #[cfg(test)]
                 test_vector_store: None,
                 #[cfg(test)]
@@ -5191,6 +5270,8 @@ impl AgencyCoordinator {
         chapter_number: i32,
         assets_ctx: &str,
         characters_override: &str,
+        prior: Option<&PriorChapterContext>,
+        directive: &str,
     ) -> String {
         let key = format!("第{}章", chapter_number);
         // v0.30.31: 无故事大纲时短路（writer 上下文不含【故事大纲】段）--章节
@@ -5215,6 +5296,16 @@ impl AgencyCoordinator {
         let scene_number = chapter_number.to_string();
         let chapter_for_outline = chapter_number;
         let characters_override = characters_override.to_string();
+        // v0.98.7：批量 gate/writer 并发时 DB 里的「上一章」是 n-2；章纲必须
+        // 以在途上一章为准，且把训练/导演指令里的主线目标带进规划（此前
+        // 指令只进 writer，章纲仍按旧进度规划，是「上一轮改进不进情节」的
+        // 根因之一）。
+        let prior_owned = prior.map(|p| p.clone());
+        let directive_owned: String = directive
+            .trim()
+            .chars()
+            .take(OUTLINE_DIRECTIVE_CHAR_CAP)
+            .collect();
         let prompt_text = tokio::task::spawn_blocking(move || -> String {
             use crate::agency::continue_assets::condense_story_outline;
             use crate::db::repositories::{CharacterRepository, StoryOutlineRepository};
@@ -5246,7 +5337,15 @@ impl AgencyCoordinator {
                     .collect::<Vec<_>>()
                     .join("\n")
             };
-            let scene_info = format!("故事前提：{}\n本章：{}", premise_c, key_c);
+            let directive_block = if directive_owned.trim().is_empty() {
+                String::new()
+            } else {
+                format!("\n作者补充要求（必须落实到本场景大纲）：{}", directive_owned)
+            };
+            let scene_info = format!(
+                "故事前提：{}\n本章：{}{}",
+                premise_c, key_c, directive_block
+            );
             // v0.30.31: 加载世界观与已推进进度（进度指针，解决"凭章号盲推"）
             let world = {
                 use crate::db::repositories::WorldBuildingRepository;
@@ -5307,6 +5406,26 @@ impl AgencyCoordinator {
                 } else {
                     lines.join("\n")
                 }
+            };
+            // 在途上一章（尚未装配进 scenes）的正文结尾与大纲摘要必须进入
+            // 规划进度，否则章纲会按 n-2 续写。
+            let progress = if let Some(prior) = prior_owned.as_ref() {
+                if prior.prose.trim().is_empty() && prior.outline.trim().is_empty() {
+                    progress
+                } else {
+                    let outline_snip: String = prior.outline.chars().take(240).collect();
+                    let tail = crate::agency::continue_assets::slice_prior_prose(&prior.prose);
+                    let tail_snip: String = tail.chars().rev().take(700).collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .collect();
+                    format!(
+                        "{progress}\n第{}章（本沙盒上一章，最新）：{}｜结尾：{}",
+                        prior.chapter_number, outline_snip, tail_snip
+                    )
+                }
+            } else {
+                progress
             };
             let mut vars = HashMap::new();
             vars.insert("story_outline".to_string(), story_outline);
@@ -5727,6 +5846,8 @@ impl AgencyCoordinator {
                 chapter_number,
                 outline_gate,
                 &chars_var,
+                None,
+                "",
             )
             .await
         } else {
@@ -6570,32 +6691,50 @@ impl AgencyCoordinator {
         premise: &str,
         chapter_number: i32,
         previous_emotion: Option<&crate::emotion_circuit::ChapterEmotionPlan>,
+        prior: Option<&PriorChapterContext>,
         directive: &str,
     ) -> Result<BatchChapterArtifacts, AppError> {
         let key = format!("第{}章", chapter_number);
         let pool = self.pool.clone();
         let sid = story_id.to_string();
         let strategy = self.user_writing_strategy();
+        // v0.98.7：批量 gate(n-1) 与 writer(n) 并发时，上一章尚未装配进
+        // scenes——DB 的「latest」实际是 n-2。优先使用在途上一章的正文/大纲，
+        // 否则 writer 会把每一章写成 n-2 的续篇（真机整批承接断裂）。
+        let prior_owned = prior.map(|p| p.clone());
         let (parts, card, latest_content, pinned_blocks) = self
             .db({
                 let pool = pool.clone();
                 let sid = sid.clone();
                 let strategy = strategy.clone();
+                let prior = prior_owned.clone();
                 move || {
                     let parts = load_continue_context_parts(&pool, &sid, strategy);
                     let latest_scene = parts
                         .as_ref()
                         .and_then(|p| p.scenes.iter().max_by_key(|s| s.sequence_number));
-                    let latest = latest_scene
+                    let db_latest = latest_scene
                         .and_then(|s| s.content.clone())
                         .unwrap_or_default();
+                    let db_outline = latest_scene.and_then(|s| s.outline_content.clone());
+                    let (latest, prev_outline) = match prior {
+                        Some(p) if p.prose.trim().chars().count() >= 20 => {
+                            let outline = if p.outline.trim().is_empty() {
+                                db_outline
+                            } else {
+                                Some(p.outline)
+                            };
+                            (p.prose, outline)
+                        }
+                        _ => (db_latest, db_outline),
+                    };
                     // v0.64.10：批量续写同样按上一拍卡块推进冲突阶梯
                     let card = crate::agency::beat_card::compile_beat_card_located_prev(
                         &pool,
                         &sid,
                         &latest,
                         None,
-                        latest_scene.and_then(|s| s.outline_content.as_deref()),
+                        prev_outline.as_deref(),
                     )?;
                     let pinned = crate::corpus::pinned_context_block(&pool, &sid)
                         .map(|b| vec![b])
@@ -6630,6 +6769,8 @@ impl AgencyCoordinator {
                 chapter_number,
                 outline_gate,
                 &chars_var,
+                prior,
+                directive,
             )
             .await;
         // P0/P1：批量章节情感弧。只有作者设置契约才启用；无契约时 None，
@@ -6788,13 +6929,27 @@ impl AgencyCoordinator {
                         Ok(d)
                     }
                     _ => {
-                        self.writer_prose_fallback(run_id, story_id, premise, budget, &key)
-                            .await
+                        self.writer_prose_fallback(
+                            run_id,
+                            story_id,
+                            premise,
+                            budget,
+                            &key,
+                            prior.map(|p| p.prose.as_str()),
+                        )
+                        .await
                     }
                 }
             } else {
-                self.writer_prose_fallback(run_id, story_id, premise, budget, &key)
-                    .await
+                self.writer_prose_fallback(
+                    run_id,
+                    story_id,
+                    premise,
+                    budget,
+                    &key,
+                    prior.map(|p| p.prose.as_str()),
+                )
+                .await
             }
         } else {
             self.latest_draft_by_key(board, run_id, &key, "主创未按约定 key 写入")
@@ -6822,6 +6977,7 @@ impl AgencyCoordinator {
             emotion: emotion_plan,
             emotion_probes,
             contract: scene_contract,
+            outline: chapter_outline,
         })
     }
 
@@ -7023,6 +7179,7 @@ impl AgencyCoordinator {
             emotion: None,
             emotion_probes: Vec::new(),
             contract: None,
+            outline,
         })
     }
 
@@ -7051,6 +7208,7 @@ impl AgencyCoordinator {
             emotion,
             emotion_probes: _,
             contract,
+            outline: _,
         } = artifacts;
         let final_verdict = match outcome {
             GateOutcome::Passed { verdict } => verdict,
@@ -7745,7 +7903,9 @@ impl AgencyCoordinator {
         let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
         // v0.30.20: 批量续写也设 run 级 deadline（与创世一致），tool_loop 每轮
         // 检查，剩余 <30s 时熔断保产出。app_handle=None（测试环境）时 no-op。
-        self.setup_run_deadline();
+        // v0.98.7：按批量章数放大（单章仍取配置值），否则 10 章训练后半程
+        // 必然撞 deadline、编辑审计降级。
+        self.setup_run_deadline_for_batch(count);
         // A1: 批量/导演派发/修订共用本漏斗——在此统一开启生成链路 trace
         let _run_trace = self.start_run_trace(run_id, Some(story_id), Some(instruction));
         let result = self
@@ -7994,6 +8154,17 @@ impl AgencyCoordinator {
                 &format!("第{}章", chapter_number),
             );
 
+            // v0.98.7：gate(n-1) 与 writer(n) 并发 → 上一章还没装配进 scenes，
+            // DB latest 是 n-2。这里把在途上一章的正文/大纲显式交给 writer
+            // 与章纲规划，保证第 n 章承接第 n-1 章而不是 n-2。
+            let prior_ctx =
+                pending_chapter
+                    .as_ref()
+                    .map(|(num, art, _revised)| PriorChapterContext {
+                        chapter_number: *num,
+                        prose: art.draft.content.clone(),
+                        outline: art.outline.clone(),
+                    });
             let write_fut = async {
                 if revision.is_some() {
                     let write_scene_id = if explicit_scene_target {
@@ -8023,6 +8194,7 @@ impl AgencyCoordinator {
                         &premise,
                         chapter_number,
                         last_written_plan.as_ref(),
+                        prior_ctx.as_ref(),
                         instruction,
                     )
                     .await
@@ -8886,7 +9058,7 @@ pub(crate) async fn editor_verdict_prose_fallback(
     let raw = budgeted
         .complete(&system, &user, TaskType::Proofreading, 2048)
         .await?;
-    parse_lenient::<EditorVerdict>(&raw).ok_or_else(|| {
+    parse_editor_verdict(&raw).ok_or_else(|| {
         AppError::from(format!(
             "editor 散文回退裁决解析失败: {}",
             raw.chars().take(120).collect::<String>()
@@ -9053,6 +9225,8 @@ pub(crate) async fn evaluate_gate_impl(
                 "审查以下章节草稿（{}）并出具裁决 JSON。\n\n\
                  【参照资产（用于校验合同兑现/连续性/世界观一致性/推进方向）】\n{}\n\
                  【待审查草稿】\n{}\n\n\
+                 v0.98.7 批量质检：参照资产与草稿已全部内嵌在任务中，**不要调用\
+                 board_read/asset_query 等工具**，逐维审查后直接输出 final JSON 裁决。\
                  按系统提示词的 rubric 出具裁决，重点校验：草稿是否违背世界观规则与红线、\
                  是否偏离故事大纲推进方向、是否原地踏步或仅复述设定。",
                 draft.key,
@@ -9070,7 +9244,7 @@ pub(crate) async fn evaluate_gate_impl(
         last_raw = editor_out.output.clone();
         // v0.30.19 salvage: 即使熔断，末轮原始输出可能已含可解析裁决 JSON
         // （本地模型常在最后一轮吐出 JSON 但已超 max_turns/连续解析计数）。
-        if let Some(v) = parse_lenient::<EditorVerdict>(&editor_out.output) {
+        if let Some(v) = parse_editor_verdict(&editor_out.output) {
             verdict = Some(v);
             break;
         }
@@ -9583,6 +9757,18 @@ pub(crate) struct BatchChapterArtifacts {
     pub emotion_probes: Vec<crate::emotion_circuit::EmotionProbe>,
     /// v0.79.0：本章（或本章第一场）的叙事契约；gate 用它核对正文。
     pub contract: Option<crate::agency::narrative_contract::SceneContract>,
+    /// v0.98.7：本章生成的章节大纲。批量管线 gate(n-1) 与 writer(n) 并发，
+    /// 上一章此时尚未装配进 scenes；下一章 writer 必须拿到这份**在途**大纲
+    /// 与正文，不能从 DB 回退到 n-2。
+    pub outline: String,
+}
+
+/// 批量续写的在途上一章上下文（尚未装配进 scenes）。
+#[derive(Debug, Clone)]
+pub(crate) struct PriorChapterContext {
+    pub chapter_number: i32,
+    pub prose: String,
+    pub outline: String,
 }
 
 /// 幕前 Append / 资产引导租约守卫：Drop 时释放，防止同一资源被两个 run
@@ -10185,7 +10371,12 @@ fn inject_assets_missing_rule(task: String) -> String {
 /// 最近），提示词与资产/章契约冲突时以硬约束为先。
 /// v0.93.16：上限 1200 → 4096。续写训练指令要携带上一章结尾锚点与文风
 /// 锚点；1200 会把锚点截掉大半，模型只剩抽象指令。
-const DIRECTOR_DIRECTIVE_CHAR_CAP: usize = 4096;
+/// v0.98.7：训练/导演指令块长度。批量 10 章训练同时携带名册、上轮编审
+/// 结论、风格锚点与硬承接锚点，4096 会把末段（承接锚点）截掉；8192 覆盖
+/// 全量且仍在 writer 上下文预算内。
+const DIRECTOR_DIRECTIVE_CHAR_CAP: usize = 8192;
+/// 章纲规划只看指令中与情节/主线相关的部分，避免风格锚点挤占规划预算。
+const OUTLINE_DIRECTIVE_CHAR_CAP: usize = 3200;
 
 fn inject_director_directive(task: String, directive: &str) -> String {
     let directive = directive.trim();
@@ -10766,6 +10957,16 @@ mod depth_assets_outline_tests {
         let parsed: DepthAssets = parse_lenient(raw).expect("字符串 outline 应解析成功");
         // 字符串形态原样返回
         assert_eq!(normalize_outline(&parsed.outline), "第一卷大纲纯文本");
+    }
+
+    #[test]
+    fn editor_verdict_repairs_truncated_json() {
+        // 真机 gate：编辑裁决在 blocking evidence 中途截断，旧代码判
+        // Failed/降级放行；补全后必须拿到 verdict。
+        let raw = r#"{"verdict":"pass","score":4.0,"comments":"整体可用，但章末"#;
+        let verdict = super::parse_editor_verdict(raw).expect("截断裁决应可修复");
+        assert_eq!(verdict.verdict, "pass");
+        assert_eq!(verdict.score, Some(4.0));
     }
 
     #[test]

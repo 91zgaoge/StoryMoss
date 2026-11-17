@@ -908,6 +908,8 @@ async fn real_machine_probe_volume_plan_and_outline_injection() {
             chapter.max(3),
             "【故事大纲】",
             "",
+            None,
+            "",
         )
         .await;
     println!("[真机探针] 章纲产出 {} 字", outline.chars().count());

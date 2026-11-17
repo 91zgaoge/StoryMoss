@@ -1,4 +1,6 @@
-# StoryMoss v0.98.6 架构文档
+# StoryMoss v0.98.7 架构文档
+
+> **v0.98.7**：**续写训练质量闭环修复**——`run_batch_inner` 在 gate(n-1)∥writer(n) 并发时把在途上一章 `PriorChapterContext`（正文+章纲）显式传入 `write_chapter` 与 `generate_chapter_outline`，修复 DB latest=n-2 的承接断裂；`roles.rs` 编辑审计 max_turns 6→8、max_output_tokens 2048→4096，`evaluate_gate_impl` 内嵌资产/草稿并直裁 final JSON，`parse_editor_verdict` 支持截断修复；批量 run deadline 按章数放大。`continue_assets::render_continue_assets` 新增 StyleDNA/style_slice 稳定前缀块。训练沙盒 `with_asset_ingest_enabled(false)` 阻断生成正文反灌 character/story_outline；`build_roster_block` + 上下文接地过滤上一轮建议，`extract_truth_beats` 从编审 comments 提取真实后续节点；编审/总评走 JSON mode + `complete_truncated_json`。报告区分 gate 降级/编审判裁并修复重复承接列。
 
 > **v0.98.6**：**docs-guard 重跑比较修复**——`.github/workflows/build.yml` 的 `PREV` 只选稳定 tag（`^vX.Y.Z$`），排除 `vX.Y.Z-nightly`；nightly 与稳定 tag 指向同一 commit 时不会再产生空 diff 误判「8 份文档未更新」。Apple Developer Program 协议续签后恢复 macOS 签名/公证与官网同步。
 

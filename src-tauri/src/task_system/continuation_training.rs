@@ -442,6 +442,14 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         // v0.98.0: 上轮报告不只给文本建议，还按维度均分自动加码本轮修正
         // （承接/文笔/情节/口吻/节奏/钩子），把"报告→能力优化"落成指令。
         let context_start = context.first().map(|c| c.0).unwrap_or(1);
+        // 上下文的纯文本只用于人名接地判定（禁止用生成的幻觉人名污染指令）。
+        let context_prose: String = context
+            .iter()
+            .map(|(_, content)| content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let roster = self.load_canonical_roster(&story.id);
+        let roster_block = build_roster_block(&roster);
         let feedback = self.load_training_feedback(&payload.book_title, context_start);
         let force_style_anchor = !style_applied || feedback.style_low();
         let style_anchor = if force_style_anchor {
@@ -472,7 +480,7 @@ impl TaskExecutor for ContinuationTrainingExecutor {
                 ),
             );
         }
-        let prior = self.load_prior_insights(&payload.book_title, context_start);
+        let prior = self.load_prior_insights(&payload.book_title, context_start, &context_prose);
         let first_gen = context_n + 1;
         let last_gen = context_n + truth_n;
         let base_instruction = format!(
@@ -482,20 +490,18 @@ impl TaskExecutor for ContinuationTrainingExecutor {
              （不要总结、不要复述、不要写大纲），并保持人物、地点、时代与未完结事件连续。",
             payload.book_title
         );
-        let base_instruction = if style_anchor.is_empty() {
-            base_instruction
-        } else {
-            format!(
-                "{base_instruction}\n\n【文风锚点（原文节选，务必模仿其遣词造句、对话口吻、\
-                 叙事节奏与生活细节密度，不得改换语体）】\n{style_anchor}"
-            )
-        };
-        let mut instruction = match &prior {
-            Some(insights) => {
-                format!("{base_instruction}\n\n历史训练结论（务必落实）：\n{insights}")
-            }
-            None => base_instruction,
-        };
+        // v0.98.7：名册放在指令前部（章纲规划只看前 3200 字，也必须读到
+        // 「唯一可用具名人物」约束）；编审/历史建议中的名册外人名一律视为
+        // 幻觉忽略，避免上一轮报告把杨先生/何小满写进本轮设定。
+        let mut instruction = base_instruction;
+        if !roster_block.is_empty() {
+            instruction = format!("{instruction}\n\n{roster_block}");
+        }
+        if let Some(insights) = &prior {
+            instruction = format!(
+                "{instruction}\n\n历史训练结论（务必落实；其中名册外的人名一律忽略）：\n{insights}"
+            );
+        }
         // 维度修正：上一轮报告的低分维度→本轮硬性写作要求。
         let corrections = feedback.correction_block();
         if !corrections.is_empty() {
@@ -506,6 +512,12 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             instruction = format!(
                 "{instruction}\n\n【本轮重点修正（来自上一轮编审报告）】\n{}",
                 corrections.join("\n")
+            );
+        }
+        if !style_anchor.is_empty() {
+            instruction = format!(
+                "{instruction}\n\n【文风锚点（原文节选，务必模仿其遣词造句、对话口吻、\
+                 叙事节奏与生活细节密度，不得改换语体）】\n{style_anchor}"
             );
         }
         // 承接锚点放最后（指令 recency 最高）；旧版 style anchor 截断也
@@ -526,10 +538,13 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             TrainingStage::Continue.label(),
         );
         let run_id = uuid::Uuid::new_v4().to_string();
+        // v0.98.7：训练沙盒关闭后台 ingest——生成正文不是原书事实，
+        // 反向资产桥接会把臆造人名/大纲写回，后续章节持续放大幻觉。
         let coordinator = crate::agency::coordinator::AgencyCoordinator::new(
             self.app_handle.clone(),
             self.pool.clone(),
-        );
+        )
+        .with_asset_ingest_enabled(false);
         let cancel = Arc::new(AtomicBool::new(false));
         // 取消传播：任务被取消时同步中断续写管线（统一取消监听器，500ms）。
         // 监听句柄 Drop 随 execute 结束自动停止轮询，不再泄漏协程。
@@ -704,12 +719,31 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         }
 
         // ── 9. 报告生成（确定性排版 + 编审结论）────────────────
+        let gate_degraded = batch
+            .chapters
+            .iter()
+            .filter(|c| is_degraded_gate_comment(&c.verdict.comments))
+            .count();
         let gate_passed = batch
             .chapters
             .iter()
-            .filter(|c| c.verdict.verdict == "pass")
+            .filter(|c| {
+                c.verdict.verdict == "pass"
+                    && !c.revised
+                    && !is_degraded_gate_comment(&c.verdict.comments)
+            })
             .count();
         let revised_count = batch.chapters.iter().filter(|c| c.revised).count();
+        // 幻觉人名集合：当前沙盒 ingest/模型生成的角色 + 编审文本里引用的
+        // 名册外人名（上一轮建议过滤也复用同一口径）。
+        let mut ungrounded = std::collections::HashSet::new();
+        for name in self.ungrounded_character_names(&story.id, &context_prose) {
+            ungrounded.insert(name);
+        }
+        for review in &reviews {
+            collect_unquoted_ungrounded_names(&review.comments, &context_prose, &mut ungrounded);
+            collect_unquoted_ungrounded_names(&review.improvement, &context_prose, &mut ungrounded);
+        }
         let asset_line = if let Some(err) = rebuilt.llm_error.as_deref() {
             format!(
                 "资产重建失败（继续训练）：{}",
@@ -735,9 +769,11 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             synthesis.as_ref(),
             &asset_line,
             gate_passed,
+            gate_degraded,
             revised_count,
             style_applied,
             &feedback,
+            &ungrounded,
         );
         ctx.update_progress(
             TrainingStage::Report.step(),
@@ -1283,50 +1319,113 @@ impl ContinuationTrainingExecutor {
         }
     }
 
-    /// 最近 2 轮报告的 improvement 建议拼成闭环提示。
+    /// 最近一轮报告的 improvement 建议拼成闭环提示。
     ///
     /// v0.93.16：只取与当前承接区间（`start_chapter..start+context_chapters`）
     /// 重叠的报告。跨区间建议是具体剧情/人设（如「从包玉芹送房继续」），
     /// 被注入到第 97 章之后的训练会直接污染续写（真机事故：现代都市陈默）。
-    fn load_prior_insights(&self, book_title: &str, start_chapter: usize) -> Option<String> {
+    /// v0.98.7：只取最近一轮（此前取两轮，上一轮臆造的「杨先生/何小满」
+    /// 与更早一轮的真实主线建议互相矛盾）；且过滤掉含上下文未接地人名的
+    /// 建议行——上一轮编审描述的是**它自己的幻觉世界**，不能当本轮事实。
+    fn load_prior_insights(
+        &self,
+        book_title: &str,
+        start_chapter: usize,
+        context_prose: &str,
+    ) -> Option<String> {
         let conn = self.pool.get().ok()?;
         let mut stmt = conn
             .prepare(
-                "SELECT improvement_md FROM continuation_training_reports \
+                "SELECT improvement_md, story_id, chapter_reviews_json \
+                 FROM continuation_training_reports \
                  WHERE book_title = ?1 AND improvement_md IS NOT NULL AND improvement_md != '' \
                  AND start_chapter <= ?2 \
                  AND ?2 < start_chapter + context_chapters \
-                 ORDER BY created_at DESC LIMIT 2",
+                 ORDER BY created_at DESC LIMIT 1",
             )
             .ok()?;
-        let rows: Vec<String> = stmt
-            .query_map(rusqlite::params![book_title, start_chapter as i64,], |r| {
-                r.get::<_, String>(0)
+        let row = stmt
+            .query_row(rusqlite::params![book_title, start_chapter as i64,], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                ))
             })
-            .ok()?
-            .filter_map(|r| r.ok())
-            .collect();
+            .ok();
         drop(stmt);
-        if rows.is_empty() {
+        let (improvement, story_id, reviews_json) = row?;
+        let mut ungrounded = std::collections::HashSet::new();
+        if let Some(story_id) = story_id.as_deref() {
+            for name in self.ungrounded_character_names(story_id, context_prose) {
+                ungrounded.insert(name);
+            }
+        }
+        if let Some(value) = reviews_json
+            .as_deref()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+        {
+            if let Some(items) = value.as_array() {
+                for item in items {
+                    for field in ["comments", "improvement"] {
+                        if let Some(text) = item.get(field).and_then(|v| v.as_str()) {
+                            collect_unquoted_ungrounded_names(text, context_prose, &mut ungrounded);
+                        }
+                    }
+                }
+            }
+        }
+        let filtered = filter_improvement_lines(&improvement, &ungrounded);
+        if filtered.trim().is_empty() {
             return None;
         }
-        // rows 按 created_at DESC 取 2 条后反转：i=0 是更早一轮，i=1
-        // 是最近一轮。
-        Some(
-            rows.iter()
-                .rev()
-                .enumerate()
-                .map(|(i, r)| {
-                    let label = if i == 0 {
-                        "更早一轮"
-                    } else {
-                        "最近一轮"
-                    };
-                    format!("{label}训练建议：\n{r}")
-                })
-                .collect::<Vec<_>>()
-                .join("\n\n"),
-        )
+        Some(format!("最近一轮训练建议：\n{filtered}"))
+    }
+
+    /// 训练沙盒当前故事中「非权威」角色名（ingest/模型生成引入的）。
+    /// 只在名字未出现在真实上下文时视为幻觉人名（「燕子」等原文已有称谓
+    /// 不误伤）。
+    fn ungrounded_character_names(&self, story_id: &str, context_prose: &str) -> Vec<String> {
+        let Ok(conn) = self.pool.get() else {
+            return Vec::new();
+        };
+        let Ok(mut stmt) = conn.prepare(
+            "SELECT name FROM characters WHERE story_id = ?1 \
+             AND COALESCE(source, '') NOT IN ('training_assets', 'user_created')",
+        ) else {
+            return Vec::new();
+        };
+        stmt.query_map(rusqlite::params![story_id], |r| r.get::<_, String>(0))
+            .ok()
+            .map(|rows| {
+                rows.flatten()
+                    .filter(|name| {
+                        !name.trim().is_empty()
+                            && !crate::agency::prose_ground::name_in_prose(name, context_prose)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// 沙盒的权威人物名册（资产重建 source='training_assets'）。
+    fn load_canonical_roster(&self, story_id: &str) -> Vec<(String, String)> {
+        let Ok(conn) = self.pool.get() else {
+            return Vec::new();
+        };
+        let Ok(mut stmt) = conn.prepare(
+            "SELECT name, COALESCE(background, '') FROM characters \
+             WHERE story_id = ?1 AND source = 'training_assets' \
+             ORDER BY created_at LIMIT 12",
+        ) else {
+            return Vec::new();
+        };
+        stmt.query_map(rusqlite::params![story_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+        .ok()
+        .map(|rows| rows.flatten().collect())
+        .unwrap_or_default()
     }
 
     /// 上一轮编审报告 → 本轮修正（同书同区间；跨区间建议会污染剧情）。
@@ -1478,14 +1577,19 @@ impl ContinuationTrainingExecutor {
                 prior_tail,
                 attempt > 0,
             );
+            // v0.98.7：JSON mode + 3200 tokens。旧版 1600 tokens 常在
+            // comments/improvement 中途截断（真机 3/10 章「编审输出无法
+            // 解析」）；JSON mode 也让推理模型在 content 为空时从思维链
+            // 提取完整裁决。
             let (_, result) = llm
-                .generate_for_task_with_system_prompt(
+                .generate_for_task_with_system_prompt_and_format(
                     crate::router::TaskType::Proofreading,
                     prompt,
-                    Some(1600),
+                    Some(3200),
                     Some(0.2),
                     Some("continuation_training_chapter_review"),
                     Some(system.to_string()),
+                    Some(crate::llm::adapter::ResponseFormat::JsonObject),
                     None,
                 )
                 .await;
@@ -1605,13 +1709,14 @@ impl ContinuationTrainingExecutor {
         let prompt =
             Self::synthesis_prompt(book_title, context_n, truth_n, truths, generated, reviews);
         let (_, result) = llm
-            .generate_for_task_with_system_prompt(
+            .generate_for_task_with_system_prompt_and_format(
                 crate::router::TaskType::Analysis,
                 prompt,
-                Some(2200),
+                Some(4096),
                 Some(0.2),
                 Some("continuation_training_synthesis"),
                 Some(system.to_string()),
+                Some(crate::llm::adapter::ResponseFormat::JsonObject),
                 None,
             )
             .await;
@@ -1716,9 +1821,11 @@ impl ContinuationTrainingExecutor {
         synthesis: Option<&SynthesisReport>,
         asset_line: &str,
         gate_passed: usize,
+        gate_degraded: usize,
         revised_count: usize,
         style_applied: bool,
         feedback: &TrainingFeedback,
+        ungrounded: &std::collections::HashSet<String>,
     ) -> (String, String, String) {
         let first_gen = (context_n + 1) as i32;
         let last_gen = first_gen + truth_n as i32 - 1;
@@ -1738,6 +1845,25 @@ impl ContinuationTrainingExecutor {
         } else {
             Some(overalls.iter().sum::<f64>() / overalls.len() as f64)
         };
+        // v0.98.7：gate 的「降级放行」（编辑审计熔断/解析失败）不再冒充
+        // pass；编审判裁单独统计，避免「10 章通过」与逐章 7 章 revise 的
+        // 自相矛盾报告。
+        let audit_pass = reviews
+            .iter()
+            .filter(|r| r.verdict == "pass" && r.overall.is_some())
+            .count();
+        let audit_revise = reviews
+            .iter()
+            .filter(|r| r.verdict == "revise" && r.overall.is_some())
+            .count();
+        let audit_unavailable = reviews
+            .iter()
+            .filter(|r| r.verdict == "unavailable" || r.overall.is_none())
+            .count();
+        let gate_line = format!(
+            "{} 章通过 / {} 章修订 / {} 章质检降级（编辑审计未完成，已放行保产出）",
+            gate_passed, revised_count, gate_degraded
+        );
 
         let mut rows = String::new();
         for review in reviews {
@@ -1817,18 +1943,19 @@ impl ContinuationTrainingExecutor {
                     .collect()
             });
         let comments = synthesis.map(|s| s.comments.clone()).unwrap_or_default();
-        let improvement_md = derive_improvements(reviews, synthesis, &dim_avgs);
+        let improvement_md = derive_improvements(reviews, synthesis, &dim_avgs, ungrounded);
 
         let mut md = format!(
             "# 续写质量分析报告 · 《{book_title}》\n\n\
              - 训练区间：原书第 {}–{} 章（{} 章上下文）；连续续写 {} 章（沙盒第 {}–{} 章）对比原书第 {}–{} 章\n\
              - 编审 Agent：EditorAuditor（agency_editor_auditor_system）逐章对比 + 跨章总评\n\
              - 加权总分：{}\n\
-             - 生成质量门：{} 章通过 / {} 章修订（gate 由编审 Agent 同源复核）\n\n\
+             - 生成质量门：{gate_line}\n\
+             - 编审判裁：{audit_pass} 章 pass / {audit_revise} 章 revise / {audit_unavailable} 章不可用（逐章对比裁定）\n\n\
              ## 五维均值\n\n{}\n\n\
              ## 逐章对比\n\n\
              | 沙盒章 | 原书章 | 裁决 | 总分 | {} | 承接 | 摘要 |\n\
-             |---|---|---|---|---|---|--------|\n\
+             |---|---|---|---|---|---|---|---|---|---|---|\n\
              {rows}\n\
              ## 跨章全面对比\n\n",
             context.first().map(|c| c.0).unwrap_or(0),
@@ -1842,13 +1969,10 @@ impl ContinuationTrainingExecutor {
             overall
                 .map(|v| format!("{v:.2}"))
                 .unwrap_or_else(|| "评分不可用".into()),
-            gate_passed,
-            revised_count,
             dim_lines,
             JUDGE_DIMENSIONS
                 .iter()
                 .map(|dim| dimension_label(dim).to_string())
-                .chain(std::iter::once("承接".to_string()))
                 .collect::<Vec<_>>()
                 .join(" | "),
         );
@@ -1878,12 +2002,11 @@ impl ContinuationTrainingExecutor {
             "\n## 下一轮改进（自动注入续写指令）\n\n{improvement_md}\n\n\
              ## 本轮训练流程\n\
              - 资产重建：{asset_line}\n\
-             - 编审：逐章对比 {} 对（编审 Agent）+ 跨章总评；生成质量门 {} 章通过 / {} 章修订\n\
+             - 编审：逐章对比 {} 对（编审 Agent）+ 跨章总评；生成质量门 {gate_line}；\
+             编审判裁 {audit_pass} pass / {audit_revise} revise / {audit_unavailable} 不可用\n\
              - 风格：{}\n\
              - 下一轮：自动注入本报告改进项，并按上一轮低分维度自动加码修正\n",
             reviews.len(),
-            gate_passed,
-            revised_count,
             if style_applied {
                 "StyleDNA 已绑定"
             } else {
@@ -2097,11 +2220,35 @@ struct RawJudgeReport {
     continuity: Option<serde_json::Value>,
 }
 
+/// 结构化评审输出的宽容解析：宽松 JSON → 补全截断括号 → 取最后一个完整
+/// 对象。v0.98.7：续写训练编审曾因输出截断 3/10 章判不可用。
+fn parse_json_lenient<T: serde::de::DeserializeOwned>(raw: &str) -> Option<T> {
+    // 截断修复必须排在宽松解析前面：parse_lenient 对截断 JSON 可能吐出
+    // 一个「全字段 default 的空对象」（RawJudgeReport 全字段 serde default），
+    // 空壳会被当成功、导致五维缺失。先补括号才能拿到真实字段。
+    if let Some(fixed) = crate::utils::json::complete_truncated_json(raw) {
+        if let Ok(v) = serde_json::from_str::<T>(&fixed) {
+            return Some(v);
+        }
+    }
+    if let Some(v) = crate::agency::coordinator::parse_lenient::<T>(raw) {
+        return Some(v);
+    }
+    if let Some(json) = crate::utils::json::extract_last_json_object(raw) {
+        if let Ok(v) = serde_json::from_str::<T>(&json) {
+            return Some(v);
+        }
+    }
+    None
+}
+
 /// 解析并校验判官输出：五维必须齐全且为 1-10 的数值（或数字字符串/
 /// "6/10"）；缺失任一分维度即视为不可用（返回 None），由调用方重试，
 /// 不再落库「总分 0.00、五维 -」的假报告。overall 缺失时按五维均值折算。
 fn parse_judge_report(raw: &str) -> Option<JudgeReport> {
-    let parsed: RawJudgeReport = crate::agency::coordinator::parse_lenient(raw)?;
+    // v0.98.7：编审输出常在 JSON 中途被截断（真机 comments 后断句）。
+    // 先走既有宽松解析；失败时补全括号，再取最后一个完整对象。
+    let parsed: RawJudgeReport = parse_json_lenient(raw)?;
     let scores_obj = parsed.scores?.as_object()?.clone();
     let mut scores = serde_json::Map::new();
     let mut sum = 0.0;
@@ -2238,7 +2385,7 @@ fn text_list(value: Option<&serde_json::Value>) -> Vec<String> {
 
 /// 编审跨章总评（宽容解析：数组可为字符串；任一字段可用即接受）。
 fn parse_synthesis(raw: &str) -> Option<SynthesisReport> {
-    let value: serde_json::Value = crate::agency::coordinator::parse_lenient(raw)?;
+    let value: serde_json::Value = parse_json_lenient(raw)?;
     let object = value.as_object()?;
     let mut report = SynthesisReport {
         overall: object.get("overall").cloned(),
@@ -2298,16 +2445,213 @@ fn deterministic_cross(
     out
 }
 
+/// v0.98.7：gate「降级放行」判定。编辑审计熔断/解析失败时
+/// salvage_failed_gate 会合成 pass，但 comments 带降级标记——报告必须
+/// 区分真实通过、修订与「质检未完成」。
+fn is_degraded_gate_comment(comments: &str) -> bool {
+    const MARKERS: [&str; 4] = ["降级放行", "熔断", "审查未完成", "编辑审计失败"];
+    MARKERS.iter().any(|marker| comments.contains(marker))
+}
+
+/// v0.98.7：构建权威人物名册块。名册来自资产重建（training_assets），
+/// 全部在实际上下文中出现过；把「唯一可用具名人物 + 主角不得另起姓名」
+/// 写成硬约束。此前 writer 在护士场景自行命名「杨先生/何小满」，随后被
+/// ingest 写回资产并逐章放大。
+fn build_roster_block(roster: &[(String, String)]) -> String {
+    if roster.is_empty() {
+        return String::new();
+    }
+    let mut lines = String::new();
+    for (idx, (name, background)) in roster.iter().take(12).enumerate() {
+        let role = if idx == 0 { "（主角）" } else { "" };
+        let bg: String = background.trim().chars().take(60).collect();
+        if bg.is_empty() {
+            lines.push_str(&format!("- {name}{role}\n"));
+        } else {
+            lines.push_str(&format!("- {name}{role}：{bg}\n"));
+        }
+    }
+    format!(
+        "【权威人物名册（唯一可用具名人物；不得发明名册外姓名）】\n{lines}\
+         写作硬约束：\n\
+         - 主角沿用原文已有姓名；原文用第一人称「我」叙述时，不得给主角另起姓名称呼；\n\
+         - 不得把路人/次要角色命名（护士、摊主、警员、司机只用身份称呼）；\n\
+         - 上一轮编审建议或历史结论中出现名册外的人名，一律视为幻觉，忽略该名字及其设定。"
+    )
+}
+
+/// 从文本中的引号内容提取像人名但未在上下文中出现的词（用于过滤上一轮
+/// 编审建议：它们描述的是自己的幻觉世界，不能当事实注入下一轮）。
+fn collect_unquoted_ungrounded_names(
+    text: &str,
+    context_prose: &str,
+    out: &mut std::collections::HashSet<String>,
+) {
+    for token in quoted_tokens(text) {
+        let name = token.trim();
+        if !character_like(name) || name.is_empty() {
+            continue;
+        }
+        if !crate::agency::prose_ground::name_in_prose(name, context_prose) {
+            out.insert(name.to_string());
+        }
+    }
+}
+
+/// 提取常见中文引号块内容（“…”/「…」/『…』/"…"）。
+fn quoted_tokens(text: &str) -> Vec<String> {
+    let pairs = [('“', '”'), ('「', '」'), ('『', '』'), ('"', '"')];
+    let mut out = Vec::new();
+    for (open, close) in pairs {
+        let chars: Vec<char> = text.chars().collect();
+        let mut i = 0usize;
+        while i < chars.len() {
+            if chars[i] != open {
+                i += 1;
+                continue;
+            }
+            let start = i + 1;
+            let mut j = start;
+            while j < chars.len() && chars[j] != close {
+                j += 1;
+            }
+            if j > start {
+                let token: String = chars[start..j].iter().collect();
+                out.push(token.trim_matches(|c: char| c.is_whitespace()).to_string());
+            }
+            i = j + 1;
+        }
+    }
+    out
+}
+
+/// 像人名（先生/哥/叔/老头等称谓，或老X/小X）——只用于幻觉名过滤，
+/// 不用于正向生成。
+fn character_like(token: &str) -> bool {
+    let token = token.trim();
+    let len = token.chars().count();
+    if len == 0 || len > 6 {
+        return false;
+    }
+    const SUFFIXES: [&str; 18] = [
+        "先生", "女士", "哥", "兄弟", "叔", "爷", "老头", "老爹", "大娘", "婶", "太太", "师傅",
+        "师父", "道长", "道姑", "姑娘", "丫头", "小子",
+    ];
+    if SUFFIXES.iter().any(|suffix| token.ends_with(suffix)) {
+        return true;
+    }
+    (token.starts_with('老') || token.starts_with('小')) && len <= 4
+}
+
+/// 过滤含幻觉人名的建议行（保留其余可执行条目）。
+fn filter_improvement_lines(text: &str, ungrounded: &std::collections::HashSet<String>) -> String {
+    text.lines()
+        .filter(|line| {
+            let line = line.trim();
+            !line.is_empty() && !ungrounded.iter().any(|name| line.contains(name))
+        })
+        .map(|line| line.trim().to_string())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// 从逐章编审 comments 中提取「真实后续」节点（只保留不含幻觉人名的句子）。
+/// 这是训练闭环里最有价值的对比产物：下一轮 writer/章纲才能对齐作者原书
+/// 的后续主线，而不是在自造支线里越走越远。
+fn extract_truth_beats(
+    reviews: &[ChapterReviewOutcome],
+    ungrounded: &std::collections::HashSet<String>,
+) -> Vec<String> {
+    const MARKERS: [&str; 6] = [
+        "真实剧情是",
+        "真实章是",
+        "基准章为",
+        "基准章是",
+        "真实后续是",
+        "原书第",
+    ];
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for review in reviews {
+        for sentence in review.comments.split(['。', '；', '\n']) {
+            let sentence = sentence.trim();
+            if sentence.is_empty() {
+                continue;
+            }
+            let Some(pos) = MARKERS
+                .iter()
+                .filter_map(|marker| sentence.find(marker))
+                .min()
+            else {
+                continue;
+            };
+            let marker_len = MARKERS
+                .iter()
+                .filter(|marker| sentence[pos..].starts_with(*marker))
+                .map(|marker| marker.len())
+                .max()
+                .unwrap_or(0);
+            if marker_len == 0 {
+                continue;
+            }
+            let mut beat = sentence[pos + marker_len..].trim().to_string();
+            for pivot in [
+                "，AI续写",
+                "，AI",
+                "；AI",
+                "。AI",
+                "，但AI",
+                "但AI",
+                "AI却",
+                "，上一章结尾",
+                "，而AI",
+                "，完全无视",
+                "完全无视上一章",
+            ] {
+                if let Some(q) = beat.find(pivot) {
+                    beat = beat[..q].trim().to_string();
+                }
+            }
+            let t = beat.trim_matches(|c: char| c == '，' || c == ',' || c.is_whitespace());
+            if t.chars().count() < 4 {
+                continue;
+            }
+            if ungrounded.iter().any(|name| t.contains(name)) {
+                continue;
+            }
+            let key: String = t.chars().take(24).collect();
+            if seen.insert(key) {
+                out.push(format!(
+                    "真实后续节点：{}",
+                    t.chars().take(120).collect::<String>()
+                ));
+            }
+        }
+    }
+    out.truncate(6);
+    out
+}
+
 /// 下一轮改进文本：编审总评改进项优先，其次逐章改进与低分维度修正。
 /// 去重、限长（<=1600 字符），保证可被下一轮指令完整注入。
 fn derive_improvements(
     reviews: &[ChapterReviewOutcome],
     synthesis: Option<&SynthesisReport>,
     dim_avgs: &[(&str, Option<f64>)],
+    ungrounded: &std::collections::HashSet<String>,
 ) -> String {
     let mut lines: Vec<String> = Vec::new();
+    // 真实后续节点先放前面（下一轮主线对齐），且已排除幻觉人名。
+    lines.extend(extract_truth_beats(reviews, ungrounded));
     if let Some(synthesis) = synthesis {
-        lines.extend(synthesis.improvement.iter().take(6).cloned());
+        lines.extend(
+            synthesis
+                .improvement
+                .iter()
+                .take(6)
+                .filter(|text| !ungrounded.iter().any(|name| text.contains(name)))
+                .cloned(),
+        );
     }
     for (dim, avg) in dim_avgs {
         if let Some(value) = avg.filter(|v| *v < FEEDBACK_THRESHOLD) {
@@ -2320,7 +2664,7 @@ fn derive_improvements(
     }
     for review in reviews {
         let text = review.improvement.trim();
-        if !text.is_empty() {
+        if !text.is_empty() && !ungrounded.iter().any(|name| text.contains(name)) {
             lines.push(text.to_string());
         }
     }
@@ -2761,8 +3105,10 @@ mod tests {
             "世界观✓",
             2,
             0,
+            0,
             true,
             &TrainingFeedback::default(),
+            &std::collections::HashSet::new(),
         );
         assert!(report.contains("续写质量分析报告"));
         assert!(report.contains("连续续写 2 章（沙盒第 3–4 章）对比原书第 3–4 章"));
@@ -2771,6 +3117,11 @@ mod tests {
         assert!(report.contains("承接"));
         assert!(report.contains("下一轮改进"));
         assert!(!improvement.trim().is_empty());
+        assert!(report.contains("编审判裁：2 章 pass"));
+        assert!(report.contains("生成质量门：2 章通过 / 0 章修订 / 0 章质检降级"));
+        // 逐章表头只能有一个「承接」列（v0.98.7 修掉重复列/错位分隔线）。
+        assert_eq!(report.matches("| 承接 |").count(), 1, "{report}");
+        assert!(report.contains("|---|---|---|---|---|---|---|---|---|---|---|"));
         let parsed: serde_json::Value = serde_json::from_str(&scores).unwrap();
         assert_eq!(parsed["chapters"], 2);
         assert_eq!(parsed["reviewed"], 2);
@@ -2786,11 +3137,90 @@ mod tests {
             ("plot", Some(7.0)),
             ("continuity", Some(4.0)),
         ];
-        let text = derive_improvements(&reviews, None, &dims);
+        let text = derive_improvements(&reviews, None, &dims, &std::collections::HashSet::new());
         assert!(text.contains("文笔风格"));
         assert!(text.contains("承接"));
         assert!(!text.contains("情节推进"), "高分维度不落改进");
         assert!(text.chars().count() <= 1600);
+    }
+
+    #[test]
+    fn judge_repairs_truncated_output_instead_of_unavailable() {
+        // 真机原文：JSON 在 comments 中途截断（3/10 章曾判不可用）。
+        let raw = r#"{"verdict":"revise","scores":{"style":3,"plot":4,"voice":3,"pacing":4,"hooks":3},"continuity":3,"overall":0.33,"comments"#;
+        let judge = parse_judge_report(raw).expect("截断 JSON 应补全后解析");
+        assert_eq!(judge.scores.len(), 5);
+        assert_eq!(judge.continuity, Some(3.0));
+        assert!((judge.overall - 0.33).abs() < 1e-9);
+        assert_eq!(judge.verdict, "revise");
+    }
+
+    #[test]
+    fn roster_block_forbids_invented_names_and_marks_protagonist() {
+        let roster = vec![
+            ("周成".to_string(), "阴脉先生，三脉堂术士".to_string()),
+            ("张宝山".to_string(), "刑警队长".to_string()),
+        ];
+        let block = build_roster_block(&roster);
+        assert!(block.contains("周成（主角）"), "{block}");
+        assert!(block.contains("不得发明名册外姓名"), "{block}");
+        assert!(block.contains("主角沿用原文已有姓名"), "{block}");
+        assert!(block.contains("名册外的人名，一律视为幻觉"), "{block}");
+    }
+
+    #[test]
+    fn improvement_filter_drops_hallucinated_names_and_keeps_truth_beats() {
+        let mut ungrounded = std::collections::HashSet::new();
+        ungrounded.insert("杨先生".to_string());
+        ungrounded.insert("何小满".to_string());
+
+        let mut review = review_row(11, 144, 4.0, Some(2.0));
+        review.comments = "真实剧情是主角离开医院去夜总会找邵卫江，AI却强行留在医院审问。".into();
+        review.improvement = "主角固定为杨先生，同伴何小满，严禁出现老陈。".into();
+        let reviews = vec![review];
+        let dims: Vec<(&str, Option<f64>)> = vec![("continuity", Some(1.2))];
+        let text = derive_improvements(&reviews, None, &dims, &ungrounded);
+
+        assert!(
+            text.contains("真实后续节点：主角离开医院去夜总会找邵卫江"),
+            "{text}"
+        );
+        assert!(!text.contains("杨先生"), "{text}");
+        assert!(!text.contains("何小满"), "{text}");
+        assert!(text.contains("承接"), "{text}");
+
+        let filtered = filter_improvement_lines(
+            "1. 主角为杨先生。\n2. 严格承接上一章结尾。\n3. 恢复玄学世界观。",
+            &ungrounded,
+        );
+        assert!(!filtered.contains("杨先生"), "{filtered}");
+        assert!(filtered.contains("严格承接"), "{filtered}");
+        assert!(filtered.contains("恢复玄学世界观"), "{filtered}");
+    }
+
+    #[test]
+    fn truth_beat_cuts_generated_clause_and_keeps_chapter_title() {
+        let mut ungrounded = std::collections::HashSet::new();
+        ungrounded.insert("何小满".to_string());
+        let mut review = review_row(14, 147, 2.0, Some(1.0));
+        review.comments =
+            "基准章为第147章《登山》，上一章结尾主角与何小满在铺子发现铜锁。AI续写却换场。".into();
+        let reviews = vec![review];
+        let beats = extract_truth_beats(&reviews, &ungrounded);
+        assert!(
+            beats.iter().any(|b| b.contains("第147章《登山》")),
+            "{beats:?}"
+        );
+        assert!(!beats.iter().any(|b| b.contains("何小满")), "{beats:?}");
+    }
+
+    #[test]
+    fn degraded_gate_comments_are_not_counted_as_real_pass() {
+        assert!(is_degraded_gate_comment(
+            "编辑审计失败，已降级放行保产出：编辑审计 Agent 被熔断（达到最大轮数）"
+        ));
+        assert!(is_degraded_gate_comment("审查未完成，已熔断"));
+        assert!(!is_degraded_gate_comment("后台质检 pass（round 1）"));
     }
 
     #[test]

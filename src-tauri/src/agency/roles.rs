@@ -43,8 +43,11 @@ pub fn spec_for(role: AgentRole) -> RoleSpec {
             role,
             prompt_id: "agency_editor_auditor_system",
             task_type: TaskType::Proofreading,
-            max_turns: 6,
-            max_output_tokens: 2048,
+            // v0.98.7: 6 → 8。编辑审计要求 9 维评分 + 带证据的阻断清单，
+            // 2048 tokens 常把 JSON 截断；截断 → 解析失败 → 熔断或降级放行。
+            // 输出额度 4096 + 轮数 8 给完整裁决留出空间。
+            max_turns: 8,
+            max_output_tokens: 4096,
             context_budget_chars: 10_000,
         },
         AgentRole::Writer => writer::spec(),

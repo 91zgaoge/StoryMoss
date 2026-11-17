@@ -767,6 +767,34 @@ impl<R: Runtime> LlmService<R> {
         .await
     }
 
+    /// v0.98.7: system_prompt + response_format 组合入口。结构化评审必须
+    /// 走 JSON mode，否则推理模型会把完整 JSON 留在 reasoning_content、
+    /// content 为空（续写训练编审曾 3/10 章不可用）。
+    #[allow(clippy::too_many_arguments)]
+    pub async fn generate_for_task_with_system_prompt_and_format(
+        &self,
+        task: TaskType,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+        context_label: Option<&str>,
+        system_prompt: Option<String>,
+        response_format: Option<ResponseFormat>,
+        trace_id: Option<String>,
+    ) -> (String, Result<GenerateResponse, AppError>) {
+        self.generate_for_task_with_format_impl(
+            task,
+            prompt,
+            max_tokens,
+            temperature,
+            context_label,
+            response_format,
+            system_prompt,
+            trace_id,
+        )
+        .await
+    }
+
     /// 简化入口（显式指定输出格式）：仅指定任务类型，使用默认复杂度/
     /// 优先级进行路由生成
     pub async fn generate_for_task_with_format(

@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.98.6 项目完成状态
+# StoryMoss (草苔) v0.98.7 项目完成状态
+
+> 最后更新: 2026-11-17（**v0.98.7：续写训练报告驱动修复**——本机 9 份《阴脉先生》报告复核后，修复批量续写「gate(n-1)∥writer(n) 时 DB 只有 n-2」的在途承接断裂（PriorChapterContext 进入 writer+章纲）、编辑审计熔断/降级放行冒充通过（轮数/输出额度/内嵌直裁/报告分离）、StyleDNA 未进入续写 prompt、训练生成正文反灌资产造成的幻觉回灌；训练指令携带权威名册并过滤上一轮幻觉建议，编审/总评改 JSON mode+截断修复。Rust **2180/17**（+8），tsc 0，Vitest **723/3**，Playwright **144/5**（全量复跑），fmt/clippy/guard/prettier 全绿。**未关闭**：安装 v0.98.7 后真机复跑 10 章训练，确认连续承接、编审 10/10 可用、报告区分质检降级与下一轮分数回升。
 
 > 最后更新: 2026-11-15（**v0.98.6：docs-guard 重跑比较修复 + macOS 公证恢复**——`PREV` 只选稳定 tag，排除 `vX.Y.Z-nightly`，修复 nightly 与稳定 tag 同 commit 时 diff 为空误判文档未更新；Apple 协议续签后重新发版。Rust **2172/17**（数量不变），tsc 0，Vitest **723/3**，Playwright **144/5**，Swift MCP 29/29。**未关闭**：确认 v0.98.6 macOS 公证、官网上传与 updater 校验成功。
 

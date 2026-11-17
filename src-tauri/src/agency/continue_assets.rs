@@ -857,6 +857,41 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         })
         .unwrap_or_default();
 
+    // v0.98.7：续写资产的 render 此前只渲染世界观/角色/大纲/前文，**从未
+    // 注入 StyleDNA / style_slice**——训练报告显示 style_dna_applied=true 时
+    // 文笔仍持续漂移。风格是章内稳定的写作约束，放进稳定前缀（世界观之后）。
+    let style_block = {
+        let mut parts: Vec<String> = Vec::new();
+        if let Some(blend) = input.bundle.style_blend_text.as_deref() {
+            if !blend.trim().is_empty() {
+                parts.push(format!(
+                    "【风格混合（多风格融合，须兼顾各成分）】\n{}",
+                    truncate_chars(blend, 2400)
+                ));
+            }
+        } else if let Some(dna) = input.bundle.style_dna_extension.as_deref() {
+            if !dna.trim().is_empty() {
+                parts.push(format!(
+                    "【风格 DNA 六维指标（写作时必须遵循；对照句式/用词/对话/修辞）】\n{}",
+                    truncate_chars(dna, 2400)
+                ));
+            }
+        } else if let Some(summary) = input.bundle.style_dna_summary.as_deref() {
+            if !summary.trim().is_empty() {
+                parts.push(format!("【主导风格】{}", truncate_chars(summary, 600)));
+            }
+        }
+        if let Some(slice) = input.bundle.style_slice.as_deref() {
+            if !slice.trim().is_empty() {
+                parts.push(format!(
+                    "【文风片段（模仿其语感、句式与细节密度）】\n{}",
+                    truncate_chars(slice, 1200)
+                ));
+            }
+        }
+        parts.join("\n\n")
+    };
+
     // v0.79.1：把「加载了但没消费」的方法论 / 叙事策略接进稳定区。
     // 这两项章内不变，放在世界观之后、下一节点之前，不打断前缀缓存。
     let methodology = input
@@ -1051,6 +1086,7 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         (redline, true),
         (outline, true),
         (world, true),
+        (style_block, true),
         (methodology, true),
         (quartet, true),
         (logline, true),
@@ -1482,6 +1518,37 @@ mod tests {
         let out = render_continue_assets(&input);
         assert!(out.contains("本拍信息差"), "{out}");
         assert!(out.contains("这封信是哥哥寄的"), "{out}");
+    }
+
+    #[test]
+    fn render_injects_style_dna_in_stable_region() {
+        // v0.98.7：续写资产此前从未注入 StyleDNA，训练报告 style_dna_applied
+        // = true 但文笔持续漂移。风格块必须进入稳定前缀（世界观之后）。
+        let mut bundle = empty_bundle();
+        bundle.style_dna_extension = Some("【风格DNA: 市井江湖】\n- 偏好词类: 市井口语".into());
+        bundle.world_setting = Some("世界概念：阴脉江湖。".into());
+        bundle.story_outline = Some("【核心冲突】周成立足金城".into());
+        let input = ContinueAssetsInput {
+            bundle: &bundle,
+            admitted: &[],
+            roster: &[],
+            location: None,
+            next_node: "",
+            chapter_outline: "",
+            progress_lines: &[],
+            prior_prose: "",
+            tension_lines: &[],
+            arc_lines: &[],
+            logline: None,
+            full_card_names: &[],
+            continuity_blocks: &[],
+        };
+        let out = render_continue_assets(&input);
+        assert!(out.contains("风格 DNA 六维指标"), "{out}");
+        assert!(out.contains("市井口语"), "{out}");
+        let style_pos = out.find("风格 DNA 六维指标").unwrap();
+        let world_pos = out.find("世界观设定").unwrap();
+        assert!(world_pos < style_pos, "风格块应在世界观之后（稳定区）");
     }
 
     #[test]

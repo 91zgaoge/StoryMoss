@@ -191,6 +191,8 @@ pub async fn preview(
                     candidate.chapter_number,
                     "【故事大纲】",
                     "",
+                    None,
+                    "",
                 )
                 .await
         } else {

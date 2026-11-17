@@ -1452,6 +1452,8 @@ async fn test_chapter_outline_prompt_carries_volume_goal() {
             30,
             "【故事大纲】",
             "",
+            None,
+            "",
         )
         .await;
     assert!(out.contains("渡口"), "章纲应正常产出: {out}");
@@ -1476,6 +1478,8 @@ async fn test_chapter_outline_prompt_carries_volume_goal() {
             &budget,
             61,
             "【故事大纲】",
+            "",
+            None,
             "",
         )
         .await;
@@ -2673,6 +2677,67 @@ fn seed_story_with_assets(pool: &crate::db::DbPool) -> String {
     story.id
 }
 
+/// v0.98.7：批量 gate(n-1) 与 writer(n) 并发时，上一章尚未装配进 scenes。
+/// writer 必须使用在途上一章（PriorChapterContext），而不是 DB 里的 n-2。
+#[tokio::test]
+async fn test_write_chapter_prefers_inflight_prior_over_db_n2() {
+    let pool = create_test_pool().unwrap();
+    let story_id = seed_story_with_assets(&pool);
+    {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT INTO scenes (id, story_id, sequence_number, title, content, created_at, updated_at) \
+             VALUES ('s1', ?1, 1, '第1章', '第1章：DB 旧场景（不应作为第5章的前文）', '2026-01-01', '2026-01-01')",
+            rusqlite::params![story_id],
+        )
+        .unwrap();
+    }
+    let mock = RoutingMock::new(0);
+    mock.push("writer", vec![
+        r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第5章","content":"第5章正文：继续在药车旁。","summary":"第5章"}}"#,
+        r#"{"type":"final","content":"完成"}"#,
+    ]);
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), mock.clone());
+    let mut run = AgencyRun::new("rw-prior", "续写");
+    run.story_id = Some(story_id.clone());
+    AgencyRepository::new(pool.clone())
+        .create_run(&run)
+        .unwrap();
+    let board = crate::agency::board::BlackboardService::new(pool.clone());
+    let registry = Arc::new(ToolRegistry::agency_default());
+    let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+    let prior = crate::agency::coordinator::PriorChapterContext {
+        chapter_number: 4,
+        prose: "第4章末尾：我按住药车，护士转身，何小满还在走廊尽头。".into(),
+        outline: "第4章大纲：药车对峙".into(),
+    };
+    let artifacts = coordinator
+        .write_chapter(
+            &budget,
+            &board,
+            &registry,
+            "rw-prior",
+            &story_id,
+            "续写",
+            5,
+            None,
+            Some(&prior),
+            "",
+        )
+        .await
+        .expect("在途上一章应让 writer 正常产稿");
+    assert_eq!(artifacts.draft.key, "第5章");
+    let prompts = mock.writer_prompts.lock().unwrap();
+    assert!(
+        prompts.iter().any(|p| p.contains("按住药车")),
+        "writer prompt 必须包含在途第4章结尾"
+    );
+    assert!(
+        !prompts.iter().any(|p| p.contains("DB 旧场景")),
+        "writer prompt 不得回退到 DB 的 n-2 章正文"
+    );
+}
+
 #[tokio::test]
 async fn test_batch_parallel_two_chapters() {
     let pool = create_test_pool().unwrap();
@@ -2777,6 +2842,20 @@ async fn test_batch_injects_emotion_plan_and_persists_acts() {
         .unwrap();
     assert_eq!(result.chapters.len(), 1);
     let prompts = mock.writer_prompts.lock().unwrap();
+    eprintln!(
+        "prompts count={} contains_prior={} contains_db={}",
+        prompts.len(),
+        prompts.iter().any(|p| p.contains("按住药车")),
+        prompts.iter().any(|p| p.contains("DB 旧场景"))
+    );
+    for p in prompts.iter() {
+        eprintln!(
+            "has_prior={} has_db={} len={}",
+            p.contains("按住药车"),
+            p.contains("DB 旧场景"),
+            p.chars().count()
+        );
+    }
     assert!(
         prompts.iter().any(|p| p.contains("本章情感回路")),
         "批量 writer task 应注入情感块: {:?}",
@@ -3269,7 +3348,7 @@ async fn test_write_chapter_wrong_key_fails_loudly() {
     // 单章续写不再回落到 write_chapter；本契约直接打 tool_loop 路径。
     let err = coordinator
         .write_chapter(
-            &budget, &board, &registry, "rw-1", &story_id, "续写", 1, None, "",
+            &budget, &board, &registry, "rw-1", &story_id, "续写", 1, None, None, "",
         )
         .await
         .unwrap_err();
@@ -3341,6 +3420,20 @@ async fn test_director_directive_injected_and_gate_assembles() {
     assert_eq!(batch.chapters.len(), 1, "应产出一章");
     assert_eq!(batch.chapters[0].chapter_number, 1);
     let prompts = mock.writer_prompts.lock().unwrap();
+    eprintln!(
+        "prompts count={} contains_prior={} contains_db={}",
+        prompts.len(),
+        prompts.iter().any(|p| p.contains("按住药车")),
+        prompts.iter().any(|p| p.contains("DB 旧场景"))
+    );
+    for p in prompts.iter() {
+        eprintln!(
+            "has_prior={} has_db={} len={}",
+            p.contains("按住药车"),
+            p.contains("DB 旧场景"),
+            p.chars().count()
+        );
+    }
     assert!(
         prompts
             .iter()
@@ -4765,7 +4858,17 @@ async fn test_generate_chapter_outline() {
     // 生成章节大纲
     let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
     let outline = coordinator
-        .generate_chapter_outline("r-co", &story.id, "前提", &budget, 1, &assets_ctx, "")
+        .generate_chapter_outline(
+            "r-co",
+            &story.id,
+            "前提",
+            &budget,
+            1,
+            &assets_ctx,
+            "",
+            None,
+            "",
+        )
         .await;
     assert!(!outline.is_empty(), "chapter outline should be non-empty");
     assert!(
@@ -4824,7 +4927,17 @@ async fn test_generate_chapter_outline_skips_without_story_outline() {
     );
     let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
     let outline = coordinator
-        .generate_chapter_outline("r-skip", &story.id, "前提", &budget, 1, &assets_ctx, "")
+        .generate_chapter_outline(
+            "r-skip",
+            &story.id,
+            "前提",
+            &budget,
+            1,
+            &assets_ctx,
+            "",
+            None,
+            "",
+        )
         .await;
     assert!(
         outline.is_empty(),
