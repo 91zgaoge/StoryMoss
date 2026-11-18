@@ -22,6 +22,7 @@ use uuid::Uuid;
 
 use crate::{
     agency::{
+        continue_assets::strip_editor_markup,
         coordinator::{normalize_outline, parse_lenient, SeedRelationship},
         materialize::upsert_seed_relationship,
         prose_ground::name_in_prose,
@@ -171,19 +172,19 @@ pub(crate) fn build_asset_rebuild_prompt(book_title: &str, chapters: &[(usize, S
     }
     format!(
         r#"你是小说资产重建师。只依据下面提供的小说前文归纳设定，不得凭空发明人名、地名、组织名或与原文冲突的设定。所有角色名、关系端点、地点名必须能在前文中找到；不确定就省略。
-请重建世界观、故事大纲、角色与关系，并为每一章给出已发生事件的梗概。只输出一个 JSON 对象（不要 markdown、不要解释文字、不要代码围栏），字段如下：
+请重建故事大纲、逐章梗概、世界观、角色与关系。只输出一个 JSON 对象（不要 markdown、不要解释文字、不要代码围栏），**严格按以下字段顺序输出**（越靠前越重要，后段被截断也不得影响前段）：
 {{
   "logline": "一句话故事线（<=80字）",
-  "world": {{"concept": "世界概念与冲突土壤（150-400字）", "history": "历史/势力背景（80-250字）", "rules": [{{"name": "规则名", "description": "规则说明", "importance": 8}}]}},
   "story_outline": {{"core_conflict": "当前核心冲突", "turning_points": ["前文已经发生的转折（只写已发生的事实）"], "next_node": "紧接最后一章之后、尚未写过的下一推进方向（必须落在本拍现有角色身上）"}},
+  "chapter_outlines": [{{"chapter": 97, "summary": "本章已发生的事件与结果（60-150字）"}}],
+  "world": {{"concept": "世界概念与冲突土壤（150-400字）", "history": "历史/势力背景（80-250字）", "rules": [{{"name": "规则名", "description": "规则说明", "importance": 8}}]}},
   "characters": [{{"name": "前文出现的人名", "background": "来历", "personality": "性格", "goals": "目标", "emotional_core": "情感内核", "emotional_trigger": "情感触发", "emotional_wound": "情感创伤", "emotional_need": "情感需求"}}],
-  "relationships": [{{"source": "角色A", "target": "角色B", "relationship_type": "师徒/敌对/亲缘等", "emotional_bond": "源→目标情感纽带", "description": "关系描述"}}],
-  "chapter_outlines": [{{"chapter": 97, "summary": "本章已发生的事件与结果（60-150字）"}}]
+  "relationships": [{{"source": "角色A", "target": "角色B", "relationship_type": "师徒/敌对/亲缘等", "emotional_bond": "源→目标情感纽带", "description": "关系描述"}}]
 }}
 约束：
-- chapter_outlines 必须覆盖输入的每一章，按原书章号填写。
+- chapter_outlines 必须覆盖输入的每一章，按原书章号填写；summary 只写事实与结果，不写规划。
 - story_outline.next_node 不得与已发生事件重复；不得换主角、换地点或引入新委托。
-- characters 只写前文实际出现的人名，最多 12 人。
+- 各字段保持精简；characters 只写前文实际出现的人名，最多 8 人；不确定的数组用 []，不要输出大段解释。
 - relationships 的 source/target 必须是 characters 中的名字。
 
 小说：《{book_title}》
@@ -534,6 +535,30 @@ fn parse_scene_outline_summary(value: Option<&Value>) -> Vec<(i32, String)> {
     parse_chapter_outlines(value)
 }
 
+/// 逐章梗概的确定性兜底：取每章正文开头/结尾窗口，保证章纲规划与
+/// 下一节点编译至少能看到「这一章发生过什么」。不冒充 LLM 摘要，报告里
+/// 通过 warning 标明是兜底。
+pub(crate) fn deterministic_chapter_summaries(chapters: &[(usize, String)]) -> Vec<(i32, String)> {
+    const WINDOW: usize = 70;
+    let mut out = Vec::with_capacity(chapters.len());
+    for (number, content) in chapters {
+        let plain = strip_editor_markup(content);
+        let chars: Vec<char> = plain.chars().filter(|c| !c.is_whitespace()).collect();
+        if chars.is_empty() {
+            continue;
+        }
+        let summary = if chars.len() <= WINDOW * 2 {
+            chars.iter().collect::<String>()
+        } else {
+            let head: String = chars.iter().take(WINDOW).collect();
+            let tail: String = chars.iter().skip(chars.len() - WINDOW).collect();
+            format!("开头：{head}…结尾：{tail}")
+        };
+        out.push((*number as i32, summary));
+    }
+    out
+}
+
 /// 落库：世界观/大纲/角色/关系/逐章梗概。失败条目只告警，不阻断。
 pub(crate) fn persist_training_bundle(
     pool: &DbPool,
@@ -722,8 +747,17 @@ pub(crate) fn persist_training_bundle(
     }
 
     // 6) 逐章梗概 → scenes.outline_content（供章纲生成与下一节点编译）
+    // v0.99.0：模型 JSON 被截断时 chapter_outlines 往往最先丢（真机 1118
+    // 资产重建 0 章梗概 → 章纲规划看不到 135–143 章的进度，续写只能围着
+    // 末章结尾打转）。缺的章用原文首尾窗口确定性兜底，不冒充 LLM 摘要。
     let outlines = parse_scene_outline_summary(bundle.chapter_outlines.as_ref());
-    if !outlines.is_empty() {
+    if outlines.is_empty() {
+        summary
+            .warnings
+            .push("模型未返回逐章梗概（已用原文首尾窗口兜底）".to_string());
+    }
+    let fallback_outlines = deterministic_chapter_summaries(chapters);
+    {
         let scene_repo = SceneRepository::new(pool.clone());
         let scenes = scene_repo.get_by_story(story_id).unwrap_or_default();
         let by_num: HashMap<i32, String> = outlines.iter().cloned().collect();
@@ -733,7 +767,8 @@ pub(crate) fn persist_training_bundle(
             let summary_text = by_num
                 .get(&number)
                 .cloned()
-                .or_else(|| by_idx.get(i).cloned());
+                .or_else(|| by_idx.get(i).cloned())
+                .or_else(|| fallback_outlines.get(i).map(|(_, s)| s.clone()));
             let Some(summary_text) = summary_text.filter(|s| !s.trim().is_empty()) else {
                 continue;
             };
@@ -751,8 +786,6 @@ pub(crate) fn persist_training_bundle(
                     .push(format!("第{number}章梗概写入失败：{e}")),
             }
         }
-    } else {
-        summary.warnings.push("模型未返回逐章梗概".to_string());
     }
 
     // 防止资产重建把“模型没有返回”当作成功。
@@ -896,6 +929,56 @@ mod tests {
         assert!(prompt.contains("【第 106 章】"));
         assert!(prompt.contains("最后一章上下文的结尾窗口"));
         assert!(prompt.contains("不得凭空发明人名"));
+    }
+
+    #[test]
+    fn asset_rebuild_prompt_orders_outline_before_world_to_survive_truncation() {
+        let prompt = build_asset_rebuild_prompt(
+            "阴脉先生",
+            &[(105, "周先生在道观与鲁汉光对峙。".to_string())],
+        );
+        let story = prompt.find("\"story_outline\"").expect("schema");
+        let chapters = prompt.find("\"chapter_outlines\"").expect("schema");
+        let world = prompt.find("\"world\"").expect("schema");
+        assert!(
+            story < chapters && chapters < world,
+            "截断时优先保住故事大纲/逐章梗概：story={story} chapters={chapters} world={world}"
+        );
+    }
+
+    #[test]
+    fn missing_chapter_outlines_fall_back_to_source_head_tail() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story_with_scenes(&pool);
+        let chapters = vec![
+            (97usize, "周先生拜神仙点空子，鲁汉光盯着他。".to_string()),
+            (98usize, "女老板切料子，老神仙试探周先生。".to_string()),
+        ];
+        let mut bundle = parse_bundle(sample_bundle()).expect("样本 JSON 应解析");
+        bundle.chapter_outlines = None;
+        let summary = persist_training_bundle(&pool, &story_id, &chapters, &bundle);
+        assert_eq!(summary.chapter_outlines, 2, "每章都要有梗概");
+        assert!(
+            summary
+                .warnings
+                .iter()
+                .any(|w| w.contains("原文首尾窗口兜底")),
+            "兜底必须显式告警: {:?}",
+            summary.warnings
+        );
+        let scenes = SceneRepository::new(pool.clone())
+            .get_by_story(&story_id)
+            .unwrap();
+        assert!(scenes[0]
+            .outline_content
+            .as_deref()
+            .unwrap_or_default()
+            .contains("周先生拜神仙"));
+        assert!(scenes[1]
+            .outline_content
+            .as_deref()
+            .unwrap_or_default()
+            .contains("女老板切料子"));
     }
 
     #[test]

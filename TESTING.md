@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.98.9)
+# 🧪 StoryMoss 自动化测试环境 (v0.99.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.99.0 变更说明
+
+- Rust **2191 passed / 17 ignored**（+10）：跨章熔断兜底只取本章草稿（并行批量回归）、`draft_chapter_number` 解析、资产重建字段顺序（大纲/逐章梗概先于 world）、逐章梗概首尾兜底、跨章复制检测（整章复制/开头 120 字复述）、质量门逐章单归类与「判修订未完成」计数、正文首行章名裁切 4 条。
+- tsc 0；Vitest **725 passed / 3 skipped**（数量不变，Rust-only）；Playwright **144 passed / 5 skipped**（全量 E2E 复跑通过）；`cargo +nightly-2026-10-05 fmt`、`cargo clippy --lib`（0 error）、`python3 scripts/architecture_guard.py`、`npm run format:check` 全绿。
+- 验收命令同上；本版为 Rust 训练/批量管线改动，前端视口/功能基线不变。
 
 ### v0.98.9 变更说明
 

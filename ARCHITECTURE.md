@@ -1,5 +1,7 @@
-# StoryMoss v0.98.9 架构文档
+# StoryMoss v0.99.0 架构文档
 
+> **v0.99.0**：**并行批量草稿归属单一化 + 训练写作红线**——`run_batch_inner` 的 gate(n)∥writer(n+1) 并发下，黑板最新草稿通常是下一章；`handle_gate` 修订熔断后按任意 key 兜底、`revision_draft_with_fallback` 第 2 层任意 key 兜底都会把 n+1 正文装进 n 章（真机 13/14、16/17、19/20 字节相同，draft11/15/18 未装配）。新增 `draft_chapter_number`（严格解析 `第N章`/`第N章修订`，禁止前缀误匹配）与 `latest_draft_for_chapter`（仅 `item_type=chapter` + 同章号），两处兜底统一改用；`assemble_next_chapter` 落库前经 `TextUtils::strip_leading_chapter_heading` 裁掉正文首行章名。训练侧新增 `TRAINING_REDLINES`（设定/语体/推进/承接/设定白名单，前部注入章纲规划可见 + 锚点后压轴提醒）；资产重建 JSON 字段顺序把 `story_outline`/`chapter_outlines` 前置，缺失逐章梗概时用原文首尾窗口确定性兜底；训练读取 scene 后 `duplicates_previous_chapter` 拦截整章复制/开头 120 字复述，判分前转「不可用」并在编审行写明；`render_gate_line` 每章单归类并显式「判修订未完成」计数。
+>
 > **v0.98.9**：**任务进度/日志单一刷新源**——任务列表 `useTasks` 每 5 秒轮询，`useTaskLogs` 只在 `task-status-changed`（完成/失败/取消）时失效；运行中的 `task-progress` 没有任何全局消费者，导致展开的日志面板停在展开时刻的进度（头部 40% / 日志 5%）。新增 `hooks/useTaskProgressSync.ts` 在 App 顶层订阅 `task-progress`，每个事件同时失效 `['tasks']` 与该任务的 `['task_logs', task_id]`；后端 `TaskExecutionContext::update_progress` 本就以同一个 `now` 写 `tasks.progress`、`last_heartbeat_at` 与 `task_logs`（v0.93.14），两份查询刷新后展示同批数据。
 
 > **v0.98.8**：**日志自动上传提议链路根修**——诊断日志的实际布局是 `app_data/logs/`（`tracing_appender::rolling::daily` 生成 `storymoss.YYYY-MM-DD`，生产为 JSON `"level":"ERROR"`；`workflow_logger` 写 `logs/creative_workflow.log`），但 `maybe_propose_log_upload` 过去把 `app_data` 根目录传给 `count_recent_errors`、按 legacy `storymoss.log` 前缀与纯文本 ` ERROR ` 匹配，三处叠加使错误计数恒为 0，授权弹窗永不出现。新增 `log_scan_dir(app_dir) -> app_data/logs` 作为唯一扫描目录契约；`count_recent_errors` 识别 `storymoss.*`（daily rolling + legacy `storymoss.log*`），按 `"level":"ERROR"` 或 ` ERROR ` 计数（兼容生产 JSON / 开发 compact），`storymoss-startup-trace.log` 与 `traces/` 子目录不计入。

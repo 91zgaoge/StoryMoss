@@ -159,6 +159,53 @@ impl TextUtils {
         Self::trim_by_longest_border(trimmed).unwrap_or_else(|| text.to_string())
     }
 
+    /// v0.99.0：裁掉生成正文开头的「第N章 / 第N章 标题」独立首行。
+    ///
+    /// 幕前 `scene.title` 已展示章名；正文再带一行章名会让阅读与编审把标题
+    /// 当正文，也容易让相邻章看起来「复制上一章」。只处理首个非空行且整行
+    /// 必须是标题形态：`第` + 数字/中文数字 + `章`，其后只能是空白或不超过
+    /// 16 字、无句读的标题；`第12章正文直接连写` 这类叙述不裁。
+    pub fn strip_leading_chapter_heading(text: &str) -> String {
+        let trimmed = text.trim_start();
+        let Some(line_end) = trimmed.find('\n') else {
+            return text.to_string();
+        };
+        let first = trimmed[..line_end].trim();
+        if first.chars().count() > 24 {
+            return text.to_string();
+        }
+        let Some(rest) = first.strip_prefix('第') else {
+            return text.to_string();
+        };
+        let number_chars: Vec<char> = rest
+            .chars()
+            .take_while(|c| c.is_ascii_digit() || "零〇一二三四五六七八九十百千两".contains(*c))
+            .collect();
+        if number_chars.is_empty() {
+            return text.to_string();
+        }
+        let after_number: String = rest.chars().skip(number_chars.len()).collect();
+        let Some(after) = after_number.strip_prefix('章') else {
+            return text.to_string();
+        };
+        // 「第12章正文」不是标题行；标题与章号之间必须有空白。
+        if !after.is_empty() && !after.starts_with(|c: char| c.is_whitespace()) {
+            return text.to_string();
+        }
+        let title = after.trim();
+        if title.chars().count() > 16
+            || title
+                .chars()
+                .any(|c| "。！？，；：、“”‘’（）《》…".contains(c))
+        {
+            return text.to_string();
+        }
+        // 只吃掉换行与半角空白，保留正文段首的全角缩进（\u{3000}）。
+        let body =
+            trimmed[line_end..].trim_start_matches(|c: char| matches!(c, '\n' | '\r' | ' ' | '\t'));
+        body.to_string()
+    }
+
     /// v0.26.24: 续写跨内容重叠剥离。
     ///
     /// 根因（creative_workflow.log 2026-07-07 09:05）：续写时 TriShot Writer 把
@@ -811,6 +858,43 @@ mod tests {
     #[test]
     fn test_word_count_mixed() {
         assert_eq!(TextUtils::word_count("hello 世界"), 2);
+    }
+
+    #[test]
+    fn strip_leading_chapter_heading_removes_number_only_line() {
+        assert_eq!(
+            TextUtils::strip_leading_chapter_heading("第12章\n\n　　门外进来的不是鬼。"),
+            "　　门外进来的不是鬼。"
+        );
+    }
+
+    #[test]
+    fn strip_leading_chapter_heading_removes_chinese_numeral_and_title() {
+        assert_eq!(
+            TextUtils::strip_leading_chapter_heading("第二十章 朱砂钩\n正文第一段。"),
+            "正文第一段。"
+        );
+    }
+
+    #[test]
+    fn strip_leading_chapter_heading_keeps_narrative_lines() {
+        for text in [
+            "第一章讲的是他如何在金城立威。\n正文。",
+            "第12章正文直接连写。\n第二段。",
+            "第12章 这是一个超过十六个字而且还在继续写的标题\n正文。",
+        ] {
+            assert_eq!(
+                TextUtils::strip_leading_chapter_heading(text),
+                text,
+                "非标题首行不得裁掉: {text}"
+            );
+        }
+    }
+
+    #[test]
+    fn strip_leading_chapter_heading_keeps_body_without_heading() {
+        let text = "　　门外进来的不是鬼。\n　　第二段。";
+        assert_eq!(TextUtils::strip_leading_chapter_heading(text), text);
     }
 
     #[test]

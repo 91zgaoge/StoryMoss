@@ -3215,6 +3215,9 @@ impl AgencyCoordinator {
         tokio::task::spawn_blocking(move || -> String {
             use crate::{db::repositories::SceneRepository, utils::text::TextUtils};
             let mut t = TextUtils::trim_self_repetition(&raw_content);
+            // v0.99.0：模型常把「第N章 标题」写进正文首行；scene.title 另行
+            // 展示章名，正文重复标题会污染阅读与编审对比。
+            t = TextUtils::strip_leading_chapter_heading(&t);
             t = TextUtils::merge_hanging_closing_punct(&t);
             if let Ok(scenes) = SceneRepository::new(pool).get_by_story(&sid) {
                 if let Some(existing) = scenes
@@ -6891,6 +6894,15 @@ impl AgencyCoordinator {
         };
         // v0.93.16：无资产时必须直接续写，不得输出拒绝话术。
         let writer_task = inject_assets_missing_rule(writer_task);
+        // v0.99.0：真机批量 writer 多次撞 max_turns（反复 board_read/
+        // asset_query 轮询），把「一次成稿」写成硬纪律；正文首行不再重复
+        // 章名（scene.title 另展示，正文重复会被编审当成复制上一章）。
+        let writer_task = format!(
+            "{writer_task}\n\
+             【一次成稿纪律】本章资产与在途上文已注入，禁止反复 board_read/asset_query 轮询；\
+             在内部完成构思后一次 board_write 写入完整正文，写完立即 final。\
+             正文开头不得再写「第N章」或章节标题。"
+        );
         let writer_out = self
             .run_role_with_llm_and_budget(
                 budget,
@@ -7116,7 +7128,9 @@ impl AgencyCoordinator {
         // v0.93.16：资产缺失时修订也必须直接产出完整正文。
         let base_task = inject_assets_missing_rule(base_task);
         let writer_task = format!(
-            "{base_task}\n完成后用 board_write 把完整修订稿写入 draft 区（item_type=chapter, key={key}）。"
+            "{base_task}\n【一次成稿纪律】修订基底与资产已注入，禁止反复 board_read/asset_query 轮询；\
+             一次 board_write 写入完整修订稿后立即 final。\n\
+             完成后用 board_write 把完整修订稿写入 draft 区（item_type=chapter, key={key}）。"
         );
         let writer_out = self
             .run_role_with_llm_and_budget(
@@ -7332,11 +7346,20 @@ impl AgencyCoordinator {
                         "skipped",
                         "修订轮未完成（模型熔断），保留首轮草稿继续装配",
                     );
-                    // 模型可能已把新稿写到别的 key；有更完整的新稿则采用。
-                    if let Ok(d) = self.latest_draft(board, run_id).await {
-                        if d.content.chars().count() >= 200 && d.key != draft.key {
+                    // 模型可能已把修订稿写到本章别的 key（如「第N章修订」）；
+                    // 有更完整的同章新稿则采用。v0.99.0：只能采用**本章**草稿——
+                    // 并行批量里 gate(n) 与 writer(n+1) 并发，黑板最新稿通常是
+                    // 下一章；旧实现按任意 key 取稿会把第 n+1 章正文装进第 n
+                    // 章，
+                    // 整批章号错位、相邻章正文完全相同（真机 1118 训练 13/14、
+                    // 16/17、19/20 字节一致）。
+                    if let Ok(d) = self
+                        .latest_draft_for_chapter(board, run_id, chapter_number)
+                        .await
+                    {
+                        if d.content.chars().count() >= 200 && d.content != draft.content {
                             log::warn!(
-                                "agency: 修订熔断后采用黑板新稿「{}」（{} 字）run={}",
+                                "agency: 修订熔断后采用同章黑板新稿「{}」（{} 字）run={}",
                                 d.key,
                                 d.content.chars().count(),
                                 run_id
@@ -8740,10 +8763,52 @@ impl AgencyCoordinator {
         .await
     }
 
-    /// v0.93.3: 修订路径三层兜底取稿——精确 key → 任意 key（v0.80.4「熔断
-    /// 不丢稿」口径）→ prose 直出。此前只有第一层，主创熔断且黑板无精确
-    /// key 稿时整轮失败（真机：「修订主创熔断（达到最大轮数），且黑板无
-    /// 『第11章场景修订』修订稿」）。
+    /// 解析章节草稿 key 的章号：「第12章」「第12章修订」「第12章场景修订」
+    /// → 12。只接受数字章号（writer/revision 约定 key 统一用它）。不能用
+    /// `第1章` 前缀匹配——`第1章` 会误吃 `第10章`。
+    pub(crate) fn draft_chapter_number(key: &str) -> Option<i32> {
+        let rest = key.trim().strip_prefix('第')?;
+        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if digits.is_empty() {
+            return None;
+        }
+        rest[digits.len()..].strip_prefix('章')?;
+        digits.parse().ok()
+    }
+
+    /// 按章号取本章最新有效**章节**草稿（不是任意 key）。并行批量里
+    /// gate(n) 与 writer(n+1) 并发，黑板最新的 draft 通常是下一章；熔断
+    /// 兜底取稿必须限定本章，否则会把 n+1 章正文装进第 n 章，整批章号
+    /// 错位且相邻章正文相同。`item_type=chapter` 同时排除 outline 等条目。
+    async fn latest_draft_for_chapter(
+        &self,
+        board: &BlackboardService,
+        run_id: &str,
+        chapter_number: i32,
+    ) -> Result<BoardItem, AppError> {
+        let board = board.clone();
+        let run_id = run_id.to_string();
+        self.db(move || {
+            let drafts = board.list_zone(&run_id, BoardZone::Draft)?;
+            drafts
+                .into_iter()
+                .rev()
+                .find(|d| {
+                    d.status == "active"
+                        && !d.content.is_empty()
+                        && d.item_type == "chapter"
+                        && Self::draft_chapter_number(&d.key) == Some(chapter_number)
+                })
+                .ok_or_else(|| AppError::from(format!("草稿区缺少第{}章有效稿", chapter_number)))
+        })
+        .await
+    }
+
+    /// v0.93.3: 修订路径三层兜底取稿——精确 key → 同章任意 key（v0.80.4
+    /// 「熔断不丢稿」口径）→ prose 直出。此前只有第一层，主创熔断且黑板
+    /// 无精确 key 稿时整轮失败（真机：「修订主创熔断（达到最大轮数），且
+    /// 黑板无『第11章场景修订』修订稿」）。v0.99.0：第二层限定同章
+    /// `item_type=chapter`，不得取 outline 或下一章稿。
     async fn revision_draft_with_fallback(
         &self,
         board: &BlackboardService,
@@ -8763,18 +8828,23 @@ impl AgencyCoordinator {
                 return Ok(d);
             }
         }
-        // 2) 任意 key（避免模型写错 key 时整轮白跑）
-        if let Ok(d) = self.latest_draft(board, run_id).await {
-            let chars = d.content.chars().count();
-            if chars >= 200 {
-                log::warn!(
-                    "agency: 修订主创未按 key「{}」写入，从黑板取回「{}」（{} 字）run={}",
-                    key,
-                    d.key,
-                    chars,
-                    run_id
-                );
-                return Ok(d);
+        // 2) 同章任意 key（避免模型写错 key 时整轮白跑；禁止跨章/取 outline）
+        if let Some(chapter_number) = Self::draft_chapter_number(key) {
+            if let Ok(d) = self
+                .latest_draft_for_chapter(board, run_id, chapter_number)
+                .await
+            {
+                let chars = d.content.chars().count();
+                if chars >= 200 {
+                    log::warn!(
+                        "agency: 修订主创未按 key「{}」写入，从黑板取回同章稿「{}」（{} 字）run={}",
+                        key,
+                        d.key,
+                        chars,
+                        run_id
+                    );
+                    return Ok(d);
+                }
             }
         }
         // 3) prose 直出（对齐续写路径 writer_prose_fallback）

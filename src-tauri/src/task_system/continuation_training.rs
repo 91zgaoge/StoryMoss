@@ -54,6 +54,18 @@ const SYNTH_TAIL_CHARS: usize = 220;
 /// 上一轮报告维度均分低于该值（10 分制）时，本轮自动加码对应修正
 const FEEDBACK_THRESHOLD: f64 = 6.0;
 
+/// v0.99.0：训练写作红线。真机 1118 报告：跨章复制/原地踏步、文风从写实
+/// 江湖漂移到玄幻惊悚、自创「引魂蛆/骨刺/阴脉起手式」体系。跨章复制已由
+/// 管线串稿修复；这里约束模型不自创体系、不堆砌身体反应、每章必须推进。
+/// 语体不写死某一本书的标签，统一以【文风锚点】/风格 DNA 为准。
+/// 放在指令前部，确保章纲规划（只读前 3200 字）也能看到。
+const TRAINING_REDLINES: &str = "【原作基调与设定红线（最高优先级；违反即判定该章不合格）】\n\
+1. 设定边界：只沿用前文真实原文已经出现的术法、门派、行话与器物；禁止新增前文未建立的修炼/力量体系、异变器官、超自然规则等体系性设定，禁止超能力对轰。确需新名词时每章至多一个，且必须是现实器物或已有体系的延伸，不得改变力量体系。\n\
+2. 语体边界：严格遵守【文风锚点】与风格 DNA 的语体、句式长度、对白比例与生活细节密度；保持主角原有的口吻与松弛感，对白要有身份感与生活质感；禁止翻译腔与西幻舶来词，禁止用「令人作呕的酥麻感/钻心剧痛」等身体反应堆砌替代动作与对话。\n\
+3. 推进边界：每章必须推进上一章结尾的未完结事件，并制造至少一个可验证的状态变化（信息/关系/目标/风险/情绪）；不得整章重复上一章的地点、动作与对白，不得原地踏步。\n\
+4. 承接边界：承接锚点只用于对齐现场与人物状态，禁止复制、改写或复述锚点原文；本章第一段必须写在锚点最后一句话之后发生的新动作/新信息。\n\
+5. 设定白名单：只有小说前文真实原文出现过的术法、门派、器物与专有名词才算「已有设定」；沙盒里 AI 自己新造的名词（异变器官、法器、神秘组织等）不算既有设定，后续章节不得沿用、放大或写成规则。";
+
 /// 训练阶段显式枚举：进度不再是散落的 5/20/30/35/40/75/90/100 常量，
 /// 而是每个阶段唯一的进度/step/文案。新增阶段必须在这里登记，保证单调。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -258,6 +270,30 @@ fn validate_generated_prose(plain: &str) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// v0.99.0：跨章复制检测（判分前的最后一道闸）。
+/// 真机 1118 报告：第 14/17/20 章与上一章正文逐字相同，编审仍按普通章节
+/// 打分。根因（修订熔断按任意 key 取稿）已修；这里再兜底：正文与上一章
+/// 完全相同，或开头 120 字原样出现在上一章正文里，判为「未推进」，不送
+/// 判官、不计入有效续写。
+fn duplicates_previous_chapter(plain: &str, prev_plain: &str) -> bool {
+    fn normalize(text: &str) -> String {
+        text.chars().filter(|c| !c.is_whitespace()).collect()
+    }
+    let current = normalize(plain);
+    let previous = normalize(prev_plain);
+    if current.is_empty() || previous.is_empty() {
+        return false;
+    }
+    if current == previous {
+        return true;
+    }
+    let head: String = current.chars().take(120).collect();
+    if head.chars().count() < 120 {
+        return false;
+    }
+    previous.contains(&head)
 }
 
 pub struct ContinuationTrainingExecutor {
@@ -497,6 +533,8 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         if !roster_block.is_empty() {
             instruction = format!("{instruction}\n\n{roster_block}");
         }
+        // v0.99.0：基调/设定/推进/承接四条红线同样必须进入章纲规划视野。
+        instruction = format!("{instruction}\n\n{TRAINING_REDLINES}");
         if let Some(insights) = &prior {
             instruction = format!(
                 "{instruction}\n\n历史训练结论（务必落实；其中名册外的人名一律忽略）：\n{insights}"
@@ -528,6 +566,12 @@ impl TaskExecutor for ContinuationTrainingExecutor {
                  （该结尾只约束首章（沙盒第 {first_gen} 章）；沙盒第 {} 章及以后\
                  一律承接本沙盒上一章生成的正文，不重复从这段原文起笔。）",
                 first_gen + 1
+            );
+            // 锚点以 recency 优势放在最后，再把红线压轴重申一次：否则模型
+            // 只盯着「承接」而复制结尾（真机报告：把上一章结尾当本章开头）。
+            instruction.push_str(
+                "\n\n【最后提醒】锚点只用于对齐现场，禁止复制/复述；本章必须推进新事件；\
+                 不得新增体系性设定；保持原文语体与主角原有口吻。",
             );
         }
 
@@ -591,6 +635,7 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         // 该章（报告标注"续写缺失"），全部不可用才判训练失败。
         let mut generated: Vec<(i32, String)> = Vec::new();
         let mut unusable: Vec<(i32, String)> = Vec::new();
+        let mut prev_plain: Option<String> = None;
         for item in &batch.chapters {
             let raw = scene_repo
                 .get_by_id(&item.scene_id)
@@ -599,7 +644,20 @@ impl TaskExecutor for ContinuationTrainingExecutor {
                 .and_then(|sc| sc.content)
                 .unwrap_or_default();
             let plain = crate::export::content::content_to_plain_text(&raw);
-            match validate_generated_prose(&plain) {
+            let copied = prev_plain
+                .as_deref()
+                .map(|prev| duplicates_previous_chapter(&plain, prev))
+                .unwrap_or(false);
+            if !plain.trim().is_empty() {
+                // 先把本轮正文记为「上一章」，再做有效性归类（plain 随后被
+                // move 进 generated）。重复稿仍作为下一章的对比基线。
+                prev_plain = Some(plain.clone());
+            }
+            let verdict = match validate_generated_prose(&plain) {
+                Ok(()) if copied => Err("与上一章正文重复（整段复制，未推进）".to_string()),
+                other => other,
+            };
+            match verdict {
                 Ok(()) => generated.push((item.chapter_number, plain)),
                 Err(reason) => {
                     ctx.log(
@@ -680,7 +738,7 @@ impl TaskExecutor for ContinuationTrainingExecutor {
                     truth_ch
                 ),
             );
-            let review = self
+            let mut review = self
                 .review_chapter(
                     &llm,
                     &editor_system,
@@ -693,6 +751,13 @@ impl TaskExecutor for ContinuationTrainingExecutor {
                     &prior_tail,
                 )
                 .await;
+            // 空稿原因（含 v0.99.0 跨章重复）写进编审行，报告不再只说
+            // 「空稿/gate 失败」而说不出到底发生了什么。
+            if !review.prose_available {
+                if let Some((_, reason)) = unusable.iter().find(|(num, _)| *num == gen_ch) {
+                    review.comments = format!("本章 AI 续写不可用：{reason}");
+                }
+            }
             reviews.push(review);
         }
 
@@ -719,21 +784,21 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         }
 
         // ── 9. 报告生成（确定性排版 + 编审结论）────────────────
-        let gate_degraded = batch
-            .chapters
-            .iter()
-            .filter(|c| is_degraded_gate_comment(&c.verdict.comments))
-            .count();
-        let gate_passed = batch
-            .chapters
-            .iter()
-            .filter(|c| {
-                c.verdict.verdict == "pass"
-                    && !c.revised
-                    && !is_degraded_gate_comment(&c.verdict.comments)
-            })
-            .count();
-        let revised_count = batch.chapters.iter().filter(|c| c.revised).count();
+        // 每章只归入一类，避免「修订 + 降级」重叠把总数对不上（真机 1118
+        // 报告 3+0+2=5 与 10 章不符：5 章编审判修订、修订轮熔断后保留首稿）。
+        let (mut gate_passed, mut revised_count, mut gate_degraded, mut gate_unrevised) =
+            (0usize, 0usize, 0usize, 0usize);
+        for c in &batch.chapters {
+            if is_degraded_gate_comment(&c.verdict.comments) {
+                gate_degraded += 1;
+            } else if c.revised {
+                revised_count += 1;
+            } else if c.verdict.verdict == "pass" {
+                gate_passed += 1;
+            } else {
+                gate_unrevised += 1;
+            }
+        }
         // 幻觉人名集合：当前沙盒 ingest/模型生成的角色 + 编审文本里引用的
         // 名册外人名（上一轮建议过滤也复用同一口径）。
         let mut ungrounded = std::collections::HashSet::new();
@@ -750,13 +815,22 @@ impl TaskExecutor for ContinuationTrainingExecutor {
                 Self::preview_chars(err, 160)
             )
         } else {
+            let outline_fallback = rebuilt
+                .warnings
+                .iter()
+                .any(|w| w.contains("原文首尾窗口兜底"));
             format!(
-                "世界观{}｜故事大纲{}｜角色{}｜关系{}｜章节梗概{}",
+                "世界观{}｜故事大纲{}｜角色{}｜关系{}｜章节梗概{}{}",
                 if rebuilt.world { "✓" } else { "—" },
                 if rebuilt.story_outline { "✓" } else { "—" },
                 rebuilt.characters,
                 rebuilt.relationships,
-                rebuilt.chapter_outlines
+                rebuilt.chapter_outlines,
+                if outline_fallback {
+                    "（模型未返回，首尾兜底）"
+                } else {
+                    ""
+                }
             )
         };
         let (report_md, scores_json, improvement_md) = Self::build_report(
@@ -771,6 +845,7 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             gate_passed,
             gate_degraded,
             revised_count,
+            gate_unrevised,
             style_applied,
             &feedback,
             &ungrounded,
@@ -1823,6 +1898,7 @@ impl ContinuationTrainingExecutor {
         gate_passed: usize,
         gate_degraded: usize,
         revised_count: usize,
+        gate_unrevised: usize,
         style_applied: bool,
         feedback: &TrainingFeedback,
         ungrounded: &std::collections::HashSet<String>,
@@ -1860,10 +1936,7 @@ impl ContinuationTrainingExecutor {
             .iter()
             .filter(|r| r.verdict == "unavailable" || r.overall.is_none())
             .count();
-        let gate_line = format!(
-            "{} 章通过 / {} 章修订 / {} 章质检降级（编辑审计未完成，已放行保产出）",
-            gate_passed, revised_count, gate_degraded
-        );
+        let gate_line = render_gate_line(gate_passed, revised_count, gate_degraded, gate_unrevised);
 
         let mut rows = String::new();
         for review in reviews {
@@ -2121,6 +2194,21 @@ struct SynthesisReport {
     improvement: Vec<String>,
     #[serde(default)]
     comments: String,
+}
+
+/// 生成质量门一行。每章只归一类（降级 > 已修订 > 通过 > 判修订未完成），
+/// 四项之和等于批量章数——旧报告 3+0+2=5 与 10 章不符，读者无法判断其余
+/// 5 章去向。
+fn render_gate_line(passed: usize, revised: usize, degraded: usize, unrevised: usize) -> String {
+    let mut line = format!(
+        "{passed} 章通过 / {revised} 章修订 / {degraded} 章质检降级（编辑审计未完成，已放行保产出）"
+    );
+    if unrevised > 0 {
+        line.push_str(&format!(
+            " / {unrevised} 章编审判修订但修订未完成（保留首稿装配）"
+        ));
+    }
+    line
 }
 
 /// 上一轮编审报告 → 本轮指令加码（自动闭环）。
@@ -2753,6 +2841,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn gate_line_accounts_for_every_chapter() {
+        let line = render_gate_line(3, 0, 2, 5);
+        assert!(line.contains("3 章通过 / 0 章修订 / 2 章质检降级"));
+        assert!(
+            line.contains("5 章编审判修订但修订未完成"),
+            "未完成修订的章必须显式计数: {line}"
+        );
+        let full = render_gate_line(10, 0, 0, 0);
+        assert!(
+            !full.contains("编审判修订但修订未完成"),
+            "全通过时不加噪音: {full}"
+        );
+    }
+
+    #[test]
+    fn duplicate_chapter_detection_catches_full_copy_and_copied_ending() {
+        let prev = "上一章结尾，他推开门，走廊尽头那辆换药小车没了。".repeat(20);
+        // 整章逐字复制
+        assert!(duplicates_previous_chapter(&prev, &prev));
+        // 开头原样复述上一章结尾（≥120 字）
+        let copied_head = format!("{prev}本章继续……");
+        assert!(duplicates_previous_chapter(&copied_head, &prev));
+        // 正常承接：新动作起笔
+        let fresh = format!(
+            "他盯着走廊尽头，先没动，反手把门掩上。{}",
+            "新的对峙从这里开始。".repeat(30)
+        );
+        assert!(!duplicates_previous_chapter(&fresh, &prev));
+        // 空稿不参与重复判定
+        assert!(!duplicates_previous_chapter("", &prev));
+    }
+
+    #[test]
     fn style_anchor_takes_tail_of_last_two_context_chapters() {
         let chapters: Vec<Chapter> = (1..=3)
             .map(|i| (i, format!("第{i}章开头铺垫。{}", "市井细节。".repeat(200))))
@@ -3104,6 +3225,7 @@ mod tests {
             None,
             "世界观✓",
             2,
+            0,
             0,
             0,
             true,

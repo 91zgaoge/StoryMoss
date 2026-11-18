@@ -3040,6 +3040,126 @@ async fn test_batch_revision_no_cross_chapter_mixup() {
 }
 
 #[test]
+fn test_draft_chapter_number_parsing() {
+    assert_eq!(AgencyCoordinator::draft_chapter_number("第11章"), Some(11));
+    assert_eq!(
+        AgencyCoordinator::draft_chapter_number("第11章修订"),
+        Some(11)
+    );
+    assert_eq!(
+        AgencyCoordinator::draft_chapter_number("第11章场景修订"),
+        Some(11)
+    );
+    assert_eq!(
+        AgencyCoordinator::draft_chapter_number("outline-第11章"),
+        None,
+        "大纲条目不是章节草稿"
+    );
+    assert_eq!(
+        AgencyCoordinator::draft_chapter_number("第1章说明"),
+        Some(1),
+        "同章附加后缀仍视为本章"
+    );
+    assert_eq!(AgencyCoordinator::draft_chapter_number("第章"), None);
+}
+
+/// v0.99.0 回归：修订轮调用失败（熔断/错误）时，兜底取稿只能取**本章**
+/// 草稿。旧实现按任意 key 取黑板最新稿——并行循环里那正好是第 2 章，
+/// 结果第 1 章 Scene 被写成第 2 章正文，整批章号错位、相邻章正文相同
+/// （真机 1118 训练 13/14、16/17、19/20 字节一致）。
+struct FailingRevisionMock {
+    inner: Arc<RoutingMock>,
+    fired: AtomicBool,
+}
+
+#[async_trait::async_trait]
+impl LoopLlm for FailingRevisionMock {
+    async fn complete(
+        &self,
+        system: &str,
+        u: &str,
+        t: crate::router::TaskType,
+        m: i32,
+    ) -> Result<String, AppError> {
+        // 只失败第 1 章修订轮；后续章节 gate 走 inner 队列。
+        if system.contains("你是「主创」")
+            && u.contains("修订「第1章」")
+            && !self.fired.swap(true, Ordering::SeqCst)
+        {
+            return Err(AppError::from("模拟修订主创调用失败"));
+        }
+        self.inner.complete(system, u, t, m).await
+    }
+}
+
+#[tokio::test]
+async fn test_batch_failed_revision_keeps_chapter_draft_not_next_chapter() {
+    let pool = create_test_pool().unwrap();
+    let story_id = seed_story_with_assets(&pool);
+    // 跳过章纲规划（Producer LLM），保持 gate(1) ∥ writer(2) 的时序。
+    {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "DELETE FROM story_outlines WHERE story_id = ?1",
+            rusqlite::params![&story_id],
+        )
+        .unwrap();
+    }
+    let chapter1 = pass_grade_content("第一章正文：药车旁的发现。");
+    let chapter2 = pass_grade_content("第二章正文：坟场里的约定。");
+    let write1 = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"一"}}}}"#,
+        chapter1
+    );
+    let write2 = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第2章","content":"{}","summary":"二"}}}}"#,
+        chapter2
+    );
+    let mock = RoutingMock::new(0);
+    mock.push(
+        "writer",
+        vec![
+            write1.as_str(),
+            r#"{"type":"final","content":"第一章完成"}"#,
+            write2.as_str(),
+            r#"{"type":"final","content":"第二章完成"}"#,
+        ],
+    );
+    mock.push("editor", vec![
+        r#"{"type":"final","content":"{\"verdict\":\"revise\",\"blocking_issues\":[\"动机弱\"],\"suggestions\":[],\"comments\":\"修\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过\"}"}"#,
+    ]);
+    let failing = Arc::new(FailingRevisionMock {
+        inner: mock,
+        fired: AtomicBool::new(false),
+    });
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), failing);
+    let result = coordinator
+        .run_continue_batch("rb-fail-revision", &story_id, 1, 2)
+        .await
+        .unwrap();
+    assert_eq!(result.chapters.len(), 2);
+    assert!(!result.chapters[0].revised, "修订失败不应标记已修订");
+    let scenes = crate::db::repositories::SceneRepository::new(pool.clone())
+        .get_by_story(&story_id)
+        .unwrap();
+    let s1 = scenes.iter().find(|s| s.sequence_number == 1).unwrap();
+    let s2 = scenes.iter().find(|s| s.sequence_number == 2).unwrap();
+    assert!(
+        s1.content.as_deref().unwrap_or("").contains("药车旁的发现"),
+        "第 1 章必须保留本章草稿，实际: {:?}",
+        s1.content
+            .as_deref()
+            .map(|c| c.chars().take(40).collect::<String>())
+    );
+    assert!(
+        s2.content.as_deref().unwrap_or("").contains("坟场里的约定"),
+        "第 2 章必须是本章草稿"
+    );
+    assert_ne!(s1.content, s2.content, "两章正文不得相同");
+}
+
+#[test]
 fn test_build_bootstrap_result_contract() {
     let result = AgencyGenesisResult {
         run_id: "r1".into(),
