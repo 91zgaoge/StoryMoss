@@ -1,4 +1,6 @@
-# StoryMoss v0.98.8 架构文档
+# StoryMoss v0.98.9 架构文档
+
+> **v0.98.9**：**任务进度/日志单一刷新源**——任务列表 `useTasks` 每 5 秒轮询，`useTaskLogs` 只在 `task-status-changed`（完成/失败/取消）时失效；运行中的 `task-progress` 没有任何全局消费者，导致展开的日志面板停在展开时刻的进度（头部 40% / 日志 5%）。新增 `hooks/useTaskProgressSync.ts` 在 App 顶层订阅 `task-progress`，每个事件同时失效 `['tasks']` 与该任务的 `['task_logs', task_id]`；后端 `TaskExecutionContext::update_progress` 本就以同一个 `now` 写 `tasks.progress`、`last_heartbeat_at` 与 `task_logs`（v0.93.14），两份查询刷新后展示同批数据。
 
 > **v0.98.8**：**日志自动上传提议链路根修**——诊断日志的实际布局是 `app_data/logs/`（`tracing_appender::rolling::daily` 生成 `storymoss.YYYY-MM-DD`，生产为 JSON `"level":"ERROR"`；`workflow_logger` 写 `logs/creative_workflow.log`），但 `maybe_propose_log_upload` 过去把 `app_data` 根目录传给 `count_recent_errors`、按 legacy `storymoss.log` 前缀与纯文本 ` ERROR ` 匹配，三处叠加使错误计数恒为 0，授权弹窗永不出现。新增 `log_scan_dir(app_dir) -> app_data/logs` 作为唯一扫描目录契约；`count_recent_errors` 识别 `storymoss.*`（daily rolling + legacy `storymoss.log*`），按 `"level":"ERROR"` 或 ` ERROR ` 计数（兼容生产 JSON / 开发 compact），`storymoss-startup-trace.log` 与 `traces/` 子目录不计入。
 

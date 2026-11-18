@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.98.9（2026-11-18）
+
+**任务进度与执行日志展示不一致：进度事件现在同时刷新任务列表与日志。**
+
+- 现象：任务详情头部进度已到 40%，展开的「执行日志」最新一条仍停在展开时刻的「进度 5%」；续写训练页状态横幅的「最新日志」同样滞后。
+- **根因**：任务列表每 5 秒轮询，但 `task_logs` 查询只在 `task-status-changed`（完成/失败/取消）时失效；运行中的 `task-progress` 事件没有前端消费者，两份查询刷新节奏不同，日志面板一直显示展开时的旧快照。
+- **修复**：新增 `useTaskProgressSync` 并在 `App` 顶层挂载——每个 `task-progress` 事件同时失效 `['tasks']` 与该任务的 `['task_logs', taskId]`。后端本就在同一次 `now` 写入 `tasks.progress`、心跳与进度日志（v0.93.14），刷新后任务行与日志使用同批数据。
+- **测试**：Vitest **725 passed / 3 skipped**（+2：进度事件同时刷新任务列表与对应日志、缺失 `task_id` 不刷新）；tsc 0；Playwright **144 passed / 5 skipped**（全量复跑）；Rust 数量不变（前端-only 改动）；fmt/prettier/guard 全绿。
+- **未关闭**：安装 v0.98.9 后展开一个运行中的续写训练任务，确认日志随 5% → 20% → 30% → 40% 等阶段实时推进，并与头部进度、更新时间一致。
+
 ## v0.98.8（2026-11-18）
 
 **日志巡检机器人修复：日志自动上传提议链路此前从未触发（三处布局不匹配）。**

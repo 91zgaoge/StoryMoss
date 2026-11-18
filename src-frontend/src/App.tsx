@@ -13,6 +13,7 @@ import { UpdateNotification } from '@/components/updater';
 import { useUpdater } from '@/hooks/useUpdater';
 import { useSyncStore } from '@/hooks/useSyncStore';
 import { useWorkflowNodes } from '@/hooks/useWorkflowNodes';
+import { useTaskProgressSync } from '@/hooks/useTaskProgressSync';
 import { useWebViewRedrawFix } from '@/hooks/useWebViewRedrawFix';
 import { useBackstageTheme } from '@/hooks/useBackstageTheme';
 import { LoginModal } from '@/pages/Login';
@@ -59,6 +60,10 @@ function App() {
 
   // v5.4.0: 监听 Workflow 节点级执行事件（日志/调试用途）
   useWorkflowNodes();
+
+  // v0.98.9: 进度事件同时刷新任务列表与执行日志，消除「头部 40%、
+  // 日志最新仍是 5%」的展示错位。
+  useTaskProgressSync();
 
   // 统一实时状态同步中心：监听后端数据变更事件，自动刷新缓存
   useSyncStore({
