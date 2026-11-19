@@ -74,3 +74,44 @@ pub fn get_feature_usage_stats(
 
     Ok(stats)
 }
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::params;
+
+    use super::*;
+    use crate::db::connection::create_test_pool;
+
+    fn seed(pool: &DbPool, feature: &str, action: &str, days_ago: i64) {
+        let conn = pool.get().unwrap();
+        let created = (Local::now() - chrono::Duration::days(days_ago)).to_rfc3339();
+        conn.execute(
+            "INSERT INTO feature_usage_logs (id, feature_id, action, created_at) \
+             VALUES (?1, ?2, ?3, ?4)",
+            params![uuid::Uuid::new_v4().to_string(), feature, action, created],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn stats_group_by_feature_action_and_respect_window() {
+        let pool = create_test_pool().unwrap();
+        seed(&pool, "story_contract", "opened", 0);
+        seed(&pool, "story_contract", "opened", 1);
+        seed(&pool, "story_contract", "executed", 2);
+        // 窗口外（40 天前）不计入 30 天统计。
+        seed(&pool, "memory_pack", "opened", 40);
+
+        let stats = get_feature_usage_stats(&pool, 30).unwrap();
+        assert_eq!(stats.len(), 2, "{stats:?}");
+        let opened = stats
+            .iter()
+            .find(|s| s.feature_id == "story_contract" && s.action == "opened")
+            .expect("story_contract/opened");
+        assert_eq!(opened.count, 2);
+        assert!(!stats.iter().any(|s| s.feature_id == "memory_pack"));
+
+        let long_window = get_feature_usage_stats(&pool, 60).unwrap();
+        assert!(long_window.iter().any(|s| s.feature_id == "memory_pack"));
+    }
+}

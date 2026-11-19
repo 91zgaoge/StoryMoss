@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.99.4 项目完成状态
+# StoryMoss (草苔) v0.99.5 项目完成状态
+
+> 最后更新: 2026-11-20（**v0.99.5：用量统计幽灵 cost 列 + 功能使用命令未注册**——日志巡检 v0.99.0/macOS 包（11-19 上传，41 ERROR/24 WARN）：①`get_llm_call_stats`/`get_llm_usage_by_role` 查 `llm_calls.cost`，该表从未有 cost 列，用量页每次报 `no such column: cost`（11-14 实锤）；改为只聚合次数/token，`total_cost` 恒 0，`'global'` 恢复跨故事汇总；②前端 `get_feature_usage_stats` 调用的命令从未注册，功能使用页签恒报 `Command not found`（11-14 实锤）；新增命令并注册（默认 30 天、限幅 1–365）。Rust **2224/17**（+4），tsc 0，Vitest **725/3**，Playwright **144/5**（全量复跑），fmt/clippy/guard/prettier 全绿。**未关闭**：安装后打开数据洞察确认两个页签不再报错；`check_update` 平台/网络失败结合发布清单复核。
 
 > 最后更新: 2026-11-19（**v0.99.4：官网 Release 保留策略 5→3**——v0.99.2 三平台构建成功但 `upload-to-website` 在 macOS `.sig` 报 552 Disk full；retention=5 且服务器正好 5 版，pre-upload cleanup「nothing to clean up」，官网 latest.json 停在 0.99.1。脚本默认 `RELEASE_RETENTION_COUNT` 5→3、Cleanup Releases keep 默认 5→3；Cleanup keep=3 已释放空间，v0.99.2 上传 job 重跑中，v0.99.3/v0.99.4 按新策略上传。**未关闭**：确认官网 latest.json 最终版本与 macOS 更新包签名校验。
 

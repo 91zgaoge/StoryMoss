@@ -252,18 +252,26 @@ pub struct LlmCallStats {
 }
 
 /// 获取故事的 LLM 调用统计
+///
+/// `story_id` 传 "global"/空串时聚合全部故事（前端
+/// `getLlmCallStats('global')` 的既有契约）。
 #[command(rename_all = "snake_case")]
 pub async fn get_llm_call_stats(
     story_id: String,
     pool: State<'_, DbPool>,
 ) -> Result<LlmCallStats, AppError> {
     let repo = LlmCallRepository::new(pool.inner().clone());
-    let (count, total_tokens, total_cost) =
-        repo.get_stats_by_story(&story_id).map_err(AppError::from)?;
+    let story = if story_id.is_empty() || story_id == "global" {
+        None
+    } else {
+        Some(story_id.as_str())
+    };
+    let (count, total_tokens) = repo.get_stats(story).map_err(AppError::from)?;
     Ok(LlmCallStats {
         count,
         total_tokens,
-        total_cost,
+        // llm_calls 没有 cost 列（成本账本只记 token）；字段保留恒为 0。
+        total_cost: 0.0,
     })
 }
 
@@ -290,11 +298,12 @@ pub async fn get_llm_usage_by_role(
     let rows = repo.get_usage_by_purpose(story).map_err(AppError::from)?;
     Ok(rows
         .into_iter()
-        .map(|(label, count, total_tokens, total_cost)| LlmUsageByRole {
+        .map(|(label, count, total_tokens)| LlmUsageByRole {
             label,
             count,
             total_tokens,
-            total_cost,
+            // 同上：没有 cost 列，金额字段保留恒为 0。
+            total_cost: 0.0,
         })
         .collect())
 }

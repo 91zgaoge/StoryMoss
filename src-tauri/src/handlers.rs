@@ -353,6 +353,7 @@ tauri::generate_handler! {
     commands::anti_ai::anti_ai_review,
     commands::anti_ai::evolve_style_from_anti_ai_review,
     commands::anti_ai::log_frontend_feature_usage,
+    commands::anti_ai::get_feature_usage_stats,
     // Pipeline data commands (frontend depends on these)
     pipeline::commands::get_story_chapter_drafts,
     pipeline::commands::get_latest_pipeline_review,

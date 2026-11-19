@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.4-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.5-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.5 · 用量统计与功能使用页签修复（日志巡检）
+
+- **问题**：用量统计查询 `llm_calls.cost`，但该表从未有 `cost` 列，数据洞察页每次加载都报 `no such column: cost`；功能使用页签调用的 `get_feature_usage_stats` 命令后端从未注册，恒报 `Command not found`（均来自 v0.99.0 真机日志）。
+- **结果**：统计 SQL 只聚合次数与 token（金额字段保留恒 0），`'global'` 恢复跨故事汇总语义；补齐并注册 `get_feature_usage_stats` 命令（默认 30 天、限幅 1–365）；新增 4 条回归测试。
 
 ### v0.99.4 · 官网 Release 保留策略 5→3（修复 552 Disk full）
 

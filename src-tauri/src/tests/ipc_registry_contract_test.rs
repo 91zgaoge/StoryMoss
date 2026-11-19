@@ -120,3 +120,21 @@ fn v149_lane_and_lease_migration_shipped() {
     assert!(src.contains("story_resource_leases"));
     assert!(src.contains("agency_agent_tasks"));
 }
+
+/// 回归：`get_feature_usage_stats` 曾只是 telemetry 普通函数，从未注册成
+/// 命令；前端数据洞察「功能使用」页签在真机一直报
+/// `Command get_feature_usage_stats not found`（2026-11-14 生产日志实锤）。
+#[test]
+fn telemetry_commands_are_registered() {
+    let src = handlers_source();
+    for command in [
+        "commands::anti_ai::log_frontend_feature_usage",
+        "commands::anti_ai::get_feature_usage_stats",
+    ] {
+        assert!(
+            src.contains(command),
+            "{} 必须注册在 generate_handler! 中（数据洞察功能使用页 IPC 契约）",
+            command
+        );
+    }
+}

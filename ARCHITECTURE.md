@@ -1,4 +1,6 @@
-# StoryMoss v0.99.4 架构文档
+# StoryMoss v0.99.5 架构文档
+
+> **v0.99.5**：**数据洞察统计链路修复**——`LlmCallRepository::get_stats`/`get_usage_by_purpose` 不再查询 `llm_calls.cost`（V062/V089 建表从未包含该列，真机必报 `no such column: cost`），只聚合 `COUNT`/`SUM(total_tokens)`，IPC 层 `total_cost` 保留恒 0；`get_llm_call_stats('global')` 与 `get_llm_usage_by_role` 对齐为跨故事汇总（`None` 过滤）。新增 `commands::anti_ai::get_feature_usage_stats` 命令并注册到 `generate_handler!`（`days` 默认 30、限幅 1–365），修复前端 `loggedInvoke` 的 `Command not found`；IPC 注册表契约测试同步覆盖。
 
 > **v0.99.4**：**官网 Release 保留策略 5→3**——`upload-releases-ftp.mjs` 默认 `RELEASE_RETENTION_COUNT` 改为 3（每版约 660MB，5 版约 3.3GB 触发 552 Disk full）；`cleanup-releases.yml` keep 默认 3；上传前 cleanup + `--cleanup-only` 应急入口保留。v0.99.2 上传失败在 macOS `.app.tar.gz.sig`；Cleanup keep=3 释放空间后重跑上传。
 

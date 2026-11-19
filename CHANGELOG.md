@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.5（2026-11-20）
+
+**日志巡检修复：用量统计幽灵 `cost` 列 + 功能使用命令未注册。**
+
+- 日志来源：v0.99.0 / macOS，日志包 `2266cac5…`（11-19 上传，覆盖 11-08～11-19），41 条 ERROR / 24 条 WARN。
+- **幽灵 `cost` 列**：`get_llm_call_stats` / `get_llm_usage_by_role` 查询 `llm_calls.cost`，但该表自 V062/V089 起从未有 `cost` 列，用量统计每次加载都报 `no such column: cost`（11-14 生产日志实锤）。改为只聚合 `COUNT` 与 `SUM(total_tokens)`，`total_cost` 契约字段保留恒 0（成本账本只记 token）；同时修复前端传 `'global'` 时的跨故事汇总语义（此前被当成字面 story_id，全局卡恒为 0）。
+- **功能使用 IPC 未注册**：前端 `get_feature_usage_stats` 调用的命令后端从未注册，数据洞察「功能使用」页签恒报 `Command get_feature_usage_stats not found`（11-14 实锤）。新增 Tauri 命令包装并注册，`days` 默认 30、限幅 1–365。
+- **测试**：Rust **2224/17**（+4：成本列回归 2、telemetry 窗口聚合 1、IPC 注册表契约 1）；tsc 0；Vitest **725/3**；Playwright **144/5**（全量复跑）；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：安装 v0.99.5 后打开数据洞察确认用量统计与功能使用页签不再报错；`check_update` 平台/网络失败需结合发布清单复核。
+
 ## v0.99.4（2026-11-19）
 
 **官网 Release 保留策略 5→3（修复 v0.99.2 552 Disk full）。**

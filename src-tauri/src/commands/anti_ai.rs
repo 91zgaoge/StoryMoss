@@ -87,3 +87,18 @@ pub fn log_frontend_feature_usage(
 ) {
     crate::telemetry::log_feature_usage(&*pool, &feature_id, &action, story_id.as_deref(), None);
 }
+
+/// 功能使用统计（数据洞察 →「功能使用」页签）。
+///
+/// 此前 `telemetry::get_feature_usage_stats` 只是一个普通函数，从未注册成
+/// Tauri 命令；前端 `loggedInvoke('get_feature_usage_stats')` 在真机一直报
+/// `Command get_feature_usage_stats not found`（2026-11-14 生产日志实锤），
+/// 页签只能显示空数据 + 错误 toast。
+#[tauri::command(rename_all = "snake_case")]
+pub fn get_feature_usage_stats(
+    pool: State<'_, DbPool>,
+    days: Option<i32>,
+) -> Result<Vec<crate::telemetry::FeatureUsageStat>, String> {
+    let days = days.unwrap_or(30).clamp(1, 365);
+    crate::telemetry::get_feature_usage_stats(&*pool, days).map_err(|e| e.to_string())
+}

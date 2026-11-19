@@ -1387,35 +1387,43 @@ impl LlmCallRepository {
         Ok(calls)
     }
 
-    pub fn get_stats_by_story(&self, story_id: &str) -> Result<(i64, i64, f64), rusqlite::Error> {
+    /// 调用统计（次数 / token）。`story_id` 为 None 时聚合全部故事
+    /// （命令层把 "global"/空串归一为 None）。
+    ///
+    /// 注意：`llm_calls` 表从未有 `cost` 列（成本账本只记 token，见
+    /// `llm::cost`）。旧 SQL 里的 `SUM(cost)` 在真机必然报
+    /// `no such column: cost`，用量统计页因此每次加载都失败。金额字段
+    /// 在 IPC 层保留但恒为 0，直到引入模型定价表。
+    pub fn get_stats(&self, story_id: Option<&str>) -> Result<(i64, i64), rusqlite::Error> {
         let conn = self
             .pool
             .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
 
-        let (count, total_tokens, total_cost): (i64, i64, f64) = conn.query_row(
-            "SELECT COUNT(*), COALESCE(SUM(total_tokens), 0), COALESCE(SUM(cost), 0.0) FROM \
-             llm_calls WHERE story_id = ?1",
-            [story_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        let (count, total_tokens): (i64, i64) = conn.query_row(
+            "SELECT COUNT(*), COALESCE(SUM(total_tokens), 0) FROM llm_calls \
+             WHERE (?1 IS NULL OR story_id = ?1)",
+            params![story_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
 
-        Ok((count, total_tokens, total_cost))
+        Ok((count, total_tokens))
     }
 
     /// v0.86.0 A3：按角色标签（context_label 落在 purpose 列）聚合用量，
     /// 供数据洞察的「角色用量」卡。story_id 为 None 时聚合全局。
+    /// 与 `get_stats` 同理，不查询不存在的 `cost` 列。
     pub fn get_usage_by_purpose(
         &self,
         story_id: Option<&str>,
-    ) -> Result<Vec<(String, i64, i64, f64)>, rusqlite::Error> {
+    ) -> Result<Vec<(String, i64, i64)>, rusqlite::Error> {
         let conn = self
             .pool
             .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT COALESCE(purpose, 'unknown') AS label, COUNT(*), \
-             COALESCE(SUM(total_tokens), 0), COALESCE(SUM(cost), 0.0) \
+             COALESCE(SUM(total_tokens), 0) \
              FROM llm_calls WHERE (?1 IS NULL OR story_id = ?1) \
              GROUP BY label ORDER BY SUM(total_tokens) DESC",
         )?;
@@ -1424,7 +1432,6 @@ impl LlmCallRepository {
                 row.get::<_, String>(0)?,
                 row.get::<_, i64>(1)?,
                 row.get::<_, i64>(2)?,
-                row.get::<_, f64>(3)?,
             ))
         })?;
         let mut out = Vec::new();
@@ -1522,5 +1529,79 @@ mod post_process_status_tests {
             error.to_string().contains("无效的 PostProcess 状态"),
             "error={error}"
         );
+    }
+}
+
+#[cfg(test)]
+mod llm_call_stats_tests {
+    use super::*;
+    use crate::db::connection::create_test_pool;
+
+    fn seed_story(pool: &DbPool) -> String {
+        let story_id = Uuid::new_v4().to_string();
+        let conn = pool.get().unwrap();
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO stories (id, title, created_at, updated_at) VALUES (?1, '用量测试', ?2, ?2)",
+            params![story_id, now],
+        )
+        .unwrap();
+        story_id
+    }
+
+    fn seed_call(pool: &DbPool, story_id: &str, purpose: &str, tokens: i64) {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT INTO llm_calls \
+             (id, story_id, model_id, purpose, prompt_tokens, completion_tokens, total_tokens, \
+              duration_ms, success, created_at) \
+             VALUES (?1, ?2, 'test-model', ?3, ?4, 0, ?4, 10, 1, ?5)",
+            params![
+                Uuid::new_v4().to_string(),
+                story_id,
+                purpose,
+                tokens,
+                Local::now().to_rfc3339()
+            ],
+        )
+        .unwrap();
+    }
+
+    /// 回归：`llm_calls` 没有 `cost` 列。旧 SQL 的 `SUM(cost)` 在真机
+    /// 必然报 `no such column: cost`（2026-11-14 生产日志实锤），
+    /// 用量统计页因此每次加载都失败。
+    #[test]
+    fn stats_aggregate_story_and_global_without_cost_column() {
+        let pool = create_test_pool().unwrap();
+        let story_a = seed_story(&pool);
+        let story_b = seed_story(&pool);
+        seed_call(&pool, &story_a, "agency_writer", 100);
+        seed_call(&pool, &story_a, "agency_editor", 200);
+        seed_call(&pool, &story_b, "frontstage", 50);
+
+        let repo = LlmCallRepository::new(pool.clone());
+        assert_eq!(repo.get_stats(Some(&story_a)).unwrap(), (2, 300));
+        assert_eq!(repo.get_stats(Some("missing-story")).unwrap(), (0, 0));
+        assert_eq!(repo.get_stats(None).unwrap(), (3, 350));
+    }
+
+    #[test]
+    fn usage_by_purpose_groups_and_filters_story() {
+        let pool = create_test_pool().unwrap();
+        let story_a = seed_story(&pool);
+        let story_b = seed_story(&pool);
+        seed_call(&pool, &story_a, "agency_writer", 100);
+        seed_call(&pool, &story_a, "agency_writer", 50);
+        seed_call(&pool, &story_b, "agency_editor", 200);
+
+        let repo = LlmCallRepository::new(pool.clone());
+        let story_rows = repo.get_usage_by_purpose(Some(&story_a)).unwrap();
+        assert_eq!(story_rows, vec![("agency_writer".to_string(), 2, 150)]);
+
+        let global_rows = repo.get_usage_by_purpose(None).unwrap();
+        assert_eq!(global_rows.len(), 2);
+        // 按 token 降序：agency_editor(200) 在 agency_writer(150) 之前。
+        assert_eq!(global_rows[0], ("agency_editor".to_string(), 1, 200));
+        assert_eq!(global_rows[1], ("agency_writer".to_string(), 2, 150));
     }
 }

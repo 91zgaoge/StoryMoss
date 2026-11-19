@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.99.4)
+# 🧪 StoryMoss 自动化测试环境 (v0.99.5)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.99.5 变更说明
+
+- Rust **2224 passed / 17 ignored**（+4）：`llm_calls` 无 cost 列的统计聚合回归 2（故事/全局/跨故事隔离、purpose 分组与排序）、telemetry 功能使用窗口聚合 1、`get_feature_usage_stats` IPC 注册表契约 1。
+- tsc 0；Vitest **725 passed / 3 skipped**（数量不变，本版为 Rust/后端命令改动）；Playwright **144 passed / 5 skipped**（全量 E2E 复跑通过）；`cargo +nightly-2026-10-05 fmt`、`cargo clippy --lib`（0 error）、`python3 scripts/architecture_guard.py`、`npm run format:check`、`python3 scripts/verify-ipc-manifest.py` 全绿。
+- 验收：安装 v0.99.5 后打开「分析 → 数据洞察」，确认用量统计（全局/本故事/角色用量）与「功能使用」页签正常加载、无 `no such column: cost` / `Command ... not found` 错误。
 
 ### v0.99.4 变更说明
 
