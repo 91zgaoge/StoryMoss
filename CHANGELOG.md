@@ -2,6 +2,23 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.1（2026-11-19）
+
+**续写训练长程记忆：前情提要 + 本批账本 + 设定白名单，writer/planner/编审全量注入。**
+
+- 现象：v0.99.0 后本机同一本书 10 章训练仍加权 0.40（承接 3.1、情节 3.3）；编审结论「缺乏长程记忆与逻辑连贯性」。11-17 那轮资产重建成功（10 条逐章梗概都在库里）同样只有 0.24/承接 1.2——说明问题不是「资产没生成」，而是「生成了但没进 prompt」。
+- **根因一（长程记忆被逐层丢弃）**：writer 的进度块只读最近 3 章正文末 220 字（`progress_lines_from_parts`）；第 11 章一旦写入 `scene_outcomes`，进度块切换为只显示最近 3 条 outcome，前 10 章整体从 prompt 消失。planner 只读最近 3 条梗概（`generate_chapter_outline`），`compile_next_node` 只用最近 3 条判断下一拍。
+- **根因二（章纲规划看不到承接锚点）**：训练指令把 1400 字承接锚点放在最后，而 planner 的 `directive` 只取前 3200 字（`OUTLINE_DIRECTIVE_CHAR_CAP`），多数运行里锚点被截掉，planner 在「不知道上一章最后一句」的情况下规划本章。
+- **根因三（伪大纲污染）**：资产重建失败时 `ensure_story_outline` 用「正文头 600 + 尾 1800」+ 场景方法论，明确要求「规划下一拍」，产出 1794 字「第 134 章单章回顾 + 下一拍规划」；渲染时在 1572 字处切断、再按 1200 字截断，writer 看到的「故事大纲（必须围绕此大纲展开，禁止偏离）」其实是第 134 章前 1200 字回顾。比没有大纲更糟。
+- **修复（前情提要）**：新增 `agency::story_brief::StoryBrief` 与 `story_briefs` 表（V162）——整批固定的逐章事实（地点/在场/结果/未决）、未结线索、人物当前态、已确立设定白名单。资产重建 prompt 新增 `open_threads` / `canon_terms` 及逐章 `location/cast/result/open_thread`；落库后同时写 `scenes.outline_content` 与 `StoryBrief`；模型漏返回时用原文首尾窗口确定性兜底。训练执行器在续写前调用 `ensure_story_brief`，并用前情提要写确定性全局大纲，替换被规划文档污染的大纲。
+- **修复（全量注入）**：`render_continue_assets` 把前情提要放在稳定区最前（红线之后、故事大纲之前），protected 且不参与 6000 字预算竞争；`progress_lines_from_parts` 改为全量逐章梗概（最近 12 章，1600 字上限）+ outcomes 补充，绝不再整体替换上下文；`generate_chapter_outline` 单独注入 `backstory` 与上一章结尾 `prior_tail`（不再依赖 3200 字 directive）；编审 Agent 的参照资产同样注入前情提要。
+- **修复（本批账本）**：`run_batch_inner` 维护滚动账本，第 n 章 writer/planner 看到第 11..n-1 章「章纲方向 + 章末实际落点」；gate∥writer 并发时把在途 n-1 草稿以「刚写定稿」临时行补入，装配后再转正式行。
+- **修复（训练路径止血）**：新增 `with_assets_seeded(true)`——训练资产与前情提要已显式就绪，`ensure_assets` 跳过 `ensure_story_outline` 的伪大纲兜底与 `hot_path_extract_from_prose` 的幻觉角色回写；通用 `ensure_story_outline` 也改为逐章摘要归纳（禁止执行规划），模型仍产出规划时用确定性大纲替换。
+- **修复（红线可执行）**：训练红线 5/6 两条改为引用【前情提要】的设定白名单与未结线索；即使资产重建 0 角色，`build_roster_block` 也始终注入「第一人称不得另起姓名、路人不得命名」硬约束。
+- **报告**：训练报告新增「长程记忆」行（逐章事实/线索/白名单/人物态/注入字数），并记录确定性兜底与大纲替换。
+- **测试**：Rust **2203 passed / 17 ignored**（+12：StoryBrief 渲染与截断 3、V162 建表 1、前情提要/账本渲染 3、资产重建 brief 落库/兜底/伪大纲替换 3、writer 资产块全量注入 1、planner brief+锚点 1）；tsc 0；Vitest **725 passed / 3 skipped**；Playwright **144 passed / 5 skipped**（全量复跑）；fmt/clippy/guard 全绿。
+- **未关闭**：安装 v0.99.1 后真机重跑《阴脉先生》134–143→144–153 的 10 章训练，确认报告「长程记忆」行显示 10 章全部进入 prompt、承接/情节分回升、无「引魂蛆/骨刺」类新体系名词。
+
 ## v0.99.0（2026-11-18）
 
 **续写训练「跨章复制/原地踏步」根修：修订熔断兜底跨章取稿 + 训练设定/语体红线 + 资产重建兜底。**

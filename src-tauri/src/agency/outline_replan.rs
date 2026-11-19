@@ -193,6 +193,9 @@ pub async fn preview(
                     "",
                     None,
                     "",
+                    None,
+                    &[],
+                    "",
                 )
                 .await
         } else {

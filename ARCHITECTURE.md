@@ -1,4 +1,6 @@
-# StoryMoss v0.99.0 架构文档
+# StoryMoss v0.99.1 架构文档
+
+> **v0.99.1**：**续写长程记忆层**——新增 `agency/story_brief.rs`（`StoryBrief`：逐章事实/未结线索/人物当前态/设定白名单）与 V162 `story_briefs`。训练资产重建落库时同时写 `scenes.outline_content` 与 brief；模型漏返回时用原文首尾窗口确定性兜底；训练续写前 `ensure_story_brief` + `ensure_deterministic_outline`（替换被「下一拍规划」污染的伪大纲）。`render_continue_assets` 把前情提要放 protected 稳定区最前（红线后、大纲前），有 brief/账本时资产预算 6000→9000；`progress_lines_from_parts` 改为全量逐章梗概（最近 12 章/1600 字）+ outcomes 补充，不再 `take(3)` 或整体替换上下文；`generate_chapter_outline` 单独注入 brief + 上一章结尾；`run_batch_inner` 维护本批滚动账本（gate∥writer 并发时在途 n-1 先入账）；编审参照资产同样注入前情提要；训练 coordinator `with_assets_seeded(true)` 跳过 `ensure_assets`；通用 `ensure_story_outline` 改逐章摘要归纳并拒绝执行规划。
 
 > **v0.99.0**：**并行批量草稿归属单一化 + 训练写作红线**——`run_batch_inner` 的 gate(n)∥writer(n+1) 并发下，黑板最新草稿通常是下一章；`handle_gate` 修订熔断后按任意 key 兜底、`revision_draft_with_fallback` 第 2 层任意 key 兜底都会把 n+1 正文装进 n 章（真机 13/14、16/17、19/20 字节相同，draft11/15/18 未装配）。新增 `draft_chapter_number`（严格解析 `第N章`/`第N章修订`，禁止前缀误匹配）与 `latest_draft_for_chapter`（仅 `item_type=chapter` + 同章号），两处兜底统一改用；`assemble_next_chapter` 落库前经 `TextUtils::strip_leading_chapter_heading` 裁掉正文首行章名。训练侧新增 `TRAINING_REDLINES`（设定/语体/推进/承接/设定白名单，前部注入章纲规划可见 + 锚点后压轴提醒）；资产重建 JSON 字段顺序把 `story_outline`/`chapter_outlines` 前置，缺失逐章梗概时用原文首尾窗口确定性兜底；训练读取 scene 后 `duplicates_previous_chapter` 拦截整章复制/开头 120 字复述，判分前转「不可用」并在编审行写明；`render_gate_line` 每章单归类并显式「判修订未完成」计数。
 >

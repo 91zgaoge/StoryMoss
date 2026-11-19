@@ -26,6 +26,10 @@ use crate::{
         coordinator::{normalize_outline, parse_lenient, SeedRelationship},
         materialize::upsert_seed_relationship,
         prose_ground::name_in_prose,
+        story_brief::{
+            brief_from_summaries, BriefCastState, BriefChapter, BriefTerm, BriefThread, StoryBrief,
+            StoryBriefRepository,
+        },
     },
     db::{
         dto::CreateCharacterRequest,
@@ -47,6 +51,8 @@ const CHAPTER_SAMPLE_MIN: usize = 800;
 const CHAPTER_SAMPLE_MAX: usize = 2_600;
 /// 角色卡上限（按前文出场；避免把整本书的都塞进沙盒）。
 const MAX_CHARACTERS: usize = 12;
+/// 前情提要逐章事实上限（与 prompt 输出章数对齐；超出只保留最近 N 章）。
+const MAX_BRIEF_CHAPTERS: usize = 30;
 
 #[derive(Debug, Default, Clone)]
 pub struct TrainingAssetSummary {
@@ -56,6 +62,11 @@ pub struct TrainingAssetSummary {
     pub characters: usize,
     pub relationships: usize,
     pub chapter_outlines: usize,
+    /// 前情提要（逐章事实 / 未结线索 / 设定白名单）
+    pub brief_chapters: usize,
+    pub brief_threads: usize,
+    pub brief_terms: usize,
+    pub brief_written: bool,
     pub warnings: Vec<String>,
     pub llm_error: Option<String>,
 }
@@ -68,6 +79,10 @@ impl TrainingAssetSummary {
         self.characters += other.characters;
         self.relationships += other.relationships;
         self.chapter_outlines += other.chapter_outlines;
+        self.brief_chapters = self.brief_chapters.max(other.brief_chapters);
+        self.brief_threads = self.brief_threads.max(other.brief_threads);
+        self.brief_terms = self.brief_terms.max(other.brief_terms);
+        self.brief_written |= other.brief_written;
         self.warnings.extend(other.warnings);
     }
 }
@@ -172,17 +187,21 @@ pub(crate) fn build_asset_rebuild_prompt(book_title: &str, chapters: &[(usize, S
     }
     format!(
         r#"你是小说资产重建师。只依据下面提供的小说前文归纳设定，不得凭空发明人名、地名、组织名或与原文冲突的设定。所有角色名、关系端点、地点名必须能在前文中找到；不确定就省略。
-请重建故事大纲、逐章梗概、世界观、角色与关系。只输出一个 JSON 对象（不要 markdown、不要解释文字、不要代码围栏），**严格按以下字段顺序输出**（越靠前越重要，后段被截断也不得影响前段）：
+请重建故事大纲、逐章事实、世界观、角色、关系、未结线索与设定白名单。只输出一个 JSON 对象（不要 markdown、不要解释文字、不要代码围栏），**严格按以下字段顺序输出**（越靠前越重要，后段被截断也不得影响前段）：
 {{
   "logline": "一句话故事线（<=80字）",
   "story_outline": {{"core_conflict": "当前核心冲突", "turning_points": ["前文已经发生的转折（只写已发生的事实）"], "next_node": "紧接最后一章之后、尚未写过的下一推进方向（必须落在本拍现有角色身上）"}},
-  "chapter_outlines": [{{"chapter": 97, "summary": "本章已发生的事件与结果（60-150字）"}}],
+  "chapter_outlines": [{{"chapter": 97, "summary": "本章已发生的事件与结果（60-150字）", "location": "本章主要地点", "cast": ["本章在场人名"], "result": "本章结束时的状态变化", "open_thread": "本章留下的未决问题（没有就留空）"}}],
+  "open_threads": [{{"id": "t1", "description": "仍未解决的事件/目标/危险", "introduced_chapter": 97, "status": "open", "next_expected": "下一章最可能怎么推进"}}],
+  "canon_terms": [{{"term": "前文已出现的术法/门派/器物/地名/组织名", "type": "术法/组织/地点/器物/身份", "note": "一句话含义"}}],
   "world": {{"concept": "世界概念与冲突土壤（150-400字）", "history": "历史/势力背景（80-250字）", "rules": [{{"name": "规则名", "description": "规则说明", "importance": 8}}]}},
   "characters": [{{"name": "前文出现的人名", "background": "来历", "personality": "性格", "goals": "目标", "emotional_core": "情感内核", "emotional_trigger": "情感触发", "emotional_wound": "情感创伤", "emotional_need": "情感需求"}}],
   "relationships": [{{"source": "角色A", "target": "角色B", "relationship_type": "师徒/敌对/亲缘等", "emotional_bond": "源→目标情感纽带", "description": "关系描述"}}]
 }}
 约束：
-- chapter_outlines 必须覆盖输入的每一章，按原书章号填写；summary 只写事实与结果，不写规划。
+- chapter_outlines 必须覆盖输入的每一章，按原书章号填写；summary/result 只写事实与结果，不写规划；open_thread 只写正文已经留下、尚未解决的事。
+- open_threads 写 3-8 条，按重要性排序；每条的 description 必须能在前文中找到依据，next_expected 不得另起新主角/新地点/新委托。
+- canon_terms 写 8-20 条，只列前文真实出现过的名词；不得把沙盒/模型自造的名词写进白名单。
 - story_outline.next_node 不得与已发生事件重复；不得换主角、换地点或引入新委托。
 - 各字段保持精简；characters 只写前文实际出现的人名，最多 8 人；不确定的数组用 []，不要输出大段解释。
 - relationships 的 source/target 必须是 characters 中的名字。
@@ -256,6 +275,8 @@ fn parse_bundle(raw: &str) -> Option<RawBundle> {
         characters: characters.and_then(|c| serde_json::to_value(c).ok()),
         relationships: None,
         chapter_outlines: None,
+        open_threads: None,
+        canon_terms: None,
     };
     bundle_has_content(&bundle).then_some(bundle)
 }
@@ -277,6 +298,8 @@ fn bundle_has_content(bundle: &RawBundle) -> bool {
         || value_has_content(&bundle.characters)
         || value_has_content(&bundle.relationships)
         || value_has_content(&bundle.chapter_outlines)
+        || value_has_content(&bundle.open_threads)
+        || value_has_content(&bundle.canon_terms)
 }
 
 /// LLM 可能返回字符串、对象或数组；字段全部以 Value 接收再由本模块归一。
@@ -294,6 +317,10 @@ struct RawBundle {
     relationships: Option<Value>,
     #[serde(default)]
     chapter_outlines: Option<Value>,
+    #[serde(default)]
+    open_threads: Option<Value>,
+    #[serde(default)]
+    canon_terms: Option<Value>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
@@ -382,11 +409,13 @@ fn parse_relationships(value: Option<&Value>) -> Vec<RawRelationship> {
     Vec::new()
 }
 
-fn parse_chapter_outlines(value: Option<&Value>) -> Vec<(i32, String)> {
+/// 逐章事实（v0.99.1）：在旧 `(章号, 梗概)` 基础上接收 location/cast/result/
+/// open_thread，供《前情提要》渲染；旧模型只返回 summary 时也能兼容。
+fn parse_chapter_briefs(value: Option<&Value>) -> Vec<BriefChapter> {
     let Some(value) = value else {
         return Vec::new();
     };
-    let mut out = Vec::new();
+    let mut out: Vec<BriefChapter> = Vec::new();
     if let Some(arr) = value.as_array() {
         for item in arr {
             let chapter = item
@@ -399,21 +428,213 @@ fn parse_chapter_outlines(value: Option<&Value>) -> Vec<(i32, String)> {
                 .or_else(|| item.get("outline"))
                 .or_else(|| item.get("content"))
                 .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|s| !s.is_empty());
-            if let (Some(ch), Some(s)) = (chapter, summary) {
-                out.push((ch, s.to_string()));
+                .unwrap_or("");
+            let Some(chapter) = chapter else {
+                continue;
+            };
+            if let Some(b) = normalize_brief_chapter(BriefChapter {
+                chapter,
+                summary: summary.to_string(),
+                location: item
+                    .get("location")
+                    .or_else(|| item.get("setting_location"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                cast: item
+                    .get("cast")
+                    .or_else(|| item.get("characters"))
+                    .and_then(string_list)
+                    .unwrap_or_default(),
+                result: item
+                    .get("result")
+                    .or_else(|| item.get("state_change"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                open_thread: item
+                    .get("open_thread")
+                    .or_else(|| item.get("hook"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            }) {
+                out.push(b);
             }
         }
     } else if let Some(obj) = value.as_object() {
         for (key, v) in obj {
             if let Some(ch) = key.trim().parse::<i32>().ok() {
                 if let Some(s) = v.as_str().map(str::trim).filter(|s| !s.is_empty()) {
-                    out.push((ch, s.to_string()));
+                    if let Some(b) = normalize_brief_chapter(BriefChapter {
+                        chapter: ch,
+                        summary: s.to_string(),
+                        ..Default::default()
+                    }) {
+                        out.push(b);
+                    }
                 }
             }
         }
     }
+    out.sort_by_key(|b| b.chapter);
+    out.dedup_by_key(|b| b.chapter);
+    out
+}
+
+fn normalize_brief_chapter(mut b: BriefChapter) -> Option<BriefChapter> {
+    if b.chapter <= 0 {
+        return None;
+    }
+    if b.summary.trim().is_empty() {
+        b.summary = b.result.trim().to_string();
+    }
+    if b.summary.trim().is_empty() && b.open_thread.trim().is_empty() {
+        return None;
+    }
+    b.summary = b.summary.trim().to_string();
+    b.location = b.location.trim().to_string();
+    b.result = b.result.trim().to_string();
+    b.open_thread = b.open_thread.trim().to_string();
+    b.cast.retain(|n| !n.trim().is_empty());
+    Some(b)
+}
+
+fn parse_chapter_outlines(value: Option<&Value>) -> Vec<(i32, String)> {
+    parse_chapter_briefs(value)
+        .into_iter()
+        .map(|b| (b.chapter, b.summary))
+        .filter(|(_, s)| !s.trim().is_empty())
+        .collect()
+}
+
+fn string_list(value: &Value) -> Option<Vec<String>> {
+    let arr = value.as_array()?;
+    let out: Vec<String> = arr
+        .iter()
+        .filter_map(|v| {
+            v.as_str()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .or_else(|| {
+                    v.get("name")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string)
+                })
+        })
+        .collect();
+    (!out.is_empty()).then_some(out)
+}
+
+fn parse_threads(value: Option<&Value>) -> Vec<BriefThread> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let Some(arr) = value.as_array() else {
+        return Vec::new();
+    };
+    let mut out: Vec<BriefThread> = Vec::new();
+    for (idx, item) in arr.iter().enumerate() {
+        if let Some(s) = item.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+            out.push(BriefThread {
+                id: format!("t{}", idx + 1),
+                description: s.to_string(),
+                status: "open".to_string(),
+                next_expected: String::new(),
+            });
+            continue;
+        }
+        let description = item
+            .get("description")
+            .or_else(|| item.get("thread"))
+            .or_else(|| item.get("summary"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let Some(description) = description else {
+            continue;
+        };
+        let id = item
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("t{}", idx + 1));
+        out.push(BriefThread {
+            id,
+            description: description.to_string(),
+            status: item
+                .get("status")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("open")
+                .to_string(),
+            next_expected: item
+                .get("next_expected")
+                .or_else(|| item.get("next"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("")
+                .to_string(),
+        });
+    }
+    out.truncate(12);
+    out
+}
+
+fn parse_terms(value: Option<&Value>) -> Vec<BriefTerm> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let Some(arr) = value.as_array() else {
+        return Vec::new();
+    };
+    let mut out: Vec<BriefTerm> = Vec::new();
+    for item in arr {
+        let term = item
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                item.get("term")
+                    .or_else(|| item.get("name"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+            });
+        let Some(term) = term else {
+            continue;
+        };
+        if out.iter().any(|t| t.term == term) {
+            continue;
+        }
+        out.push(BriefTerm {
+            term,
+            kind: item
+                .get("type")
+                .or_else(|| item.get("kind"))
+                .or_else(|| item.get("category"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("")
+                .to_string(),
+            note: item
+                .get("note")
+                .or_else(|| item.get("description"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("")
+                .to_string(),
+        });
+    }
+    out.truncate(24);
     out
 }
 
@@ -746,33 +967,38 @@ pub(crate) fn persist_training_bundle(
         }
     }
 
-    // 6) 逐章梗概 → scenes.outline_content（供章纲生成与下一节点编译）
+    // 6) 逐章事实 → scenes.outline_content（供章纲生成与下一节点编译）
     // v0.99.0：模型 JSON 被截断时 chapter_outlines 往往最先丢（真机 1118
     // 资产重建 0 章梗概 → 章纲规划看不到 135–143 章的进度，续写只能围着
     // 末章结尾打转）。缺的章用原文首尾窗口确定性兜底，不冒充 LLM 摘要。
-    let outlines = parse_scene_outline_summary(bundle.chapter_outlines.as_ref());
-    if outlines.is_empty() {
+    // v0.99.1：同一份逐章事实同时进入《前情提要》，writer/planner 全量可见。
+    let llm_outline_count = parse_chapter_briefs(bundle.chapter_outlines.as_ref()).len();
+    let brief_chapters = build_brief_chapters(chapters, bundle);
+    if llm_outline_count == 0 {
         summary
             .warnings
             .push("模型未返回逐章梗概（已用原文首尾窗口兜底）".to_string());
     }
-    let fallback_outlines = deterministic_chapter_summaries(chapters);
     {
         let scene_repo = SceneRepository::new(pool.clone());
         let scenes = scene_repo.get_by_story(story_id).unwrap_or_default();
-        let by_num: HashMap<i32, String> = outlines.iter().cloned().collect();
-        let by_idx: Vec<String> = outlines.iter().map(|(_, s)| s.clone()).collect();
+        let by_num: HashMap<i32, BriefChapter> = brief_chapters
+            .iter()
+            .cloned()
+            .map(|b| (b.chapter, b))
+            .collect();
         for (i, scene) in scenes.iter().take(chapters.len()).enumerate() {
             let number = chapters.get(i).map(|(n, _)| *n as i32).unwrap_or(i as i32);
-            let summary_text = by_num
-                .get(&number)
-                .cloned()
-                .or_else(|| by_idx.get(i).cloned())
-                .or_else(|| fallback_outlines.get(i).map(|(_, s)| s.clone()));
-            let Some(summary_text) = summary_text.filter(|s| !s.trim().is_empty()) else {
+            let Some(b) = by_num.get(&number) else {
                 continue;
             };
-            let outline_content = format!("本章梗概：{}", summary_text.trim());
+            let Some(summary_text) = [b.summary.trim(), b.result.trim()]
+                .into_iter()
+                .find(|s| !s.is_empty())
+            else {
+                continue;
+            };
+            let outline_content = format!("本章梗概：{summary_text}");
             match scene_repo.update(
                 &scene.id,
                 &crate::db::repositories::SceneUpdate {
@@ -788,11 +1014,410 @@ pub(crate) fn persist_training_bundle(
         }
     }
 
+    // 7) 《前情提要》（v0.99.1）：逐章事实 + 未结线索 + 人物当前态 + 设定白名单
+    let mut threads = parse_threads(bundle.open_threads.as_ref());
+    if threads.is_empty() {
+        for b in &brief_chapters {
+            let open = b.open_thread.trim();
+            if !open.is_empty() && !threads.iter().any(|t| t.description == open) {
+                threads.push(BriefThread {
+                    id: format!("thread-{}", b.chapter),
+                    description: open.to_string(),
+                    status: "open".to_string(),
+                    next_expected: String::new(),
+                });
+            }
+        }
+    }
+    if threads.is_empty() {
+        // 兜底：至少留一条「承接末章未决事件」的主线，避免 writer 完全没有
+        // 未结线索可推进。
+        if let Some(last) = brief_chapters.last() {
+            threads.push(BriefThread {
+                id: "main".to_string(),
+                description: format!(
+                    "紧接第{}章的未决事件继续推进：{}",
+                    last.chapter,
+                    last.summary.chars().take(120).collect::<String>()
+                ),
+                status: "open".to_string(),
+                next_expected: "承接上一章结尾现场".to_string(),
+            });
+        }
+    }
+    if let Some(next) = bundle
+        .story_outline
+        .as_ref()
+        .and_then(|v| v.get("next_node"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        if !threads.iter().any(|t| t.description.contains(next)) {
+            threads.push(BriefThread {
+                id: "main-next".to_string(),
+                description: format!("下一节点：{next}"),
+                status: "open".to_string(),
+                next_expected: next.to_string(),
+            });
+        }
+    }
+    threads.truncate(12);
+
+    let mut terms = parse_terms(bundle.canon_terms.as_ref());
+    terms.retain(|t| !t.term.trim().is_empty() && prose.contains(t.term.trim()));
+    if terms.is_empty() {
+        // 兜底：角色名 + 世界观规则名（都必须是前文出现过的词）
+        for name in &roster {
+            if prose.contains(name.as_str()) {
+                terms.push(BriefTerm {
+                    term: name.clone(),
+                    kind: "人物".to_string(),
+                    note: "前文已出场".to_string(),
+                });
+            }
+        }
+        if let Ok(Some(world)) = WorldBuildingRepository::new(pool.clone()).get_by_story(story_id) {
+            for rule in world.rules.iter().take(8) {
+                if prose.contains(rule.name.as_str()) {
+                    terms.push(BriefTerm {
+                        term: rule.name.clone(),
+                        kind: "规则".to_string(),
+                        note: rule.description.clone().unwrap_or_default(),
+                    });
+                }
+            }
+        }
+    }
+    terms.sort_by(|a, b| a.term.cmp(&b.term));
+    terms.dedup_by(|a, b| a.term == b.term);
+    terms.truncate(24);
+
+    let cast_states = {
+        let chars = CharacterRepository::new(pool.clone())
+            .get_by_story(story_id)
+            .unwrap_or_default();
+        let mut states: Vec<BriefCastState> = chars
+            .into_iter()
+            .filter(|c| c.source.as_deref() == Some("training_assets"))
+            .take(12)
+            .map(|c| BriefCastState {
+                name: c.name,
+                role: c.background.unwrap_or_default(),
+                location: String::new(),
+                goal: c.goals.unwrap_or_default(),
+                knows: Vec::new(),
+            })
+            .collect();
+        states.sort_by(|a, b| a.name.cmp(&b.name));
+        states
+    };
+
+    let arc_hint = bundle
+        .logline
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            bundle
+                .story_outline
+                .as_ref()
+                .and_then(|v| v.get("core_conflict"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_default();
+    let mut brief = brief_from_summaries(brief_chapters, &arc_hint, threads, cast_states, terms);
+    brief.source = "training_assets".to_string();
+    brief.updated_at = chrono::Local::now().to_rfc3339();
+    match StoryBriefRepository::new(pool.clone()).upsert(story_id, &brief) {
+        Ok(_) => {
+            summary.brief_written = true;
+            summary.brief_chapters = brief.chapters.len();
+            summary.brief_threads = brief.threads.len();
+            summary.brief_terms = brief.canon_terms.len();
+        }
+        Err(e) => summary.warnings.push(format!("前情提要落库失败：{e}")),
+    }
+
     // 防止资产重建把“模型没有返回”当作成功。
     if summary.characters == 0 {
         summary.warnings.push("资产重建未登记任何角色".to_string());
     }
     summary
+}
+
+/// 合并 LLM 逐章事实与确定性首尾兜底：每章必须有一行，缺的章用兜底补。
+fn build_brief_chapters(chapters: &[(usize, String)], bundle: &RawBundle) -> Vec<BriefChapter> {
+    let llm = parse_chapter_briefs(bundle.chapter_outlines.as_ref());
+    let by_num: HashMap<i32, BriefChapter> = llm.iter().cloned().map(|b| (b.chapter, b)).collect();
+    let by_idx: Vec<BriefChapter> = llm;
+    let fallback = deterministic_chapter_summaries(chapters);
+    let mut out: Vec<BriefChapter> = Vec::new();
+    for (i, (number, _)) in chapters.iter().take(MAX_BRIEF_CHAPTERS).enumerate() {
+        let chapter = *number as i32;
+        let mut b = by_num
+            .get(&chapter)
+            .cloned()
+            .or_else(|| by_idx.get(i).cloned())
+            .unwrap_or_default();
+        b.chapter = chapter;
+        if b.summary.trim().is_empty() {
+            b.summary = fallback.get(i).map(|(_, s)| s.clone()).unwrap_or_default();
+        }
+        if let Some(b) = normalize_brief_chapter(b) {
+            out.push(b);
+        }
+    }
+    out.sort_by_key(|b| b.chapter);
+    out
+}
+
+/// v0.99.1：训练续写前保证《前情提要》存在。资产重建成功时 persist 已写入；
+/// 失败时用 scenes 梗概 + 人物/世界观做确定性兜底，绝不让 writer 空手续写。
+pub async fn ensure_story_brief(
+    pool: &DbPool,
+    story_id: &str,
+    context_chapters: &[(usize, String)],
+) -> StoryBrief {
+    if let Ok(Some(brief)) = StoryBriefRepository::new(pool.clone()).get_by_story(story_id) {
+        if !brief.is_empty() {
+            return brief;
+        }
+    }
+    let pool_c = pool.clone();
+    let sid = story_id.to_string();
+    let chapters = context_chapters.to_vec();
+    tokio::task::spawn_blocking(move || build_and_persist_brief(&pool_c, &sid, &chapters))
+        .await
+        .unwrap_or_default()
+}
+
+fn build_and_persist_brief(
+    pool: &DbPool,
+    story_id: &str,
+    chapters: &[(usize, String)],
+) -> StoryBrief {
+    let scene_repo = SceneRepository::new(pool.clone());
+    let scenes = scene_repo.get_by_story(story_id).unwrap_or_default();
+    let by_num: HashMap<i32, String> = scenes
+        .iter()
+        .filter_map(|s| {
+            s.outline_content
+                .as_deref()
+                .map(|o| (s.sequence_number, strip_summary_prefix(o)))
+        })
+        .filter(|(_, s)| !s.is_empty())
+        .collect();
+    // 训练沙盒 scene.sequence_number 是 1..N，而章节号是原书 134..143；
+    // 必须再按索引取同一行的梗概，否则会把已生成的 LLM 摘要丢掉。
+    let by_idx: Vec<String> = scenes
+        .iter()
+        .take(chapters.len())
+        .map(|s| {
+            s.outline_content
+                .as_deref()
+                .map(strip_summary_prefix)
+                .unwrap_or_default()
+        })
+        .collect();
+    let fallback = deterministic_chapter_summaries(chapters);
+    let mut brief_chapters: Vec<BriefChapter> = Vec::new();
+    for (i, (number, _)) in chapters.iter().take(MAX_BRIEF_CHAPTERS).enumerate() {
+        let chapter = *number as i32;
+        let summary = by_num
+            .get(&chapter)
+            .cloned()
+            .or_else(|| by_idx.get(i).cloned().filter(|s| !s.is_empty()))
+            .or_else(|| fallback.get(i).map(|(_, s)| s.clone()))
+            .unwrap_or_default();
+        if summary.is_empty() {
+            continue;
+        }
+        brief_chapters.push(BriefChapter {
+            chapter,
+            summary,
+            ..Default::default()
+        });
+    }
+    let arc_hint = StoryRepository::new(pool.clone())
+        .get_by_id(story_id)
+        .ok()
+        .flatten()
+        .and_then(|s| s.logline)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_default();
+    let mut terms: Vec<BriefTerm> = Vec::new();
+    if let Ok(chars) = CharacterRepository::new(pool.clone()).get_by_story(story_id) {
+        for c in chars
+            .iter()
+            .filter(|c| c.source.as_deref() == Some("training_assets"))
+        {
+            terms.push(BriefTerm {
+                term: c.name.clone(),
+                kind: "人物".to_string(),
+                note: c.background.clone().unwrap_or_default(),
+            });
+        }
+    }
+    if let Ok(Some(world)) = WorldBuildingRepository::new(pool.clone()).get_by_story(story_id) {
+        for rule in world.rules.iter().take(8) {
+            terms.push(BriefTerm {
+                term: rule.name.clone(),
+                kind: "规则".to_string(),
+                note: rule.description.clone().unwrap_or_default(),
+            });
+        }
+    }
+    terms.truncate(24);
+    let threads = brief_chapters
+        .last()
+        .map(|last| {
+            vec![BriefThread {
+                id: "main".to_string(),
+                description: format!(
+                    "紧接第{}章的未决事件继续推进：{}",
+                    last.chapter,
+                    last.summary.chars().take(120).collect::<String>()
+                ),
+                status: "open".to_string(),
+                next_expected: "承接上一章结尾现场".to_string(),
+            }]
+        })
+        .unwrap_or_default();
+    let cast_states: Vec<BriefCastState> = terms
+        .iter()
+        .filter(|t| t.kind == "人物")
+        .map(|t| BriefCastState {
+            name: t.term.clone(),
+            role: t.note.clone(),
+            ..Default::default()
+        })
+        .collect();
+    let mut brief = brief_from_summaries(brief_chapters, &arc_hint, threads, cast_states, terms);
+    brief.source = "deterministic".to_string();
+    let _ = StoryBriefRepository::new(pool.clone()).upsert(story_id, &brief);
+    log::info!(
+        "agency: 前情提要确定性兜底 story={} chapters={} terms={}",
+        story_id,
+        brief.chapters.len(),
+        brief.canon_terms.len()
+    );
+    brief
+}
+
+fn strip_summary_prefix(raw: &str) -> String {
+    let text = raw.trim();
+    for prefix in ["本章梗概：", "本章大纲：", "场景执行大纲：", "章纲："] {
+        if let Some(rest) = text.strip_prefix(prefix) {
+            return rest.trim().to_string();
+        }
+    }
+    text.to_string()
+}
+
+/// v0.99.1：训练资产重建失败后，通用 `ensure_story_outline` 会用「正文头
+/// 600 + 尾 1800」生成一份「单章回顾 + 下一拍规划」的伪大纲。这里在续写前
+/// 用《前情提要》写一份确定性全局大纲；若既有大纲已被规划文档污染，直接覆盖。
+pub fn ensure_deterministic_outline(pool: &DbPool, story_id: &str, brief: &StoryBrief) -> bool {
+    if brief.is_empty() {
+        return false;
+    }
+    let repo = StoryOutlineRepository::new(pool.clone());
+    let existing = repo
+        .get_by_story(story_id)
+        .ok()
+        .flatten()
+        .map(|o| o.content)
+        .unwrap_or_default();
+    if !existing.trim().is_empty() && !looks_like_planning_outline(&existing) {
+        return false;
+    }
+    let content = render_deterministic_outline(brief);
+    if content.trim().is_empty() {
+        return false;
+    }
+    let result = match repo.get_by_story(story_id).ok().flatten() {
+        Some(_) => repo.update(story_id, Some(&content), None).map(|_| ()),
+        None => repo
+            .create(
+                story_id,
+                &content,
+                None,
+                3,
+                Some(brief.chapters.len() as i32),
+            )
+            .map(|_| ()),
+    };
+    match result {
+        Ok(()) => {
+            log::info!(
+                "agency: 已写入确定性故事大纲（前情提要派生）story={}",
+                story_id
+            );
+            true
+        }
+        Err(e) => {
+            log::warn!(
+                "agency: 确定性故事大纲写入失败 story={} err={}",
+                story_id,
+                e
+            );
+            false
+        }
+    }
+}
+
+pub(crate) fn looks_like_planning_outline(text: &str) -> bool {
+    const MARKERS: [&str; 8] = [
+        "下一拍规划",
+        "建议的下一场景",
+        "目标 → 冲突",
+        "目标->冲突",
+        "### 场景一",
+        "下一场景规划",
+        "我将按照要求的结构",
+        "故事大纲归纳",
+    ];
+    MARKERS.iter().any(|m| text.contains(m))
+}
+
+fn render_deterministic_outline(brief: &StoryBrief) -> String {
+    let mut out = String::new();
+    if !brief.arc_summary.trim().is_empty() {
+        out.push_str(&format!("【核心冲突】\n{}\n", brief.arc_summary.trim()));
+    }
+    if !brief.chapters.is_empty() {
+        out.push_str("【已发生主线】\n");
+        for c in brief.chapters.iter().take(30) {
+            out.push_str(&format!(
+                "- 第{}章：{}\n",
+                c.chapter,
+                c.summary.chars().take(120).collect::<String>()
+            ));
+        }
+    }
+    if !brief.threads.is_empty() {
+        out.push_str("【未结线索】\n");
+        for t in brief.threads.iter().take(8) {
+            out.push_str(&format!(
+                "- {}（{}）\n",
+                t.description.chars().take(120).collect::<String>(),
+                t.id
+            ));
+        }
+    }
+    let next = brief
+        .threads
+        .iter()
+        .find(|t| !t.next_expected.trim().is_empty())
+        .map(|t| t.next_expected.trim().to_string())
+        .unwrap_or_else(|| "紧接上一章结尾的未完结事件".to_string());
+    out.push_str(&format!("【下一节点】\n{next}\n"));
+    out
 }
 
 #[cfg(test)]
@@ -1031,5 +1656,100 @@ mod tests {
             .warnings
             .iter()
             .any(|w| w.contains("陈默") || w.contains("未登记任何角色")));
+    }
+
+    #[test]
+    fn persist_writes_story_brief_with_threads_and_terms() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story_with_scenes(&pool);
+        let chapters = vec![
+            (97usize, "周先生拜神仙点空子，鲁汉光盯着他。".to_string()),
+            (98usize, "女老板切料子，老神仙试探周先生。".to_string()),
+        ];
+        let raw = r#"{
+            "logline":"周先生在三理教的威逼利诱中反杀。",
+            "story_outline":{"core_conflict":"周先生被三理教逼入教与反制","next_node":"周先生用化偶术反控乩童"},
+            "chapter_outlines":[
+                {"chapter":97,"summary":"周先生拜神仙点空子。","open_thread":"鲁汉光还在等答复"},
+                {"chapter":98,"summary":"老神仙试探周先生。","open_thread":""}
+            ],
+            "open_threads":[{"id":"t-lu","description":"鲁汉光逼周先生入教","status":"open","next_expected":"周先生给出答复"}],
+            "canon_terms":[{"term":"周先生","type":"身份","note":"阴脉先生"},{"term":"镇魇反噬","type":"规则","note":"解除镇魇时反噬"}],
+            "characters":[{"name":"周先生","background":"阴脉先生","goals":"破局"}]
+        }"#;
+        let bundle = parse_bundle(raw).expect("应解析");
+        let summary = persist_training_bundle(&pool, &story_id, &chapters, &bundle);
+        assert!(summary.brief_written, "必须写入前情提要");
+        assert_eq!(summary.brief_chapters, 2);
+        let brief = StoryBriefRepository::new(pool.clone())
+            .get_by_story(&story_id)
+            .unwrap()
+            .expect("前情提要应落库");
+        assert_eq!(brief.chapters.len(), 2);
+        assert!(brief.chapters[0].summary.contains("周先生拜神仙"));
+        assert!(brief.threads.iter().any(|t| t.id == "t-lu"));
+        assert!(brief.canon_terms.iter().any(|t| t.term == "周先生"));
+        // 前文未出现的「镇魇反噬」不得因模型返回就进白名单
+        assert!(!brief.canon_terms.iter().any(|t| t.term == "镇魇反噬"));
+    }
+
+    #[test]
+    fn brief_falls_back_to_scene_summaries_when_bundle_empty() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story_with_scenes(&pool);
+        let chapters = vec![
+            (97usize, "周先生拜神仙点空子，鲁汉光盯着他。".to_string()),
+            (98usize, "女老板切料子，老神仙试探周先生。".to_string()),
+        ];
+        let brief = build_and_persist_brief(&pool, &story_id, &chapters);
+        assert_eq!(brief.chapters.len(), 2);
+        assert!(brief.chapters[0].summary.contains("周先生"));
+        assert!(brief.source.contains("deterministic"));
+    }
+
+    #[test]
+    fn deterministic_outline_replaces_planning_dump() {
+        let pool = create_test_pool().unwrap();
+        let story_id = seed_story_with_scenes(&pool);
+        StoryOutlineRepository::new(pool.clone())
+            .create(
+                &story_id,
+                "## 一、已有正文归纳\n下一拍规划\n### 场景一：走廊截人",
+                None,
+                3,
+                None,
+            )
+            .unwrap();
+        let brief = brief_from_summaries(
+            vec![
+                BriefChapter {
+                    chapter: 97,
+                    summary: "周先生拜神仙点空子。".into(),
+                    ..Default::default()
+                },
+                BriefChapter {
+                    chapter: 98,
+                    summary: "老神仙试探周先生。".into(),
+                    ..Default::default()
+                },
+            ],
+            "周先生被三理教逼入教。",
+            vec![BriefThread {
+                id: "t-lu".into(),
+                description: "鲁汉光逼周先生入教".into(),
+                status: "open".into(),
+                next_expected: "周先生给出答复".into(),
+            }],
+            vec![],
+            vec![],
+        );
+        assert!(ensure_deterministic_outline(&pool, &story_id, &brief));
+        let outline = StoryOutlineRepository::new(pool)
+            .get_by_story(&story_id)
+            .unwrap()
+            .unwrap();
+        assert!(outline.content.contains("【已发生主线】"));
+        assert!(!outline.content.contains("下一拍规划"));
+        assert!(!outline.content.contains("### 场景一"));
     }
 }

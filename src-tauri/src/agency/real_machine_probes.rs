@@ -910,6 +910,9 @@ async fn real_machine_probe_volume_plan_and_outline_injection() {
             "",
             None,
             "",
+            None,
+            &[],
+            "",
         )
         .await;
     println!("[真机探针] 章纲产出 {} 字", outline.chars().count());
@@ -1535,6 +1538,8 @@ async fn real_machine_probe_foreshadow_hint_usage() {
             logline: None,
             full_card_names: &[],
             continuity_blocks: &[],
+            story_brief: None,
+            ledger_lines: &[],
         },
     );
     let block_ok = assets.contains("【本拍伏笔（必须使用）】");

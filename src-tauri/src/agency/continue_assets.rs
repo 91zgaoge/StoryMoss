@@ -3,6 +3,7 @@
 //! 不改 `WriteTimeBundle::to_prompt()` 全局语义。
 
 use crate::{
+    agency::story_brief::StoryBrief,
     creative_engine::write_time_bundle::extract_redline_text,
     domain::write_time_bundle::{CoreCharacter, WriteTimeBundle},
 };
@@ -14,6 +15,13 @@ pub const WORLD_CONCEPT_CHAR_CAP: usize = 400;
 pub const WORLD_RULE_CAP: usize = 5;
 pub const ROSTER_NAME_CAP: usize = 40;
 pub const ASSET_CHAR_BUDGET: usize = 6000;
+/// v0.99.1：有《前情提要》/批内账本时，资产块总预算放宽；前情提要是 protected
+/// 且排在稳定区最前，确保不会被动态块挤压。
+pub const ASSET_CHAR_BUDGET_WITH_MEMORY: usize = 9000;
+/// 前情提要渲染上限（与 story_brief 模块一致；由 story_brief 内部再截）。
+pub const BACKSTORY_CHAR_CAP: usize = 3600;
+/// 本批已续写账本上限（第 11..n-1 章一行）。
+pub const BATCH_LEDGER_CHAR_CAP: usize = 1000;
 /// 单拍伏笔块上限：6 条 hint + 使用指令，超出截断但不整块丢弃。
 pub const FORESHADOW_CHAR_CAP: usize = 900;
 /// 长章双窗：开篇窗口。与 `PRIOR_TAIL_CHAR_CAP` 合计为注入上限。
@@ -761,20 +769,24 @@ fn shrink_part(s: &str, new_len: usize) -> String {
 /// 预算收缩禁止使用带「已截断」后缀的
 /// `truncate_chars`（后缀会让长度不降反升）。
 pub fn apply_asset_budget(parts: &[(String, bool)]) -> String {
+    apply_asset_budget_with(parts, ASSET_CHAR_BUDGET)
+}
+
+pub fn apply_asset_budget_with(parts: &[(String, bool)], budget: usize) -> String {
     let mut items: Vec<(String, bool)> = parts.to_vec();
     for _ in 0..32 {
         let joined = join_nonempty(&items);
         let n = joined.chars().count();
-        if n <= ASSET_CHAR_BUDGET {
+        if n <= budget {
             return joined;
         }
         let Some(i) = items
             .iter()
             .rposition(|(t, protected)| !*protected && !t.is_empty())
         else {
-            return take_chars(&joined, ASSET_CHAR_BUDGET);
+            return take_chars(&joined, budget);
         };
-        let over = n - ASSET_CHAR_BUDGET;
+        let over = n - budget;
         let cur = items[i].0.chars().count();
         if cur <= over {
             items[i].0.clear();
@@ -787,7 +799,7 @@ pub fn apply_asset_budget(parts: &[(String, bool)]) -> String {
             }
         }
     }
-    take_chars(&join_nonempty(&items), ASSET_CHAR_BUDGET)
+    take_chars(&join_nonempty(&items), budget)
 }
 
 fn join_nonempty(items: &[(String, bool)]) -> String {
@@ -816,6 +828,11 @@ pub struct ContinueAssetsInput<'a> {
     /// P0-T2/T3 连续性约束块（在场物品 / 本拍信息差 / 未公开真相），
     /// 由 `memory::continuity::render_continuity_blocks` 预渲染。
     pub continuity_blocks: &'a [String],
+    /// v0.99.1：前情提要（逐章事实/未结线索/人物态/设定白名单）。
+    /// 放在稳定区最前（红线之后），全量进入 writer。
+    pub story_brief: Option<&'a StoryBrief>,
+    /// v0.99.1：本批已续写账本（第 11..n-1 章），动态区，保住不被预算裁掉。
+    pub ledger_lines: &'a [String],
 }
 
 pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
@@ -840,6 +857,25 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         format!(
             "【故事大纲（本场景必须围绕此大纲展开，禁止偏离）】\n{}",
             condensed
+        )
+    };
+
+    // v0.99.1：前情提要放在稳定区最前（红线之后、大纲之前），整批固定。
+    // 这是「前 10 章逐章事实 + 未结线索 + 人物态 + 设定白名单」的唯一权威块；
+    // 旧管线只注入上一章 1400 字，长程记忆为零。
+    let backstory = input
+        .story_brief
+        .map(|b| b.render(BACKSTORY_CHAR_CAP))
+        .unwrap_or_default();
+
+    // v0.99.1：本批已续写账本（动态区）。gate∥writer 并发时调用方会把
+    // n-1 的在途稿也折算成一行，保证第 n 章知道第 11..n-1 章实际发生了什么。
+    let ledger = if input.ledger_lines.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "【本批已续写账本（只写已发生，不写下一拍）】\n{}",
+            truncate_chars(&input.ledger_lines.join("\n"), BATCH_LEDGER_CHAR_CAP)
         )
     };
 
@@ -1084,6 +1120,7 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
     // 移回稳定区。
     let parts = [
         (redline, true),
+        (backstory, true),
         (outline, true),
         (world, true),
         (style_block, true),
@@ -1094,6 +1131,7 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         (next_node, true),
         (cards, true),
         (roster, true),
+        (ledger, true),
         (foreshadow, false),
         (relationships, false),
         (conflicts, false),
@@ -1111,10 +1149,17 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         parts.push((block.clone(), true));
     }
     let before = join_nonempty(&parts);
-    let out = apply_asset_budget(&parts);
+    // 有前情提要/账本时放宽总预算；两者都是 protected 且排在前部，
+    // 预算收缩优先牺牲动态的 prior/progress，而不是长程记忆。
+    let budget = if input.story_brief.is_some() || !input.ledger_lines.is_empty() {
+        ASSET_CHAR_BUDGET_WITH_MEMORY
+    } else {
+        ASSET_CHAR_BUDGET
+    };
+    let out = apply_asset_budget_with(&parts, budget);
     let truncated = out.chars().count() < before.chars().count();
     log::info!(
-        "continue_assets: admitted={} l2={} roster={} chars={} truncated={}",
+        "continue_assets: admitted={} l2={} roster={} chars={} truncated={} brief={} ledger={}",
         input.admitted.join("、"),
         if input.full_card_names.is_empty() {
             input.admitted.join("、")
@@ -1123,7 +1168,9 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         },
         input.roster.join("、"),
         out.chars().count(),
-        truncated
+        truncated,
+        input.story_brief.map(|b| b.chapters.len()).unwrap_or(0),
+        input.ledger_lines.len()
     );
     out
 }
@@ -1347,6 +1394,8 @@ mod tests {
             logline: Some("一句话"),
             full_card_names: &[],
             continuity_blocks: &[],
+            story_brief: None,
+            ledger_lines: &[],
         };
         let out = render_continue_assets(&input);
         assert!(out.contains("情感内核：角色00的情感内核"));
@@ -1440,6 +1489,8 @@ mod tests {
             logline: None,
             full_card_names: &[],
             continuity_blocks: &[],
+            story_brief: None,
+            ledger_lines: &[],
         };
         let out = render_continue_assets(&input);
         assert!(
@@ -1514,6 +1565,8 @@ mod tests {
             logline: None,
             full_card_names: &[],
             continuity_blocks: &blocks,
+            story_brief: None,
+            ledger_lines: &[],
         };
         let out = render_continue_assets(&input);
         assert!(out.contains("本拍信息差"), "{out}");
@@ -1542,6 +1595,8 @@ mod tests {
             logline: None,
             full_card_names: &[],
             continuity_blocks: &[],
+            story_brief: None,
+            ledger_lines: &[],
         };
         let out = render_continue_assets(&input);
         assert!(out.contains("风格 DNA 六维指标"), "{out}");
@@ -1579,6 +1634,8 @@ mod tests {
             logline: Some("一句话"),
             full_card_names: &[],
             continuity_blocks: &[],
+            story_brief: None,
+            ledger_lines: &[],
         };
         let input_b = ContinueAssetsInput {
             bundle: &bundle,
@@ -1594,6 +1651,8 @@ mod tests {
             logline: Some("一句话"),
             full_card_names: &[],
             continuity_blocks: &[],
+            story_brief: None,
+            ledger_lines: &[],
         };
         let out_a = render_continue_assets(&input_a);
         let out_b = render_continue_assets(&input_b);
@@ -1662,6 +1721,8 @@ mod tests {
             logline: None,
             full_card_names: &[],
             continuity_blocks: &[],
+            story_brief: None,
+            ledger_lines: &[],
         };
         let out = render_continue_assets(&input);
         assert!(out.contains("皇权裂痕"), "{out}");
@@ -1814,6 +1875,130 @@ mod tests {
             hand_written.trim_end()
         );
         assert!(!chapter_plan_missing(Some(hand_written)));
+    }
+
+    fn sample_brief() -> crate::agency::story_brief::StoryBrief {
+        use crate::agency::story_brief::{BriefChapter, BriefTerm, BriefThread, StoryBrief};
+        StoryBrief {
+            start_chapter: 134,
+            end_chapter: 143,
+            context_chapters: 10,
+            arc_summary: "周成从立足金城走到武警医院截护士。".into(),
+            chapters: (134..=143)
+                .map(|n| BriefChapter {
+                    chapter: n,
+                    summary: format!("第{n}章：已发生事实。"),
+                    ..Default::default()
+                })
+                .collect(),
+            threads: vec![BriefThread {
+                id: "t-fomosa".into(),
+                description: "赵开来承诺赠送福摩萨夜总会道场，需去见邵卫江。".into(),
+                status: "open".into(),
+                next_expected: "近期去福摩萨夜总会。".into(),
+            }],
+            cast_states: vec![],
+            canon_terms: vec![BriefTerm {
+                term: "福摩萨夜总会".into(),
+                kind: "地点".into(),
+                note: "赵开来承诺的道场线索".into(),
+            }],
+            source: "test".into(),
+            updated_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn render_puts_full_backstory_before_story_outline() {
+        let bundle = empty_bundle();
+        let brief = sample_brief();
+        let input = ContinueAssetsInput {
+            bundle: &bundle,
+            admitted: &[],
+            roster: &[],
+            location: None,
+            next_node: "下一节点",
+            chapter_outline: "",
+            progress_lines: &[],
+            prior_prose: "",
+            tension_lines: &[],
+            arc_lines: &[],
+            logline: None,
+            full_card_names: &[],
+            continuity_blocks: &[],
+            story_brief: Some(&brief),
+            ledger_lines: &[],
+        };
+        let out = render_continue_assets(&input);
+        let brief_pos = out.find("【前情提要").expect("必须注入前情提要");
+        let outline_pos = out.find("【故事大纲").expect("故事大纲仍在");
+        assert!(brief_pos < outline_pos, "前情提要在稳定区最前");
+        for n in 134..=143 {
+            assert!(out.contains(&format!("第{n}章")), "缺第 {n} 章: {out}");
+        }
+        assert!(out.contains("t-fomosa"));
+        assert!(out.contains("福摩萨夜总会"));
+    }
+
+    #[test]
+    fn render_keeps_backstory_under_budget_pressure() {
+        let mut bundle = empty_bundle();
+        bundle.style_dna_extension = Some("风".repeat(2400));
+        let brief = sample_brief();
+        let prior = "前".repeat(9000);
+        let input = ContinueAssetsInput {
+            bundle: &bundle,
+            admitted: &[],
+            roster: &[],
+            location: None,
+            next_node: "下一节点",
+            chapter_outline: "",
+            progress_lines: &[],
+            prior_prose: prior.as_str(),
+            tension_lines: &[],
+            arc_lines: &[],
+            logline: None,
+            full_card_names: &[],
+            continuity_blocks: &[],
+            story_brief: Some(&brief),
+            ledger_lines: &[],
+        };
+        let out = render_continue_assets(&input);
+        assert!(
+            out.contains("第134章") && out.contains("第143章"),
+            "预算压力下前情提要不能被裁: {out}"
+        );
+        assert!(out.contains("t-fomosa"));
+    }
+
+    #[test]
+    fn render_includes_batch_ledger() {
+        let bundle = empty_bundle();
+        let ledger = vec![
+            "第11章：医院走廊截住小护士｜章末：小护士否认身份。".to_string(),
+            "第12章：电梯口闻到纸烟｜章末：追踪到双塔巷。".to_string(),
+        ];
+        let input = ContinueAssetsInput {
+            bundle: &bundle,
+            admitted: &[],
+            roster: &[],
+            location: None,
+            next_node: "下一节点",
+            chapter_outline: "",
+            progress_lines: &[],
+            prior_prose: "",
+            tension_lines: &[],
+            arc_lines: &[],
+            logline: None,
+            full_card_names: &[],
+            continuity_blocks: &[],
+            story_brief: None,
+            ledger_lines: &ledger,
+        };
+        let out = render_continue_assets(&input);
+        assert!(out.contains("【本批已续写账本"));
+        assert!(out.contains("第11章"));
+        assert!(out.contains("第12章"));
     }
 }
 

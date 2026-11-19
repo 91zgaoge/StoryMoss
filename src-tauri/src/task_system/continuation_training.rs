@@ -60,11 +60,12 @@ const FEEDBACK_THRESHOLD: f64 = 6.0;
 /// 语体不写死某一本书的标签，统一以【文风锚点】/风格 DNA 为准。
 /// 放在指令前部，确保章纲规划（只读前 3200 字）也能看到。
 const TRAINING_REDLINES: &str = "【原作基调与设定红线（最高优先级；违反即判定该章不合格）】\n\
-1. 设定边界：只沿用前文真实原文已经出现的术法、门派、行话与器物；禁止新增前文未建立的修炼/力量体系、异变器官、超自然规则等体系性设定，禁止超能力对轰。确需新名词时每章至多一个，且必须是现实器物或已有体系的延伸，不得改变力量体系。\n\
+1. 设定边界：只沿用前文真实原文已经出现的术法、门派、行话与器物；以【前情提要】里的「已确立设定白名单」为唯一合法名单。禁止新增前文未建立的修炼/力量体系、异变器官、超自然规则等体系性设定，禁止超能力对轰。\n\
 2. 语体边界：严格遵守【文风锚点】与风格 DNA 的语体、句式长度、对白比例与生活细节密度；保持主角原有的口吻与松弛感，对白要有身份感与生活质感；禁止翻译腔与西幻舶来词，禁止用「令人作呕的酥麻感/钻心剧痛」等身体反应堆砌替代动作与对话。\n\
-3. 推进边界：每章必须推进上一章结尾的未完结事件，并制造至少一个可验证的状态变化（信息/关系/目标/风险/情绪）；不得整章重复上一章的地点、动作与对白，不得原地踏步。\n\
-4. 承接边界：承接锚点只用于对齐现场与人物状态，禁止复制、改写或复述锚点原文；本章第一段必须写在锚点最后一句话之后发生的新动作/新信息。\n\
-5. 设定白名单：只有小说前文真实原文出现过的术法、门派、器物与专有名词才算「已有设定」；沙盒里 AI 自己新造的名词（异变器官、法器、神秘组织等）不算既有设定，后续章节不得沿用、放大或写成规则。";
+3. 推进边界：每章必须推进【前情提要】中的至少一条未结线索（或在正文中写明本章暂不收的理由），并制造至少一个可验证的状态变化（信息/关系/目标/风险/情绪）；不得整章重复上一章的地点、动作与对白，不得原地踏步。\n\
+4. 承接边界：承接锚点与上一章结尾只用于对齐现场与人物状态，禁止复制、改写或复述锚点原文；本章第一段必须写在锚点最后一句话之后发生的新动作/新信息。\n\
+5. 设定白名单：只有【前情提要】的「已确立设定白名单」才算「已有设定」；沙盒里 AI 自己新造的名词（异变器官、法器、神秘组织等）不算既有设定，后续章节不得沿用、放大或写成规则。\n\
+6. 长程边界：本批续写必须整体推进【前情提要】的总脉络与未结线索，不得另起新故事、新主角、新委托；每章只能在不偏离前情提要的方向上制造新事件。";
 
 /// 训练阶段显式枚举：进度不再是散落的 5/20/30/35/40/75/90/100 常量，
 /// 而是每个阶段唯一的进度/step/文案。新增阶段必须在这里登记，保证单调。
@@ -458,18 +459,47 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             ctx.log(
                 "info",
                 &format!(
-                    "资产重建完成：世界观{}｜故事大纲{}｜角色{}｜关系{}｜章节梗概{}",
+                    "资产重建完成：世界观{}｜故事大纲{}｜角色{}｜关系{}｜章节梗概{}｜前情提要{}章/{}线索/{}白名单",
                     if rebuilt.world { "✓" } else { "—" },
                     if rebuilt.story_outline { "✓" } else { "—" },
                     rebuilt.characters,
                     rebuilt.relationships,
-                    rebuilt.chapter_outlines
+                    rebuilt.chapter_outlines,
+                    rebuilt.brief_chapters,
+                    rebuilt.brief_threads,
+                    rebuilt.brief_terms
                 ),
             );
         }
         for warning in rebuilt.warnings.iter().take(4) {
             ctx.log("warn", warning);
         }
+        // v0.99.1：长程记忆。资产重建成功时 persist 已写《前情提要》；
+        // 失败时这里用 scenes 梗概 + 人物/规则确定性兜底；再用前情提要写一份
+        // 确定性全局大纲，避免 ensure_story_outline 的「头600+尾1800」伪大纲。
+        let brief =
+            crate::agency::training_assets::ensure_story_brief(&self.pool, &story.id, &asset_input)
+                .await;
+        let outline_rewritten = crate::agency::training_assets::ensure_deterministic_outline(
+            &self.pool, &story.id, &brief,
+        );
+        let brief_rendered = brief.render(crate::agency::story_brief::STORY_BRIEF_CHAR_CAP);
+        ctx.log(
+            "info",
+            &format!(
+                "前情提要就绪：{} 章逐章事实｜{} 条未结线索｜{} 项设定白名单｜{} 人人物态｜{} 字{}",
+                brief.chapters.len(),
+                brief.threads.len(),
+                brief.canon_terms.len(),
+                brief.cast_states.len(),
+                brief_rendered.chars().count(),
+                if outline_rewritten {
+                    "｜已替换被规划文档污染的故事大纲"
+                } else {
+                    ""
+                }
+            ),
+        );
 
         // ── 4. 承接锚点 + 上轮编审结论注入（自动闭环）──────────
         // v0.93.16: 沙盒没有世界观/角色卡/大纲资产，通用管线会因「创作资产
@@ -588,7 +618,11 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             self.app_handle.clone(),
             self.pool.clone(),
         )
-        .with_asset_ingest_enabled(false);
+        .with_asset_ingest_enabled(false)
+        // v0.99.1：训练资产（前情提要/大纲/角色）已在上方显式就绪，
+        // 禁止 ensure_assets 再用「正文头600+尾1800」重造大纲或从生成正文
+        // 提取幻觉角色写回沙盒。
+        .with_assets_seeded(true);
         let cancel = Arc::new(AtomicBool::new(false));
         // 取消传播：任务被取消时同步中断续写管线（统一取消监听器，500ms）。
         // 监听句柄 Drop 随 execute 结束自动停止轮询，不再泄漏协程。
@@ -833,6 +867,17 @@ impl TaskExecutor for ContinuationTrainingExecutor {
                 }
             )
         };
+        // v0.99.1：报告显式记录长程记忆是否真正进入提示词，便于下一轮定位
+        // 「有数据但没进 prompt」而不是继续给抽象修正。
+        let memory_line = format!(
+            "前情提要：{} 章逐章事实｜{} 条未结线索｜{} 项设定白名单｜{} 人人物态｜注入 {} 字（writer+planner 全量）",
+            brief.chapters.len(),
+            brief.threads.len(),
+            brief.canon_terms.len(),
+            brief.cast_states.len(),
+            brief_rendered.chars().count()
+        );
+        let asset_line = format!("{asset_line}\n- 长程记忆：{memory_line}");
         let (report_md, scores_json, improvement_md) = Self::build_report(
             &payload.book_title,
             context_n,
@@ -2138,16 +2183,18 @@ impl ContinuationTrainingExecutor {
                 Err(_) => return,
             }
         };
-        if ids.len() <= keep {
-            return;
-        }
-        let story_repo = StoryRepository::new(self.pool.clone());
-        for id in ids.into_iter().skip(keep) {
-            match story_repo.delete(&id) {
-                Ok(_) => log::info!("[ContinuationTraining] 已清理旧沙盒 {id}"),
-                Err(e) => log::warn!("[ContinuationTraining] 清理旧沙盒 {id} 失败：{e}"),
+        if ids.len() > keep {
+            let story_repo = StoryRepository::new(self.pool.clone());
+            for id in ids.into_iter().skip(keep) {
+                match story_repo.delete(&id) {
+                    Ok(_) => log::info!("[ContinuationTraining] 已清理旧沙盒 {id}"),
+                    Err(e) => log::warn!("[ContinuationTraining] 清理旧沙盒 {id} 失败：{e}"),
+                }
             }
         }
+        // v0.99.1：前情提要随沙盒删除级联清理，避免孤儿 story_briefs 残留。
+        let _ = crate::agency::story_brief::StoryBriefRepository::new(self.pool.clone())
+            .prune_orphans();
     }
 }
 
@@ -2547,7 +2594,13 @@ fn is_degraded_gate_comment(comments: &str) -> bool {
 /// ingest 写回资产并逐章放大。
 fn build_roster_block(roster: &[(String, String)]) -> String {
     if roster.is_empty() {
-        return String::new();
+        // v0.99.1：即使资产重建 0 角色（真机 1118），「第一人称不得另起姓名 /
+        // 路人不得命名」也必须在 prompt 里；否则 writer 会自行发明「杨先生」。
+        return "【权威人物名册（本轮未登记具名角色）】\n写作硬约束：\n\
+                - 原文用第一人称「我」叙述时，不得给主角另起姓名称呼；\n\
+                - 不得把路人/次要角色命名（护士、摊主、警员、司机只用身份称呼）；\n\
+                - 只可使用前情提要中已经出现的人名；名册外的新姓名一律视为幻觉。"
+            .to_string();
     }
     let mut lines = String::new();
     for (idx, (name, background)) in roster.iter().take(12).enumerate() {

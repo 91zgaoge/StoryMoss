@@ -1454,6 +1454,9 @@ async fn test_chapter_outline_prompt_carries_volume_goal() {
             "",
             None,
             "",
+            None,
+            &[],
+            "",
         )
         .await;
     assert!(out.contains("渡口"), "章纲应正常产出: {out}");
@@ -1480,6 +1483,9 @@ async fn test_chapter_outline_prompt_carries_volume_goal() {
             "【故事大纲】",
             "",
             None,
+            "",
+            None,
+            &[],
             "",
         )
         .await;
@@ -2722,6 +2728,7 @@ async fn test_write_chapter_prefers_inflight_prior_over_db_n2() {
             5,
             None,
             Some(&prior),
+            &[],
             "",
         )
         .await
@@ -3468,7 +3475,17 @@ async fn test_write_chapter_wrong_key_fails_loudly() {
     // 单章续写不再回落到 write_chapter；本契约直接打 tool_loop 路径。
     let err = coordinator
         .write_chapter(
-            &budget, &board, &registry, "rw-1", &story_id, "续写", 1, None, None, "",
+            &budget,
+            &board,
+            &registry,
+            "rw-1",
+            &story_id,
+            "续写",
+            1,
+            None,
+            None,
+            &[],
+            "",
         )
         .await
         .unwrap_err();
@@ -4768,7 +4785,7 @@ fn su_family_prose() -> String {
 
 /// 有正文时大纲从章节归纳，用场景结构而非 PROBLEM；脏的费迪南大纲被 UPDATE。
 #[tokio::test]
-async fn test_ensure_story_outline_from_prose_uses_scene_structure_not_problem() {
+async fn test_ensure_story_outline_from_prose_uses_digest_not_planning() {
     let pool = create_test_pool().unwrap();
     let story = crate::db::repositories::StoryRepository::new(pool.clone())
         .create(crate::db::dto::CreateStoryRequest {
@@ -4830,8 +4847,8 @@ async fn test_ensure_story_outline_from_prose_uses_scene_structure_not_problem()
         "有正文且大纲未接地时应归纳大纲"
     );
     assert!(
-        systems[0].contains("目标") && systems[0].contains("灾难"),
-        "system 须来自场景结构方法论，实际: {}",
+        systems[0].contains("故事大纲") && systems[0].contains("禁止"),
+        "system 须为故事大纲归纳且禁止执行规划，实际: {}",
         systems[0]
     );
     assert!(
@@ -4845,8 +4862,8 @@ async fn test_ensure_story_outline_from_prose_uses_scene_structure_not_problem()
         calls[0]
     );
     assert!(
-        calls[0].contains("目标→冲突→灾难") || calls[0].contains("已有章节正文"),
-        "user 须要求从正文归纳而非只给书名: {}",
+        calls[0].contains("已有章节摘要") && !calls[0].contains("规划下一拍"),
+        "user 须从逐章摘要归纳而非规划下一拍: {}",
         calls[0]
     );
     let outline = crate::db::repositories::StoryOutlineRepository::new(pool.clone())
@@ -4988,6 +5005,9 @@ async fn test_generate_chapter_outline() {
             "",
             None,
             "",
+            None,
+            &[],
+            "",
         )
         .await;
     assert!(!outline.is_empty(), "chapter outline should be non-empty");
@@ -5056,6 +5076,9 @@ async fn test_generate_chapter_outline_skips_without_story_outline() {
             &assets_ctx,
             "",
             None,
+            "",
+            None,
+            &[],
             "",
         )
         .await;
@@ -5999,4 +6022,153 @@ fn writing_strategy_override_reaches_continue_context() {
         .writing_strategy_constraints
         .expect("默认策略约束块应存在");
     assert_ne!(rendered, default_rendered, "自定义策略必须改变约束块");
+}
+
+/// v0.99.1：writer/planner 的资产块必须同时包含：
+/// 1) 《前情提要》全量（逐章事实/线索/白名单）；
+/// 2) 前 10 章逐章梗概（不是最近 3 章正文尾）；
+/// 3) 本批已续写账本（第 11 章）。
+#[test]
+fn render_parts_injects_full_backstory_and_all_prior_chapter_summaries() {
+    use crate::agency::story_brief::{
+        BriefChapter, BriefTerm, BriefThread, StoryBrief, StoryBriefRepository,
+    };
+
+    let pool = create_test_pool().unwrap();
+    let story_id = seed_story_with_assets(&pool);
+    {
+        let conn = pool.get().unwrap();
+        for n in 1..=10 {
+            conn.execute(
+                "INSERT INTO scenes (id, story_id, sequence_number, title, content, outline_content, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, '2026-01-01', '2026-01-01')",
+                rusqlite::params![
+                    format!("s{n}"),
+                    story_id,
+                    n,
+                    format!("第{n}章"),
+                    format!("正文{n}"),
+                    format!("本章梗概：第{n}章已发生事实"),
+                ],
+            )
+            .unwrap();
+        }
+        let brief = StoryBrief {
+            start_chapter: 134,
+            end_chapter: 134,
+            context_chapters: 1,
+            arc_summary: "前文总脉络".into(),
+            chapters: vec![BriefChapter {
+                chapter: 134,
+                summary: "第134章逐章事实".into(),
+                ..Default::default()
+            }],
+            threads: vec![BriefThread {
+                id: "t-main".into(),
+                description: "主线未结事件".into(),
+                status: "open".into(),
+                next_expected: "承接结尾".into(),
+            }],
+            cast_states: vec![],
+            canon_terms: vec![BriefTerm {
+                term: "福摩萨夜总会".into(),
+                kind: "地点".into(),
+                note: "道场线索".into(),
+            }],
+            source: "test".into(),
+            updated_at: String::new(),
+        };
+        StoryBriefRepository::new(pool.clone())
+            .upsert(&story_id, &brief)
+            .unwrap();
+    }
+    let parts = load_continue_context_parts(&pool, &story_id, None).expect("parts 应可用");
+    let ledger = vec!["第11章：刚写完的一章｜章末：追到巷口。".to_string()];
+    let out = render_parts(
+        &parts,
+        &[],
+        "",
+        "推进到下一节点",
+        None,
+        None,
+        &[],
+        &[],
+        &ledger,
+    );
+    assert!(out.contains("【前情提要"), "缺前情提要: {out}");
+    assert!(out.contains("第134章逐章事实"));
+    assert!(out.contains("福摩萨夜总会"));
+    for n in 1..=10 {
+        assert!(
+            out.contains(&format!("第{n}章：第{n}章已发生事实")),
+            "缺第 {n} 章进度: {out}"
+        );
+    }
+    assert!(out.contains("【本批已续写账本"), "缺批次账本: {out}");
+    assert!(out.contains("第11章"));
+}
+
+/// v0.99.1：章纲规划必须看到《前情提要》与上一章结尾现场，而不是只靠
+/// directive 前 3200 字（旧训练指令里 1400 字承接锚点常被截掉）。
+#[tokio::test]
+async fn planner_prompt_includes_story_brief_and_prior_tail() {
+    use crate::agency::story_brief::{BriefChapter, BriefThread, StoryBrief};
+
+    let pool = create_test_pool().unwrap();
+    let story_id = seed_story_with_assets(&pool);
+    let outline_text = format!(
+        "【本章大纲】{}",
+        "主角去渡口找线索，听船夫提起旧事。".repeat(10)
+    );
+    let mock = MockLlm::scripted(vec![outline_text.as_str()]);
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), mock.clone());
+    let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+    let brief = StoryBrief {
+        start_chapter: 134,
+        end_chapter: 134,
+        context_chapters: 1,
+        arc_summary: "前文总脉络".into(),
+        chapters: vec![BriefChapter {
+            chapter: 134,
+            summary: "第134章已发生事实".into(),
+            ..Default::default()
+        }],
+        threads: vec![BriefThread {
+            id: "t-main".into(),
+            description: "主线未结事件".into(),
+            status: "open".into(),
+            next_expected: "承接结尾".into(),
+        }],
+        cast_states: vec![],
+        canon_terms: vec![],
+        source: "test".into(),
+        updated_at: String::new(),
+    };
+    let out = coordinator
+        .generate_chapter_outline(
+            "r-brief",
+            &story_id,
+            "续写第30章",
+            &budget,
+            30,
+            "【故事大纲】",
+            "",
+            None,
+            "上一章最后一句：我按住药车。",
+            Some(&brief),
+            &[],
+            "",
+        )
+        .await;
+    assert!(!out.is_empty(), "章纲应正常产出");
+    let prompt = mock.calls.lock().unwrap()[0].clone();
+    assert!(
+        prompt.contains("【前情提要"),
+        "planner 缺前情提要: {prompt}"
+    );
+    assert!(prompt.contains("第134章已发生事实"));
+    assert!(
+        prompt.contains("上一章最后一句：我按住药车。"),
+        "planner 缺上一章结尾锚点: {prompt}"
+    );
 }

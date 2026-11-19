@@ -1076,6 +1076,11 @@ pub struct AgencyCoordinator {
     /// 后续章节再从资产里读到这些幻觉，逐章放大。关闭后资产重建结果
     /// 在本轮保持唯一权威。
     asset_ingest_enabled: bool,
+    /// v0.99.1：调用方已显式写好像/大纲/前情提要（续写训练）。为 true 时
+    /// `ensure_assets` 不再走通用兜底：禁止 `ensure_story_outline` 用「正文
+    /// 头600+尾1800」生成「单章回顾+下一拍规划」伪大纲，也禁止从已生成正文
+    /// 反向提取幻觉角色写回沙盒。
+    assets_seeded: bool,
     /// P0-1（v0.66.0）：测试用向量库注入。生产从 Tauri State 取
     /// （见 `retrieval_store`），测试用 `for_test_with_store` 注入。
     #[cfg(test)]
@@ -1097,6 +1102,7 @@ impl AgencyCoordinator {
             run_deadline: Mutex::new(None),
             continue_freeze: Arc::new(crate::agency::continue_freeze::ContinueFreezeMap::new()),
             asset_ingest_enabled: true,
+            assets_seeded: false,
             #[cfg(test)]
             test_vector_store: None,
             #[cfg(test)]
@@ -1115,6 +1121,7 @@ impl AgencyCoordinator {
             run_deadline: Mutex::new(None),
             continue_freeze: Arc::new(crate::agency::continue_freeze::ContinueFreezeMap::new()),
             asset_ingest_enabled: true,
+            assets_seeded: false,
             #[cfg(test)]
             test_vector_store: None,
             #[cfg(test)]
@@ -1137,6 +1144,13 @@ impl AgencyCoordinator {
     /// v0.98.7：关闭后台资产 ingest（训练沙盒专用）。返回 builder 供链式调用。
     pub fn with_asset_ingest_enabled(mut self, enabled: bool) -> Self {
         self.asset_ingest_enabled = enabled;
+        self
+    }
+
+    /// v0.99.1：调用方已显式准备好资产与《前情提要》（续写训练），
+    /// `ensure_assets` 不再做通用兜底（大纲重造/正文反向提取角色）。
+    pub fn with_assets_seeded(mut self, seeded: bool) -> Self {
+        self.assets_seeded = seeded;
         self
     }
 
@@ -1513,6 +1527,7 @@ impl AgencyCoordinator {
             run_deadline: Mutex::new(None),
             continue_freeze: self.continue_freeze.clone(),
             asset_ingest_enabled: self.asset_ingest_enabled,
+            assets_seeded: self.assets_seeded,
             #[cfg(test)]
             test_vector_store: self.test_vector_store.clone(),
             #[cfg(test)]
@@ -3670,6 +3685,7 @@ impl AgencyCoordinator {
                 run_deadline: Mutex::new(None),
                 continue_freeze: Arc::new(crate::agency::continue_freeze::ContinueFreezeMap::new()),
                 asset_ingest_enabled: true,
+                assets_seeded: false,
                 #[cfg(test)]
                 test_vector_store: None,
                 #[cfg(test)]
@@ -5004,42 +5020,34 @@ impl AgencyCoordinator {
         } else {
             chars_ctx.as_str()
         };
+        let mut prose_digest = String::new();
         let (system, user) = if has_prose {
-            let (methodology_id, step) = {
+            // v0.99.1：旧实现用「正文头600+尾1800」+ 场景方法论，明确要求
+            // “规划下一拍”，产出「单章回顾+下一拍规划」伪大纲，进而以
+            // 【故事大纲（本场景必须围绕此大纲展开）】强措辞钉死 writer。
+            // 现在改为逐章摘要归纳，并禁止任何执行规划。
+            prose_digest = {
                 let pool = self.pool.clone();
                 let sid = story_id.to_string();
-                self.db(move || -> Result<(String, Option<String>), AppError> {
-                    let story = StoryRepository::new(pool)
-                        .get_by_id(&sid)
-                        .map_err(AppError::from)?;
-                    let id = story.as_ref().and_then(|s| s.methodology_id.as_deref());
-                    let resolved =
-                        crate::agency::prose_ground::resolve_methodology_id(id).to_string();
-                    let step = story.and_then(|s| s.methodology_step.map(|n| n.to_string()));
-                    Ok((resolved, step))
-                })
-                .await
-                .unwrap_or_else(|_| ("scene_structure".into(), Some("1".into())))
+                self.db(move || Ok(render_story_digest_from_pool(&pool, &sid, 3_600)))
+                    .await
+                    .unwrap_or_default()
             };
-            let prompt_id = crate::agents::service::map_methodology_to_prompt_id(
-                &methodology_id,
-                step.as_deref(),
-            )
-            .unwrap_or_else(|| "methodology_scene_structure".into());
-            let system = crate::prompts::registry::resolve_prompt_default(&prompt_id)
-                .unwrap_or_else(|| {
-                    "你必须遵循场景结构规范。目标场景：目标→冲突→灾难。反应场景：反应→困境→决定。\
-                     只归纳已有正文，不得发明未出场主角。"
-                        .to_string()
-                });
-            let excerpt = crate::agency::continue_assets::slice_prior_prose(&prose);
+            let system = "你是故事大纲归纳师。只依据已有正文章节归纳故事大纲：核心冲突、\
+                 已发生的关键转折（带章号）、当前未结线索与推进方向。\
+                 禁止输出「下一拍规划」「场景一」「目标→冲突→灾难」等执行规划；\
+                 只写已经发生的事实与正文已经呈现的走向。只输出大纲正文。"
+                .to_string();
             let user = format!(
-                "以下是已有章节正文（只归纳这些文字，不得按书名另起一套情节）：\n{}\n\n\
+                "以下是已有章节摘要（只归纳这些文字，不得按书名另起一套情节）：\n{}\n\n\
                  已有角色：\n{}\n\n\
-                 请按上述创作方法论归纳故事大纲，并规划下一拍如何推进。\
-                 只归纳已有正文；往下发展必须用该方法论（目标→冲突→灾难 / 反应→困境→决定），\
+                 请输出故事大纲（800-1500 字），包含：\n\
+                 1. 核心冲突；\n\
+                 2. 已发生的关键转折（按章号列出，只写正文已发生的事）；\n\
+                 3. 当前未结线索（3-8 条）；\n\
+                 4. 当前推进方向（只描述正文已经出现的走向，不得编造下一拍动作）。\n\
                  不得发明未在正文出场的主角，不得把书名或空简介当成情节前提。",
-                excerpt, chars_line
+                prose_digest, chars_line
             );
             (system, user)
         } else {
@@ -5121,6 +5129,22 @@ impl AgencyCoordinator {
         let text = match text {
             Ok(t) => t.trim().to_string(),
             Err(_) => return Ok(()),
+        };
+        // v0.99.1：模型若仍产出「下一拍规划/场景一」，不要落库污染全局大纲；
+        // 用逐章摘要生成确定性大纲。
+        let text = if has_prose {
+            let stripped = crate::agency::continue_assets::strip_outline_planning(&text);
+            if crate::agency::training_assets::looks_like_planning_outline(&stripped) {
+                log::warn!(
+                    "agency: 故事大纲产出含执行规划，改用逐章摘要确定性大纲 run={}",
+                    run_id
+                );
+                render_digest_outline(&prose_digest)
+            } else {
+                stripped
+            }
+        } else {
+            text
         };
         if text.chars().count() < 100 {
             log::warn!(
@@ -5274,6 +5298,9 @@ impl AgencyCoordinator {
         assets_ctx: &str,
         characters_override: &str,
         prior: Option<&PriorChapterContext>,
+        prior_tail: &str,
+        story_brief: Option<&crate::agency::story_brief::StoryBrief>,
+        ledger_lines: &[String],
         directive: &str,
     ) -> String {
         let key = format!("第{}章", chapter_number);
@@ -5309,6 +5336,21 @@ impl AgencyCoordinator {
             .chars()
             .take(OUTLINE_DIRECTIVE_CHAR_CAP)
             .collect();
+        // v0.99.1：章纲规划必须看到《前情提要》与上一章结尾现场。旧实现只有
+        // directive 前 3200 字，训练指令里排在最后的 1400 字承接锚点常被截掉，
+        // planner 实际上在「不知道上一章最后一句」的情况下规划本章。
+        let prior_tail_owned = prior_tail.trim().chars().take(1_400).collect::<String>();
+        let brief_owned = story_brief
+            .map(|b| b.render(crate::agency::story_brief::STORY_BRIEF_CHAR_CAP))
+            .unwrap_or_default();
+        let ledger_owned = if ledger_lines.is_empty() {
+            String::new()
+        } else {
+            crate::agency::continue_assets::truncate_chars(
+                &ledger_lines.join("\n"),
+                crate::agency::continue_assets::BATCH_LEDGER_CHAR_CAP,
+            )
+        };
         let prompt_text = tokio::task::spawn_blocking(move || -> String {
             use crate::agency::continue_assets::condense_story_outline;
             use crate::db::repositories::{CharacterRepository, StoryOutlineRepository};
@@ -5345,10 +5387,19 @@ impl AgencyCoordinator {
             } else {
                 format!("\n作者补充要求（必须落实到本场景大纲）：{}", directive_owned)
             };
-            let scene_info = format!(
-                "故事前提：{}\n本章：{}{}",
-                premise_c, key_c, directive_block
-            );
+            let mut scene_info = format!("故事前提：{}\n本章：{}{}", premise_c, key_c, directive_block);
+            if !brief_owned.is_empty() {
+                scene_info.push_str("\n\n【前情提要（前文已发生事实，必须据此判断本场景推进到哪、哪些线还开着；禁止另起新故事）】\n");
+                scene_info.push_str(&brief_owned);
+            }
+            if !prior_tail_owned.is_empty() {
+                scene_info.push_str("\n\n【上一章结尾现场（只用于对齐落笔点，禁止复述）】\n");
+                scene_info.push_str(&prior_tail_owned);
+            }
+            if !ledger_owned.is_empty() {
+                scene_info.push_str("\n\n【本批已续写账本（只写已发生，不写下一拍）】\n");
+                scene_info.push_str(&ledger_owned);
+            }
             // v0.30.31: 加载世界观与已推进进度（进度指针，解决"凭章号盲推"）
             let world = {
                 use crate::db::repositories::WorldBuildingRepository;
@@ -5812,16 +5863,29 @@ impl AgencyCoordinator {
                 }
             })
             .await?;
-        let outline_gate = if parts
+        let has_brief = parts
             .as_ref()
-            .and_then(|p| p.bundle.story_outline.as_ref())
-            .map(|s| !s.trim().is_empty())
-            .unwrap_or(false)
+            .and_then(|p| p.story_brief.as_ref())
+            .map(|b| !b.is_empty())
+            .unwrap_or(false);
+        let outline_gate = if has_brief
+            || parts
+                .as_ref()
+                .and_then(|p| p.bundle.story_outline.as_ref())
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false)
         {
             "【故事大纲】"
         } else {
             ""
         };
+        let planner_prior_tail = parts
+            .as_ref()
+            .and_then(|p| p.scenes.last())
+            .and_then(|s| s.content.as_deref())
+            .map(crate::agency::continue_assets::prior_tail_for_cast)
+            .unwrap_or_default();
+        let planner_brief = parts.as_ref().and_then(|p| p.story_brief.as_ref());
         let chars_var = if let Some(ref p) = parts {
             let (present, parties, rest) = split_card_cast(&card);
             let v1 = crate::agency::continue_assets::merge_admitted(&present, &parties, &[], &rest);
@@ -5850,6 +5914,9 @@ impl AgencyCoordinator {
                 outline_gate,
                 &chars_var,
                 None,
+                &planner_prior_tail,
+                planner_brief,
+                &[],
                 "",
             )
             .await
@@ -6064,6 +6131,7 @@ impl AgencyCoordinator {
                 current_content,
                 &l2,
                 &continuity_blocks,
+                &[],
             );
             let deterministic = if crate::agency::narrative_contract::enabled() {
                 crate::agency::narrative_contract::compile_chapter_contract(
@@ -6695,6 +6763,7 @@ impl AgencyCoordinator {
         chapter_number: i32,
         previous_emotion: Option<&crate::emotion_circuit::ChapterEmotionPlan>,
         prior: Option<&PriorChapterContext>,
+        ledger_lines: &[String],
         directive: &str,
     ) -> Result<BatchChapterArtifacts, AppError> {
         let key = format!("第{}章", chapter_number);
@@ -6746,16 +6815,27 @@ impl AgencyCoordinator {
                 }
             })
             .await?;
-        let outline_gate = if parts
+        let has_brief = parts
             .as_ref()
-            .and_then(|p| p.bundle.story_outline.as_ref())
-            .map(|s| !s.trim().is_empty())
-            .unwrap_or(false)
+            .and_then(|p| p.story_brief.as_ref())
+            .map(|b| !b.is_empty())
+            .unwrap_or(false);
+        let outline_gate = if has_brief
+            || parts
+                .as_ref()
+                .and_then(|p| p.bundle.story_outline.as_ref())
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false)
         {
             "【故事大纲】"
         } else {
             ""
         };
+        // v0.99.1：批量 gate∥writer 并发时，DB latest 是 n-2；章纲必须用
+        // 在途上一章（latest_content）的结尾，而不是 DB 旧章。
+        let planner_prior_tail =
+            crate::agency::continue_assets::prior_tail_for_cast(&latest_content);
+        let planner_brief = parts.as_ref().and_then(|p| p.story_brief.as_ref());
         let chars_var = if let Some(ref p) = parts {
             let (present, parties, rest) = split_card_cast(&card);
             let v1 = crate::agency::continue_assets::merge_admitted(&present, &parties, &[], &rest);
@@ -6773,6 +6853,9 @@ impl AgencyCoordinator {
                 outline_gate,
                 &chars_var,
                 prior,
+                &planner_prior_tail,
+                planner_brief,
+                ledger_lines,
                 directive,
             )
             .await;
@@ -6819,6 +6902,7 @@ impl AgencyCoordinator {
                 Some(&latest_content),
                 &l2,
                 &pinned_blocks,
+                ledger_lines,
             )
         } else {
             String::new()
@@ -7090,6 +7174,7 @@ impl AgencyCoordinator {
             &card.next_outline_node,
             card.setting_location.as_deref(),
             Some(&prior),
+            &[],
             &[],
             &[],
         );
@@ -8136,8 +8221,24 @@ impl AgencyCoordinator {
         self.emit_progress(run_id, "assets", "running", "正在确认创作资产");
 
         // 资产确认/补齐（与单章续写同路径）
-        self.ensure_assets(budget, repo, run_id, story_id, &premise)
-            .await?;
+        // v0.99.1：训练/调用方已显式写好了世界观、故事大纲、角色与前情提要，
+        // 不再走通用兜底。否则 ensure_story_outline 会用「正文头600+尾1800」
+        // 生成「单章回顾+下一拍规划」伪大纲，hot_path_extract 还会把生成正文里
+        // 的幻觉角色写回沙盒。
+        if self.assets_seeded {
+            log::info!(
+                "agency: assets 已由调用方预置，跳过通用兜底 run={} story={}",
+                run_id,
+                story_id
+            );
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            self.db(move || Self::persist_default_methodology_if_empty(&pool, &sid))
+                .await?;
+        } else {
+            self.ensure_assets(budget, repo, run_id, story_id, &premise)
+                .await?;
+        }
         self.check_cancel(cancel)?;
         // assets 里程碑检查点（best-effort）
         self.checkpoint_auto(run_id, story_id, "assets", None, budget)
@@ -8149,6 +8250,9 @@ impl AgencyCoordinator {
         let mut pending_gate: Option<tokio::task::JoinHandle<Result<GateOutcome, AppError>>> = None;
         let mut pending_chapter: Option<(i32, BatchChapterArtifacts, bool)> = None;
         let mut last_written_plan: Option<crate::emotion_circuit::ChapterEmotionPlan> = None;
+        // v0.99.1：本批账本。只记「已发生」的章节结果，供下一章 writer 与
+        // planner 看到第 11..n-1 章整体推进，而不是只看到 n-1 的尾巴。
+        let mut ledger_lines: Vec<String> = Vec::new();
 
         for offset in 0..count {
             let chapter_number = start_chapter + offset as i32;
@@ -8188,6 +8292,16 @@ impl AgencyCoordinator {
                         prose: art.draft.content.clone(),
                         outline: art.outline.clone(),
                     });
+            // 本批账本：已装配章节 + 在途 n-1 草稿（标注「刚写定稿」）。
+            // gate∥writer 并发下 n-1 还没过 gate，但它就是 n 要承接的文本。
+            let mut ledger_for_write = ledger_lines.clone();
+            if let Some((num, art, _)) = pending_chapter.as_ref() {
+                ledger_for_write.push(format_batch_ledger_line(
+                    *num,
+                    &art.outline,
+                    &art.draft.content,
+                ));
+            }
             let write_fut = async {
                 if revision.is_some() {
                     let write_scene_id = if explicit_scene_target {
@@ -8218,6 +8332,7 @@ impl AgencyCoordinator {
                         chapter_number,
                         last_written_plan.as_ref(),
                         prior_ctx.as_ref(),
+                        &ledger_for_write,
                         instruction,
                     )
                     .await
@@ -8245,6 +8360,7 @@ impl AgencyCoordinator {
                         "done",
                         &format!("审查第{}章", prev_num),
                     );
+                    let prev_outline = prev_artifacts.outline.clone();
                     let prev = self
                         .handle_gate(
                             budget,
@@ -8262,6 +8378,13 @@ impl AgencyCoordinator {
                             revision_scene_id.clone(),
                         )
                         .await?;
+                    // 账本只记已装配/已裁决的章节；n-1 的在途稿在上面以
+                    // 「刚写定稿」临时行补足。
+                    ledger_lines.push(format_batch_ledger_line(
+                        prev.chapter_number,
+                        &prev_outline,
+                        &prev.increment,
+                    ));
                     chapters.push(prev);
                     // 每章 gate 处理完：自动会话快照（best-effort）
                     self.snapshot_phase(run_id, "assembly", "auto").await;
@@ -8315,6 +8438,7 @@ impl AgencyCoordinator {
             let outcome = jh
                 .await
                 .map_err(|e| AppError::from(format!("gate join error: {}", e)))??;
+            let last_outline = artifacts.outline.clone();
             let last = self
                 .handle_gate(
                     budget,
@@ -8339,6 +8463,11 @@ impl AgencyCoordinator {
                 "done",
                 &format!("审查第{}章", num),
             );
+            ledger_lines.push(format_batch_ledger_line(
+                last.chapter_number,
+                &last_outline,
+                &last.increment,
+            ));
             chapters.push(last);
             // 末章 gate 处理完：自动会话快照（best-effort）
             self.snapshot_phase(run_id, "assembly", "auto").await;
@@ -9205,6 +9334,20 @@ pub(crate) async fn evaluate_gate_impl(
                 let outline_text: String = outline.content.chars().take(2000).collect();
                 ctx.push_str(&format!("【故事大纲】\n{}\n\n", outline_text));
             }
+            // v0.99.1：编辑审计同样需要长程记忆。否则它只能看单章草稿 +
+            // 2000 字全局大纲，无法判断「是否丢了第 142 章的伏笔/是否越界」。
+            if let Ok(Some(brief)) =
+                crate::agency::story_brief::StoryBriefRepository::new(pool_c.clone())
+                    .get_by_story(&sid)
+            {
+                let rendered = brief.render(crate::agency::story_brief::STORY_BRIEF_CHAR_CAP);
+                if !rendered.is_empty() {
+                    ctx.push_str(&format!(
+                        "【前情提要（逐条核对：本章是否推进未结线索、是否违反设定白名单、是否误用人物当前态）】\n{}\n\n",
+                        rendered
+                    ));
+                }
+            }
             // P0-T2/T3: 知识边界与物品归属核对——给编辑器一份「逐条核查」清单：
             // 在场角色尚不知道的信息、疑似泄密、疑似物品归属矛盾。编辑器据此判
             // blocking；这是「列出疑点由作者/审计裁决」，不做自动改写。
@@ -9754,6 +9897,9 @@ pub(crate) struct ContinueContextParts {
     pub outcomes: Vec<crate::agency::narrative_contract::SceneOutcome>,
     /// v0.80.1：姓名账本（本场称呼块）。
     pub name_ledger: Vec<crate::naming::NameLedgerRecord>,
+    /// v0.99.1：前情提要（逐章事实/未结线索/人物态/设定白名单）。
+    /// 有则全量注入 writer 与 planner；训练沙盒由资产重建/确定性兜底写入。
+    pub story_brief: Option<crate::agency::story_brief::StoryBrief>,
 }
 
 pub(crate) fn load_continue_context_parts(
@@ -9799,6 +9945,12 @@ pub(crate) fn load_continue_context_parts(
     let name_ledger = crate::naming::NameLedgerRepository::new(pool.clone())
         .list_for_story(story_id)
         .unwrap_or_default();
+    // v0.99.1：前情提要。读失败/为空都不阻断续写，writer 仍走锚点+进度兜底。
+    let story_brief = crate::agency::story_brief::StoryBriefRepository::new(pool.clone())
+        .get_by_story(story_id)
+        .ok()
+        .flatten()
+        .filter(|b| !b.is_empty());
     Some(ContinueContextParts {
         bundle,
         table_names,
@@ -9808,6 +9960,7 @@ pub(crate) fn load_continue_context_parts(
         logline,
         outcomes,
         name_ledger,
+        story_brief,
     })
 }
 
@@ -10129,60 +10282,158 @@ fn grounded_table_names(parts: &ContinueContextParts) -> Vec<String> {
     }
 }
 
-fn progress_lines_from_parts(parts: &ContinueContextParts) -> Vec<String> {
-    // v0.80.1：优先读结构化场结果（最近 3 章：结果 + 状态变化 + 未决问题）；
-    // 没有结果时回退到正文末段，再回退章纲前缀。
-    if !parts.outcomes.is_empty() {
-        return parts
-            .outcomes
-            .iter()
-            .take(3)
-            .map(|o| {
-                let delta = serde_json::from_str::<crate::agency::narrative_contract::StateDelta>(
-                    &o.state_delta_json,
-                )
-                .ok()
-                .map(|d| d.compact())
-                .unwrap_or_default();
-                let open = if o.open_question.trim().is_empty() {
-                    String::new()
-                } else {
-                    format!("；未决：{}", o.open_question.trim())
-                };
-                format!(
-                    "第{}章：{}（{}）{}",
-                    o.chapter_number,
-                    o.outcome.trim(),
-                    delta,
-                    open
-                )
-            })
-            .collect();
-    }
-    let mut prior: Vec<_> = parts.scenes.iter().collect();
-    prior.sort_by_key(|sc| std::cmp::Reverse(sc.sequence_number));
-    prior
-        .into_iter()
-        .take(3)
-        .map(|sc| {
-            let content = sc.content.as_deref().unwrap_or("");
-            let plain = crate::agency::continue_assets::strip_editor_markup(content);
+/// v0.99.1：故事大纲兜底的逐章摘要。旧实现用 `slice_prior_prose` 只取整本
+/// 正文的头 600 + 尾 1800，中间章节完全丢失；这里按 scene 逐章取梗概/首尾，
+/// 保证第 2..n-1 章的事实也能进入大纲归纳。
+fn render_story_digest_from_pool(pool: &DbPool, story_id: &str, max_chars: usize) -> String {
+    let scenes = SceneRepository::new(pool.clone())
+        .get_by_story(story_id)
+        .unwrap_or_default();
+    let mut lines: Vec<String> = Vec::new();
+    for sc in scenes.iter().rev().take(30).rev() {
+        let plan = sc
+            .outline_content
+            .as_deref()
+            .map(strip_chapter_summary_prefix)
+            .filter(|s| !s.is_empty());
+        let text = if let Some(plan) = plan {
+            plan.chars().take(240).collect::<String>()
+        } else {
+            let plain = crate::agency::continue_assets::strip_editor_markup(
+                sc.content.as_deref().unwrap_or(""),
+            );
             let plain = plain.trim();
-            let source = if plain.chars().count() >= 40 {
-                let n = plain.chars().count();
-                plain
-                    .chars()
-                    .skip(n.saturating_sub(220))
-                    .collect::<String>()
+            if plain.chars().count() <= 300 {
+                plain.to_string()
             } else {
-                crate::agency::continue_assets::chapter_plan_from_scene_outline(
-                    sc.outline_content.as_deref().unwrap_or(""),
-                )
-            };
-            format!("第{}章：{}", sc.sequence_number, source.trim())
-        })
-        .filter(|line| !line.ends_with('：'))
-        .collect()
+                let head: String = plain.chars().take(120).collect();
+                let tail: String = plain
+                    .chars()
+                    .skip(plain.chars().count().saturating_sub(180))
+                    .collect();
+                format!("{head}…{tail}")
+            }
+        };
+        if !text.trim().is_empty() {
+            lines.push(format!("第{}章：{}", sc.sequence_number, text.trim()));
+        }
+    }
+    let mut joined = lines.join("\n");
+    if joined.chars().count() > max_chars {
+        // 保留最近章节（当前走向最重要）。
+        let n = joined.chars().count();
+        joined = joined.chars().skip(n - max_chars).collect();
+    }
+    joined
+}
+
+fn render_digest_outline(digest: &str) -> String {
+    if digest.trim().is_empty() {
+        return String::new();
+    }
+    format!(
+        "【已发生主线（按章归纳，只写正文已发生的事实）】\n{}\n\n\
+         【下一节点】\n紧接最后一章结尾的未完结事件继续推进；\
+         不得另起新主角、新地点或新委托。",
+        digest.trim()
+    )
+}
+
+fn progress_lines_from_parts(parts: &ContinueContextParts) -> Vec<String> {
+    // v0.99.1：不再 `take(3)`。前 10 章逐章梗概是长程记忆的最小载体，必须
+    // 全部可见（最近 12 章，按字符上限再收）。outcomes 只作为补充，绝不
+    // 再整体替换上下文（旧实现第 11 章装配后前 10 章从 prompt 里消失）。
+    let mut scenes: Vec<_> = parts.scenes.iter().collect();
+    scenes.sort_by_key(|sc| sc.sequence_number);
+    let mut lines: Vec<String> = Vec::new();
+    for sc in scenes.iter().rev().take(12).rev() {
+        let plan = sc
+            .outline_content
+            .as_deref()
+            .map(strip_chapter_summary_prefix)
+            .filter(|s| !s.is_empty());
+        let plain = crate::agency::continue_assets::strip_editor_markup(
+            sc.content.as_deref().unwrap_or(""),
+        );
+        let plain = plain.trim();
+        let text = if let Some(plan) = plan {
+            plan.chars().take(200).collect::<String>()
+        } else if plain.chars().count() >= 40 {
+            let n = plain.chars().count();
+            plain
+                .chars()
+                .skip(n.saturating_sub(180))
+                .collect::<String>()
+        } else {
+            continue;
+        };
+        if !text.trim().is_empty() {
+            lines.push(format!("第{}章：{}", sc.sequence_number, text.trim()));
+        }
+    }
+    for o in &parts.outcomes {
+        let prefix = format!("第{}章", o.chapter_number);
+        if lines.iter().any(|l| l.starts_with(&prefix)) {
+            continue;
+        }
+        let delta = serde_json::from_str::<crate::agency::narrative_contract::StateDelta>(
+            &o.state_delta_json,
+        )
+        .ok()
+        .map(|d| d.compact())
+        .unwrap_or_default();
+        let open = if o.open_question.trim().is_empty() {
+            String::new()
+        } else {
+            format!("；未决：{}", o.open_question.trim())
+        };
+        lines.push(format!(
+            "第{}章：{}（{}）{}",
+            o.chapter_number,
+            o.outcome.trim(),
+            delta,
+            open
+        ));
+    }
+    // 1600 字上限：从最旧章开始丢，保住最近进度。
+    const PROGRESS_CHAR_CAP: usize = 1_600;
+    while lines.len() > 1 && lines.join("\n").chars().count() > PROGRESS_CHAR_CAP {
+        lines.remove(0);
+    }
+    lines
+}
+
+fn strip_chapter_summary_prefix(raw: &str) -> String {
+    let text = raw.trim();
+    for prefix in ["本章梗概：", "本章大纲：", "场景执行大纲：", "章纲："] {
+        if let Some(rest) = text.strip_prefix(prefix) {
+            return rest.trim().to_string();
+        }
+    }
+    text.to_string()
+}
+
+/// v0.99.1：本批账本一行。章纲前 100 字（计划方向）+ 正文末 140 字（实际
+/// 落点）。只写已发生，不写下一拍；gate∥writer 并发时用于补 n-1 在途稿。
+fn format_batch_ledger_line(chapter: i32, outline: &str, content: &str) -> String {
+    let plan = strip_chapter_summary_prefix(outline)
+        .chars()
+        .take(100)
+        .collect::<String>();
+    let plain = crate::export::content::content_to_plain_text(content);
+    let plain = plain.trim();
+    let tail = if plain.chars().count() > 140 {
+        let n = plain.chars().count();
+        plain.chars().skip(n - 140).collect::<String>()
+    } else {
+        plain.to_string()
+    };
+    match (plan.trim().is_empty(), tail.trim().is_empty()) {
+        (false, false) => format!("第{chapter}章：{}｜章末：{}", plan.trim(), tail.trim()),
+        (false, true) => format!("第{chapter}章：{}", plan.trim()),
+        (true, false) => format!("第{chapter}章：章末：{}", tail.trim()),
+        (true, true) => format!("第{chapter}章：（无产出）"),
+    }
 }
 
 fn split_card_cast(
@@ -10256,6 +10507,7 @@ pub(crate) fn render_parts(
     current_content: Option<&str>,
     full_card_names: &[String],
     continuity_blocks: &[String],
+    ledger_lines: &[String],
 ) -> String {
     use crate::agency::continue_assets::{
         build_roster, render_continue_assets, slice_prior_prose, ContinueAssetsInput,
@@ -10319,6 +10571,8 @@ pub(crate) fn render_parts(
         logline: parts.logline.as_deref(),
         full_card_names,
         continuity_blocks,
+        story_brief: parts.story_brief.as_ref(),
+        ledger_lines,
     });
     let address = render_address_block(parts, admitted);
     if !address.is_empty() {
@@ -10786,6 +11040,7 @@ pub(crate) fn assemble_continue_user_prompt(
         Some(current_content),
         &l2,
         &pinned,
+        &[],
     );
     let state = compile_continue_beat_state(&card, Some(&parts), current_content);
     let user = crate::agency::beat_card::render_writer_user_prompt(
@@ -10936,7 +11191,7 @@ pub(crate) fn build_writer_context_from_db(pool: &DbPool, story_id: &str) -> Str
         .take(ADMITTED_CAP)
         .cloned()
         .collect();
-    render_parts(&parts, &admitted, "", "", None, None, &[], &[])
+    render_parts(&parts, &admitted, "", "", None, None, &[], &[], &[])
 }
 
 /// P2-9（v0.71.0）：切分 logline 产出——首行 logline，其余「张力/赌注/心理」

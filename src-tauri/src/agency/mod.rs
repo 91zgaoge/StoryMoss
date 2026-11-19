@@ -42,6 +42,7 @@ pub mod retrieval;
 pub mod roles;
 pub mod scheduler;
 pub mod session;
+pub mod story_brief;
 pub mod task_repository;
 pub mod technique_feedback;
 pub mod tool_loop;
