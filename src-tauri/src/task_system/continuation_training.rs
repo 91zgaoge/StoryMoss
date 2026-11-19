@@ -148,6 +148,10 @@ pub struct TrainingPayload {
     /// 提示）。
     #[serde(default)]
     pub feedback_mode: Option<String>,
+    /// v0.99.3：prompt 模式 `full`（默认）/`compact`（本地小模型）；compact
+    /// 缩 brief/ledger/progress 与资产预算，降低本地 GPU OOM。
+    #[serde(default)]
+    pub prompt_mode: Option<String>,
     #[serde(default)]
     pub source: SourceSpec,
 }
@@ -336,6 +340,7 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             .continuation_chapters
             .clamp(1, MAX_CONTINUATION_CHAPTERS);
         let blind = payload.feedback_mode.as_deref() == Some("blind");
+        let compact_prompt = payload.prompt_mode.as_deref() == Some("compact");
 
         // ── 1. 取源章节（上下文 + 真实后续基准）──────────────────
         ctx.update_progress(
@@ -451,12 +456,30 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             .iter()
             .map(|(number, content)| (*number, content.clone()))
             .collect();
+        let asset_progress: crate::agency::training_assets::AssetProgress = {
+            let task_id = task.id.clone();
+            let pool = self.pool.clone();
+            let app = self.app_handle.clone();
+            std::sync::Arc::new(move |done, total| {
+                let ctx = crate::task_system::executor::TaskExecutionContext::new(
+                    task_id.clone(),
+                    pool.clone(),
+                    app.clone(),
+                );
+                let total = total.max(1);
+                let p = 35 + ((done.min(total) as i32 * 5) / total as i32).min(5);
+                let label = format!("逐章摘要 {done}/{total} 章完成");
+                ctx.update_progress("assets", p, &label);
+                ctx.log("info", &label);
+            })
+        };
         let rebuilt = crate::agency::training_assets::rebuild_from_context(
             &self.pool,
             &asset_llm,
             &story.id,
             &payload.book_title,
             &asset_input,
+            Some(asset_progress),
         )
         .await;
         if let Some(err) = rebuilt.llm_error.as_deref() {
@@ -654,7 +677,8 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         // 禁止 ensure_assets 再用「正文头600+尾1800」重造大纲或从生成正文
         // 提取幻觉角色写回沙盒。
         .with_assets_seeded(true)
-        .with_batch_progress(progress_sink);
+        .with_batch_progress(progress_sink)
+        .with_compact_prompt(compact_prompt);
         let cancel = Arc::new(AtomicBool::new(false));
         // 取消传播：任务被取消时同步中断续写管线（统一取消监听器，500ms）。
         // 监听句柄 Drop 随 execute 结束自动停止轮询，不再泄漏协程。
@@ -930,7 +954,15 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         } else {
             "- 反馈模式：truth_hints（允许注入上一轮真实后续节点）"
         };
-        let asset_line = format!("{asset_line}\n- 长程记忆：{memory_line}\n{feedback_line}");
+        let prompt_line = if compact_prompt {
+            "- Prompt 模式：compact（本地小模型）"
+        } else {
+            "- Prompt 模式：full"
+        };
+        let probe_line = memory_probes_line(&brief, &generated, &context_prose);
+        let asset_line = format!(
+            "{asset_line}\n- 长程记忆：{memory_line}\n{feedback_line}\n{prompt_line}\n- 记忆探针：{probe_line}"
+        );
         let (report_md, scores_json, improvement_md) = Self::build_report(
             &payload.book_title,
             context_n,
@@ -2865,7 +2897,166 @@ fn extract_truth_beats(
     out
 }
 
-/// 下一轮改进文本：编审总评改进项优先，其次逐章改进与低分维度修正。
+/// v0.99.3：训练报告的记忆探针（确定性，不调用 LLM）。
+/// - 人物留存：brief cast 中的人物在 10 章生成里是否再出现；
+/// - 线索推进：brief thread 的关键词是否在生成里出现；
+/// - 地点跳切：brief location 在两个生成章之间切换但无过渡动词；
+/// - 疑似新专名：生成文本中重复 ≥2 次、上下文/白名单里不存在的 3–4 字中文串。
+fn memory_probes_line(
+    brief: &crate::agency::story_brief::StoryBrief,
+    generated: &[(i32, String)],
+    context_prose: &str,
+) -> String {
+    let all: Vec<&str> = generated
+        .iter()
+        .map(|(_, text)| text.as_str())
+        .filter(|text| !text.trim().is_empty())
+        .collect();
+    let mut cast_missing: Vec<String> = Vec::new();
+    for cast in brief.cast_states.iter().take(12) {
+        if !cast.name.trim().is_empty() && !all.iter().any(|text| text.contains(cast.name.trim())) {
+            cast_missing.push(cast.name.clone());
+        }
+    }
+    let mut threads_unadvanced = Vec::new();
+    for thread in brief.threads.iter().take(8) {
+        let key = thread
+            .next_expected
+            .trim()
+            .chars()
+            .take(4)
+            .collect::<String>();
+        let desc_key = thread
+            .description
+            .trim()
+            .chars()
+            .filter(|c| !c.is_whitespace() && !")_）】，。；：!?！？".contains(*c))
+            .take(4)
+            .collect::<String>();
+        let advanced = all.iter().any(|text| {
+            (!key.is_empty() && text.contains(&key))
+                || (!desc_key.is_empty() && text.contains(&desc_key))
+        });
+        if !advanced {
+            threads_unadvanced.push(thread.id.clone());
+        }
+    }
+    let locations: Vec<String> = brief
+        .chapters
+        .iter()
+        .filter(|chapter| !chapter.location.trim().is_empty())
+        .map(|chapter| chapter.location.trim().to_string())
+        .collect();
+    let mut location_shifts = 0usize;
+    let mut prev_loc: Option<String> = None;
+    if locations.len() > 1 {
+        for (_, text) in generated {
+            let current = locations
+                .iter()
+                .find(|loc| text.contains(loc.as_str()))
+                .cloned();
+            if let (Some(prev), Some(cur)) = (prev_loc.as_ref(), current.as_ref()) {
+                if prev != cur {
+                    let transition = ["去", "到", "进", "出", "回", "离开", "路上", "来到"]
+                        .iter()
+                        .any(|word| text.contains(word));
+                    if !transition {
+                        location_shifts += 1;
+                    }
+                }
+            }
+            if current.is_some() {
+                prev_loc = current;
+            }
+        }
+    }
+    let suspected = suspect_new_terms(&all.join("\n"), context_prose, &brief.canon_terms);
+    let mut parts = Vec::new();
+    if !cast_missing.is_empty() {
+        parts.push(format!(
+            "人物留存缺失 {} 人（{}）",
+            cast_missing.len(),
+            cast_missing
+                .iter()
+                .take(4)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("/")
+        ));
+    }
+    if !threads_unadvanced.is_empty() {
+        parts.push(format!(
+            "线索未推进 {} 条（{}）",
+            threads_unadvanced.len(),
+            threads_unadvanced
+                .iter()
+                .take(4)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("/")
+        ));
+    }
+    if location_shifts > 0 {
+        parts.push(format!("疑似地点跳切 {location_shifts} 次"));
+    }
+    if !suspected.is_empty() {
+        parts.push(format!(
+            "疑似新专名：{}",
+            suspected
+                .iter()
+                .take(6)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("/")
+        ));
+    }
+    if parts.is_empty() {
+        "人物/线索/地点/专名探针未发现异常".to_string()
+    } else {
+        parts.join("｜")
+    }
+}
+
+fn suspect_new_terms(
+    generated: &str,
+    context_prose: &str,
+    canon_terms: &[crate::agency::story_brief::BriefTerm],
+) -> Vec<String> {
+    const STOPWORDS: [&str; 36] = [
+        "时候", "已经", "自己", "什么", "一个", "这个", "那个", "里面", "外面", "的话", "就是",
+        "可是", "然后", "因为", "所以", "不是", "没有", "他们", "我们", "起来", "出来", "过去",
+        "现在", "心里", "脸上", "身上", "手里", "眼睛", "声音", "地方", "东西", "事情", "感觉",
+        "知道", "看着", "听见",
+    ];
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let chars: Vec<char> = generated.chars().collect();
+    for n in 3..=4 {
+        if chars.len() < n {
+            continue;
+        }
+        for i in 0..=chars.len() - n {
+            let term: String = chars[i..i + n].iter().collect();
+            if term
+                .chars()
+                .all(|c| ('\u{4e00}'..='\u{9fff}').contains(&c) || c == '·')
+                && !STOPWORDS.contains(&term.as_str())
+            {
+                *counts.entry(term).or_insert(0) += 1;
+            }
+        }
+    }
+    let mut out: Vec<(String, usize)> = counts
+        .into_iter()
+        .filter(|(term, count)| {
+            *count >= 2
+                && !context_prose.contains(term)
+                && !canon_terms.iter().any(|t| t.term == *term)
+        })
+        .collect();
+    out.sort_by(|a, b| b.1.cmp(&a.1));
+    out.into_iter().map(|(term, _)| term).take(12).collect()
+}
+
 /// 去重、限长（<=1600 字符），保证可被下一轮指令完整注入。
 fn derive_improvements(
     reviews: &[ChapterReviewOutcome],
@@ -3564,5 +3755,62 @@ mod tests {
         assert!(!kept.contains("真实后续节点"));
         assert!(kept.contains("禁止另开长期悬疑线"));
         assert!(kept.contains("每章必须主动出手"));
+    }
+
+    #[test]
+    fn memory_probes_flag_missing_cast_thread_and_new_terms() {
+        use crate::agency::story_brief::{BriefCastState, BriefTerm, BriefThread, StoryBrief};
+        let brief = StoryBrief {
+            cast_states: vec![BriefCastState {
+                name: "周成".into(),
+                ..Default::default()
+            }],
+            threads: vec![BriefThread {
+                id: "t-fomosa".into(),
+                description: "福摩萨夜总会道场".into(),
+                next_expected: "福摩萨夜总会".into(),
+                status: "open".into(),
+            }],
+            canon_terms: vec![BriefTerm {
+                term: "三理教".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let generated = vec![
+            (
+                11,
+                "张宝山在门口等着。引魂蛆钻进骨缝，引魂蛆又动了一下。骨刺也冒了出来。".to_string(),
+            ),
+            (12, "院里的霜落了一地。".to_string()),
+        ];
+        let context = "周成在饭局里见到赵开来；三理教已经退出金城。";
+        let line = memory_probes_line(&brief, &generated, context);
+        assert!(line.contains("人物留存缺失"), "{line}");
+        assert!(line.contains("线索未推进"), "{line}");
+        assert!(line.contains("疑似新专名"), "{line}");
+        assert!(line.contains("引魂蛆") || line.contains("骨刺"), "{line}");
+    }
+
+    #[test]
+    fn memory_probes_clear_when_all_present() {
+        use crate::agency::story_brief::{BriefCastState, BriefThread, StoryBrief};
+        let brief = StoryBrief {
+            cast_states: vec![BriefCastState {
+                name: "周成".into(),
+                ..Default::default()
+            }],
+            threads: vec![BriefThread {
+                id: "t-fomosa".into(),
+                description: "福摩萨夜总会道场".into(),
+                next_expected: "福摩萨".into(),
+                status: "open".into(),
+            }],
+            ..Default::default()
+        };
+        let generated = vec![(11, "周成去了福摩萨夜总会，门口有人等着。".to_string())];
+        let line = memory_probes_line(&brief, &generated, "周成与福摩萨相关。");
+        assert!(!line.contains("人物留存缺失"), "{line}");
+        assert!(!line.contains("线索未推进"), "{line}");
     }
 }

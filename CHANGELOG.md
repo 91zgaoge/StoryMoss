@@ -2,6 +2,20 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.3（2026-11-19）
+
+**训练 compact/blind/probes + brief 预览 + 模型 GPU 诊断（v0.99.2 剩余 P1/P2）。**
+
+- **compact prompt**：`ContinueAssetsInput.compact` + `ASSET_CHAR_BUDGET_COMPACT=6000`、brief 2200、ledger 600、progress 900；coordinator `with_compact_prompt`，planner/writer 共用 cap；TrainingPayload `prompt_mode`；训练页「紧凑提示词」勾选。
+- **blind 模式**：TrainingPayload `feedback_mode=blind` 过滤上一轮「真实后续节点」；训练页「盲测模式」勾选；报告标注 truth_hints/blind。
+- **资产逐章进度**：`rebuild_from_context`/`summarize_chapters` 接收 AssetProgress；训练任务逐章写 assets progress（35→40）+日志+心跳，不再只有 35% 阶段。
+- **记忆探针**：`memory_probes_line` 检测人物留存缺失/线索未推进/地点跳切/疑似新专名（3–4 字重复且上下文/白名单外），报告「记忆探针」行；fixture 覆盖“引魂蛆/骨刺”。
+- **摘要缓存 TTL**：V163 逐章摘要缓存加 30 天 TTL。
+- **brief 预览**：新增 `training_get_story_brief` IPC，TrainingLab 报告详情展示《前情提要》计数与 2400 字预览；编审表新增「原书差距」列。
+- **模型 GPU 诊断**：`ModelHealthReport.prompt_limit_tokens`（GPU OOM 学习值）；ModelHealthPanel 显示“实测 prompt 上限 ≈ N tokens”。
+- **测试**：Rust **2220 passed / 17 ignored**（+5）；tsc 0；Vitest **725 passed / 3 skipped**；Playwright **144 passed / 5 skipped**（全量复跑）；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：真机复测 v0.99.3（compact Qwren OOM=0、blind A/B、资产逐章进度、brief 预览、模型页 GPU 上限）。
+
 ## v0.99.2（2026-11-19）
 
 **续写训练资产分阶段 + 网关 GPU 容量路由 + 进度/评分口径收口。**

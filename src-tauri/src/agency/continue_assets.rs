@@ -18,10 +18,19 @@ pub const ASSET_CHAR_BUDGET: usize = 6000;
 /// v0.99.1：有《前情提要》/批内账本时，资产块总预算放宽；前情提要是 protected
 /// 且排在稳定区最前，确保不会被动态块挤压。
 pub const ASSET_CHAR_BUDGET_WITH_MEMORY: usize = 9000;
+/// v0.99.3：本地小模型 compact 模式预算（给 Qwren 等 ~4–6k prompt 留余量）。
+pub const ASSET_CHAR_BUDGET_COMPACT: usize = 6000;
 /// 前情提要渲染上限（与 story_brief 模块一致；由 story_brief 内部再截）。
 pub const BACKSTORY_CHAR_CAP: usize = 3600;
+/// compact 模式的前情提要上限（保留逐章事实，牺牲部分线索/白名单）。
+pub const BACKSTORY_CHAR_CAP_COMPACT: usize = 2200;
 /// 本批已续写账本上限（第 11..n-1 章一行）。
 pub const BATCH_LEDGER_CHAR_CAP: usize = 1000;
+/// compact 账本上限。
+pub const BATCH_LEDGER_CHAR_CAP_COMPACT: usize = 600;
+/// 已推进进度块上限（compact 再缩）。
+pub const PROGRESS_CHAR_CAP: usize = 1600;
+pub const PROGRESS_CHAR_CAP_COMPACT: usize = 900;
 /// 单拍伏笔块上限：6 条 hint + 使用指令，超出截断但不整块丢弃。
 pub const FORESHADOW_CHAR_CAP: usize = 900;
 /// 长章双窗：开篇窗口。与 `PRIOR_TAIL_CHAR_CAP` 合计为注入上限。
@@ -833,6 +842,8 @@ pub struct ContinueAssetsInput<'a> {
     pub story_brief: Option<&'a StoryBrief>,
     /// v0.99.1：本批已续写账本（第 11..n-1 章），动态区，保住不被预算裁掉。
     pub ledger_lines: &'a [String],
+    /// v0.99.3：compact 模式（本地小模型）。缩 brief/ledger/progress 与总预算。
+    pub compact: bool,
 }
 
 pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
@@ -863,19 +874,29 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
     // v0.99.1：前情提要放在稳定区最前（红线之后、大纲之前），整批固定。
     // 这是「前 10 章逐章事实 + 未结线索 + 人物态 + 设定白名单」的唯一权威块；
     // 旧管线只注入上一章 1400 字，长程记忆为零。
+    let backstory_cap = if input.compact {
+        BACKSTORY_CHAR_CAP_COMPACT
+    } else {
+        BACKSTORY_CHAR_CAP
+    };
     let backstory = input
         .story_brief
-        .map(|b| b.render(BACKSTORY_CHAR_CAP))
+        .map(|b| b.render(backstory_cap))
         .unwrap_or_default();
 
     // v0.99.1：本批已续写账本（动态区）。gate∥writer 并发时调用方会把
     // n-1 的在途稿也折算成一行，保证第 n 章知道第 11..n-1 章实际发生了什么。
+    let ledger_cap = if input.compact {
+        BATCH_LEDGER_CHAR_CAP_COMPACT
+    } else {
+        BATCH_LEDGER_CHAR_CAP
+    };
     let ledger = if input.ledger_lines.is_empty() {
         String::new()
     } else {
         format!(
             "【本批已续写账本（只写已发生，不写下一拍）】\n{}",
-            truncate_chars(&input.ledger_lines.join("\n"), BATCH_LEDGER_CHAR_CAP)
+            truncate_chars(&input.ledger_lines.join("\n"), ledger_cap)
         )
     };
 
@@ -1045,12 +1066,17 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         )
     };
 
+    let progress_cap = if input.compact {
+        PROGRESS_CHAR_CAP_COMPACT
+    } else {
+        PROGRESS_CHAR_CAP
+    };
     let progress = if input.progress_lines.is_empty() {
         String::new()
     } else {
         format!(
             "【已推进进度（承接此处，推进到下一节点，不得原地踏步）】\n{}",
-            input.progress_lines.join("\n")
+            truncate_chars(&input.progress_lines.join("\n"), progress_cap)
         )
     };
 
@@ -1151,7 +1177,10 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
     let before = join_nonempty(&parts);
     // 有前情提要/账本时放宽总预算；两者都是 protected 且排在前部，
     // 预算收缩优先牺牲动态的 prior/progress，而不是长程记忆。
-    let budget = if input.story_brief.is_some() || !input.ledger_lines.is_empty() {
+    // compact 模式（本地小模型）固定 6000，brief/ledger 走更小 cap。
+    let budget = if input.compact {
+        ASSET_CHAR_BUDGET_COMPACT
+    } else if input.story_brief.is_some() || !input.ledger_lines.is_empty() {
         ASSET_CHAR_BUDGET_WITH_MEMORY
     } else {
         ASSET_CHAR_BUDGET
@@ -1159,7 +1188,7 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
     let out = apply_asset_budget_with(&parts, budget);
     let truncated = out.chars().count() < before.chars().count();
     log::info!(
-        "continue_assets: admitted={} l2={} roster={} chars={} truncated={} brief={} ledger={}",
+        "continue_assets: admitted={} l2={} roster={} chars={} truncated={} brief={} ledger={} compact={}",
         input.admitted.join("、"),
         if input.full_card_names.is_empty() {
             input.admitted.join("、")
@@ -1170,7 +1199,8 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         out.chars().count(),
         truncated,
         input.story_brief.map(|b| b.chapters.len()).unwrap_or(0),
-        input.ledger_lines.len()
+        input.ledger_lines.len(),
+        input.compact
     );
     out
 }
@@ -1396,6 +1426,7 @@ mod tests {
             continuity_blocks: &[],
             story_brief: None,
             ledger_lines: &[],
+            compact: false,
         };
         let out = render_continue_assets(&input);
         assert!(out.contains("情感内核：角色00的情感内核"));
@@ -1491,6 +1522,7 @@ mod tests {
             continuity_blocks: &[],
             story_brief: None,
             ledger_lines: &[],
+            compact: false,
         };
         let out = render_continue_assets(&input);
         assert!(
@@ -1567,6 +1599,7 @@ mod tests {
             continuity_blocks: &blocks,
             story_brief: None,
             ledger_lines: &[],
+            compact: false,
         };
         let out = render_continue_assets(&input);
         assert!(out.contains("本拍信息差"), "{out}");
@@ -1597,6 +1630,7 @@ mod tests {
             continuity_blocks: &[],
             story_brief: None,
             ledger_lines: &[],
+            compact: false,
         };
         let out = render_continue_assets(&input);
         assert!(out.contains("风格 DNA 六维指标"), "{out}");
@@ -1636,6 +1670,7 @@ mod tests {
             continuity_blocks: &[],
             story_brief: None,
             ledger_lines: &[],
+            compact: false,
         };
         let input_b = ContinueAssetsInput {
             bundle: &bundle,
@@ -1653,6 +1688,7 @@ mod tests {
             continuity_blocks: &[],
             story_brief: None,
             ledger_lines: &[],
+            compact: false,
         };
         let out_a = render_continue_assets(&input_a);
         let out_b = render_continue_assets(&input_b);
@@ -1723,6 +1759,7 @@ mod tests {
             continuity_blocks: &[],
             story_brief: None,
             ledger_lines: &[],
+            compact: false,
         };
         let out = render_continue_assets(&input);
         assert!(out.contains("皇权裂痕"), "{out}");
@@ -1928,6 +1965,7 @@ mod tests {
             continuity_blocks: &[],
             story_brief: Some(&brief),
             ledger_lines: &[],
+            compact: false,
         };
         let out = render_continue_assets(&input);
         let brief_pos = out.find("【前情提要").expect("必须注入前情提要");
@@ -1962,6 +2000,7 @@ mod tests {
             continuity_blocks: &[],
             story_brief: Some(&brief),
             ledger_lines: &[],
+            compact: false,
         };
         let out = render_continue_assets(&input);
         assert!(
@@ -1994,11 +2033,95 @@ mod tests {
             continuity_blocks: &[],
             story_brief: None,
             ledger_lines: &ledger,
+            compact: false,
         };
         let out = render_continue_assets(&input);
         assert!(out.contains("【本批已续写账本"));
         assert!(out.contains("第11章"));
         assert!(out.contains("第12章"));
+    }
+
+    #[test]
+    fn compact_mode_reduces_brief_and_budget() {
+        let bundle = empty_bundle();
+        let mut brief = sample_brief();
+        for chapter in &mut brief.chapters {
+            chapter.summary = format!("{}（{}）", chapter.summary, "中段事实。".repeat(20));
+        }
+        let full_input = ContinueAssetsInput {
+            bundle: &bundle,
+            admitted: &[],
+            roster: &[],
+            location: None,
+            next_node: "下一节点",
+            chapter_outline: "",
+            progress_lines: &[],
+            prior_prose: "",
+            tension_lines: &[],
+            arc_lines: &[],
+            logline: None,
+            full_card_names: &[],
+            continuity_blocks: &[],
+            story_brief: Some(&brief),
+            ledger_lines: &[],
+            compact: false,
+        };
+        let compact_input = ContinueAssetsInput {
+            bundle: &bundle,
+            admitted: &[],
+            roster: &[],
+            location: None,
+            next_node: "下一节点",
+            chapter_outline: "",
+            progress_lines: &[],
+            prior_prose: "",
+            tension_lines: &[],
+            arc_lines: &[],
+            logline: None,
+            full_card_names: &[],
+            continuity_blocks: &[],
+            story_brief: Some(&brief),
+            ledger_lines: &[],
+            compact: true,
+        };
+        let full = render_continue_assets(&full_input);
+        let compact = render_continue_assets(&compact_input);
+        assert!(compact.contains("【前情提要"));
+        assert!(
+            compact.chars().count() <= full.chars().count(),
+            "compact 应更小"
+        );
+    }
+
+    #[test]
+    fn compact_mode_progress_and_ledger_caps() {
+        let bundle = empty_bundle();
+        let ledger: Vec<String> = (11..=20)
+            .map(|n| format!("第{n}章：{}", "账本".repeat(200)))
+            .collect();
+        let input = ContinueAssetsInput {
+            bundle: &bundle,
+            admitted: &[],
+            roster: &[],
+            location: None,
+            next_node: "下一节点",
+            chapter_outline: "",
+            progress_lines: &ledger,
+            prior_prose: "",
+            tension_lines: &[],
+            arc_lines: &[],
+            logline: None,
+            full_card_names: &[],
+            continuity_blocks: &[],
+            story_brief: None,
+            ledger_lines: &ledger,
+            compact: true,
+        };
+        let out = render_continue_assets(&input);
+        assert!(
+            out.chars().count() <= 6000,
+            "compact 资产块应受 6000 预算约束"
+        );
     }
 }
 

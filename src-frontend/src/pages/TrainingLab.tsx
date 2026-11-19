@@ -60,6 +60,7 @@ interface ChapterReviewRow {
   overall: number | null;
   scores: Record<string, number>;
   continuity: number | null;
+  reference_gap?: number | null;
   comments: string;
   prose_available: boolean;
 }
@@ -67,6 +68,7 @@ interface ChapterReviewRow {
 interface TrainingReportDetail {
   id: string;
   book_title: string;
+  story_id: string;
   start_chapter: number;
   context_chapters: number;
   continuation_chapters: number;
@@ -77,6 +79,17 @@ interface TrainingReportDetail {
   truth_content: string | null;
   scores_json: string | null;
   created_at: string;
+}
+
+/** v0.99.3：训练沙盒《前情提要》预览（报告详情展示） */
+interface TrainingStoryBriefView {
+  story_id: string;
+  chapters: number;
+  threads: number;
+  canon_terms: number;
+  cast_states: number;
+  preview: string;
+  source: string;
 }
 
 /** 逐章编审结果 JSON → 表格行（解析失败返回空，不阻塞报告正文） */
@@ -163,6 +176,9 @@ export default function TrainingLab() {
   const [startChapter, setStartChapter] = useState(1);
   const [estTotal, setEstTotal] = useState(0);
   const [cron, setCron] = useState(DEFAULT_CRON);
+  // v0.99.3：盲测模式（过滤上一轮真实后续节点提示）与小模型 compact prompt。
+  const [blindMode, setBlindMode] = useState(false);
+  const [compactPrompt, setCompactPrompt] = useState(false);
 
   const { externalTools, connections, refreshConnections, isConnecting } = useMcpTools();
   const savedServersQuery = useQuery({
@@ -268,6 +284,16 @@ export default function TrainingLab() {
     enabled: !!detailId,
   });
   const reportChapterReviews = parseChapterReviews(detailQuery.data?.chapter_reviews_json ?? null);
+  // v0.99.3：报告详情展示训练沙盒的《前情提要》（模型实际收到的长程记忆）。
+  const briefQuery = useQuery({
+    queryKey: ['training-story-brief', detailQuery.data?.story_id],
+    queryFn: () =>
+      loggedInvoke<TrainingStoryBriefView | null>('training_get_story_brief', {
+        story_id: detailQuery.data!.story_id,
+      }),
+    enabled: Boolean(detailQuery.data?.story_id),
+    retry: false,
+  });
 
   const buildPayload = () => {
     if (!bookTitle.trim()) throw new Error('请填写书名');
@@ -286,6 +312,8 @@ export default function TrainingLab() {
         est_total_chapters: estTotal,
         strategy,
         start_chapter: strategy === 'fixed' ? startChapter : undefined,
+        feedback_mode: blindMode ? 'blind' : 'truth_hints',
+        prompt_mode: compactPrompt ? 'compact' : 'full',
         source: {
           kind: 'mcp',
           server_id: serverId,
@@ -302,6 +330,8 @@ export default function TrainingLab() {
       est_total_chapters: estTotal,
       strategy,
       start_chapter: strategy === 'fixed' ? startChapter : undefined,
+      feedback_mode: blindMode ? 'blind' : 'truth_hints',
+      prompt_mode: compactPrompt ? 'compact' : 'full',
       source: { kind: 'file', path: filePath.trim() },
     };
   };
@@ -631,6 +661,26 @@ export default function TrainingLab() {
                   </Select>
                 </Field>
               </div>
+              <Field label="训练模式（可选）">
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={blindMode}
+                      onChange={e => setBlindMode(e.target.checked)}
+                    />
+                    盲测模式：不注入上一轮“真实后续节点”提示（评估真实续写能力）
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={compactPrompt}
+                      onChange={e => setCompactPrompt(e.target.checked)}
+                    />
+                    紧凑提示词：缩前情提要/账本/进度（本地小模型、GPU 受限时使用）
+                  </label>
+                </div>
+              </Field>
               {strategy === 'fixed' ? (
                 <Field label="起始章号">
                   <Input
@@ -816,7 +866,8 @@ export default function TrainingLab() {
                       <th className="px-2 py-1 text-left">原书章</th>
                       <th className="px-2 py-1 text-left">总分</th>
                       <th className="px-2 py-1 text-left">文/情/人/节/钩</th>
-                      <th className="px-2 py-1 text-left">承接</th>
+                      <th className="px-2 py-1 text-left">承接（沙盒）</th>
+                      <th className="px-2 py-1 text-left">原书差距</th>
                       <th className="px-2 py-1 text-left">裁决</th>
                       <th className="px-2 py-1 text-left">编审摘要</th>
                     </tr>
@@ -835,6 +886,9 @@ export default function TrainingLab() {
                             .join('/')}
                         </td>
                         <td className="px-2 py-1 text-ai-ink-2">{row.continuity ?? '—'}</td>
+                        <td className="px-2 py-1 text-ai-ink-2">
+                          {row.reference_gap != null ? row.reference_gap.toFixed(0) : '—'}
+                        </td>
                         <td className="px-2 py-1 text-ai-ink-2">{row.verdict}</td>
                         <td className="px-2 py-1 text-ai-ink-3">{row.comments}</td>
                       </tr>
@@ -842,6 +896,23 @@ export default function TrainingLab() {
                   </tbody>
                 </table>
               </div>
+            )}
+            {briefQuery.data && (
+              <Panel
+                title={`前情提要（模型实际收到的长程记忆 · ${briefQuery.data.source}）`}
+                collapsible
+                defaultOpen={false}
+              >
+                <div className="flex flex-wrap gap-3 text-xs text-ai-ink-2">
+                  <span>逐章事实 {briefQuery.data.chapters}</span>
+                  <span>未结线索 {briefQuery.data.threads}</span>
+                  <span>设定白名单 {briefQuery.data.canon_terms}</span>
+                  <span>人物态 {briefQuery.data.cast_states}</span>
+                </div>
+                <pre className="mt-3 max-h-64 overflow-y-auto whitespace-pre-wrap rounded border border-ai-line bg-ai-inset p-3 font-mono text-[11px] leading-4 text-ai-ink-2">
+                  {briefQuery.data.preview || '（空前情提要）'}
+                </pre>
+              </Panel>
             )}
             <pre className="whitespace-pre-wrap rounded border border-ai-line bg-ai-inset p-3 font-mono text-xs leading-5 text-ai-ink">
               {detailQuery.data.report_md}

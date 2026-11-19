@@ -61,6 +61,8 @@ const AGGREGATE_PROMPT_CHARS: usize = 12_000;
 const AGGREGATE_OUTPUT_TOKENS: i32 = 8_192;
 /// 摘要缓存版本：prompt 结构变化时改这个值即可失效旧缓存。
 const BRIEF_PROMPT_VERSION: &str = "v1-2026-11-19";
+/// v0.99.3：摘要缓存 TTL（源章节稳定；30 天后重新摘要，避免陈旧设定漂移）。
+const BRIEF_CACHE_TTL_DAYS: i64 = 30;
 /// 每章在资产 prompt 的最小/最大采样窗口。
 const CHAPTER_SAMPLE_MIN: usize = 800;
 const CHAPTER_SAMPLE_MAX: usize = 2_600;
@@ -113,6 +115,9 @@ impl TrainingAssetSummary {
     }
 }
 
+/// v0.99.3：资产阶段逐章进度回调（done, total）。
+pub type AssetProgress = std::sync::Arc<dyn Fn(usize, usize) + Send + Sync>;
+
 /// 训练资产重建的主入口（v0.99.2：两阶段）。
 ///
 /// Stage 1：逐章摘要（小 prompt、并发、可缓存）——单章失败只降级该章；
@@ -125,6 +130,7 @@ pub async fn rebuild_from_context(
     story_id: &str,
     book_title: &str,
     chapters: &[(usize, String)],
+    progress: Option<AssetProgress>,
 ) -> TrainingAssetSummary {
     let mut summary = TrainingAssetSummary::default();
     if chapters.is_empty() {
@@ -133,7 +139,8 @@ pub async fn rebuild_from_context(
     }
 
     // ── Stage 1：逐章摘要 ─────────────────────────────────────
-    let summaries = summarize_chapters(pool, llm, book_title, chapters, &mut summary).await;
+    let summaries =
+        summarize_chapters(pool, llm, book_title, chapters, &mut summary, progress).await;
     if summaries.is_empty() {
         summary.llm_error = Some("逐章摘要全部失败（无可用章节事实）".into());
         return summary;
@@ -189,14 +196,27 @@ async fn summarize_chapters(
     book_title: &str,
     chapters: &[(usize, String)],
     summary: &mut TrainingAssetSummary,
+    progress: Option<AssetProgress>,
 ) -> Vec<BriefChapter> {
     let llm = llm.clone();
     let book_title = book_title.to_string();
+    let total = chapters.len();
+    let done = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let progress = progress;
     let tasks = stream::iter(chapters.iter().cloned()).map(|(number, content)| {
         let llm = llm.clone();
         let book = book_title.clone();
         let pool = pool.clone();
-        async move { summarize_one(&pool, &llm, &book, number, content).await }
+        let done = done.clone();
+        let progress = progress.clone();
+        async move {
+            let result = summarize_one(&pool, &llm, &book, number, content).await;
+            let n = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            if let Some(callback) = progress.as_ref() {
+                callback(n, total);
+            }
+            result
+        }
     });
     let mut results: Vec<(BriefChapter, bool, bool)> =
         tasks.buffer_unordered(SUMMARY_CONCURRENCY).collect().await;
@@ -439,11 +459,13 @@ async fn aggregate_brief(
 
 fn brief_cache_read(pool: &DbPool, book_ref: &str, chapter: i32) -> Option<BriefChapter> {
     let conn = pool.get().ok()?;
+    let cutoff = (Local::now() - chrono::Duration::days(BRIEF_CACHE_TTL_DAYS.max(1))).to_rfc3339();
     let raw: Option<String> = conn
         .query_row(
             "SELECT summary_json FROM continuation_training_chapter_briefs \
-             WHERE book_ref = ?1 AND chapter_index = ?2 AND prompt_version = ?3",
-            rusqlite::params![book_ref, chapter, BRIEF_PROMPT_VERSION],
+             WHERE book_ref = ?1 AND chapter_index = ?2 AND prompt_version = ?3 \
+             AND fetched_at >= ?4",
+            rusqlite::params![book_ref, chapter, BRIEF_PROMPT_VERSION, cutoff],
             |r| r.get(0),
         )
         .optional()
@@ -2250,6 +2272,26 @@ mod tests {
         assert_eq!(read.key_terms, brief.key_terms);
         assert_eq!(read.turning_point, brief.turning_point);
         assert!(brief_cache_read(&pool, "阴脉先生", 999).is_none());
+    }
+
+    #[test]
+    fn chapter_brief_cache_expires_after_ttl() {
+        let pool = create_test_pool().unwrap();
+        let brief = BriefChapter {
+            chapter: 142,
+            summary: "旧摘要".into(),
+            ..Default::default()
+        };
+        brief_cache_write(&pool, "阴脉先生", &brief).unwrap();
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "UPDATE continuation_training_chapter_briefs \
+             SET fetched_at = '2000-01-01T00:00:00+08:00' \
+             WHERE book_ref = '阴脉先生' AND chapter_index = 142",
+            [],
+        )
+        .unwrap();
+        assert!(brief_cache_read(&pool, "阴脉先生", 142).is_none());
     }
 
     #[test]

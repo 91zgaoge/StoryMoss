@@ -1540,6 +1540,7 @@ async fn real_machine_probe_foreshadow_hint_usage() {
             continuity_blocks: &[],
             story_brief: None,
             ledger_lines: &[],
+            compact: false,
         },
     );
     let block_ok = assets.contains("【本拍伏笔（必须使用）】");

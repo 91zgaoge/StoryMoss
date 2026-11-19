@@ -55,6 +55,9 @@ pub struct ModelHealthReport {
     /// v0.23.14: 质量得分（0-100）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quality_score: Option<f64>,
+    /// v0.99.3：从 GPU OOM 实测学到的 prompt 上限（本地小模型诊断）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_limit_tokens: Option<u32>,
     /// 最近错误信息
     pub last_error: Option<String>,
     /// 综合健康评级：healthy / degraded / unhealthy
@@ -201,6 +204,7 @@ pub async fn get_model_health_reports(
             .to_string();
 
             let cap = cap_profiles.get(&snapshot.model_id);
+            let prompt_limit_tokens = guard.prompt_limit_tokens(&snapshot.model_id);
             reports.push(ModelHealthReport {
                 model_id: snapshot.model_id,
                 model_name: snapshot.model_name,
@@ -211,6 +215,7 @@ pub async fn get_model_health_reports(
                 capability_score: cap.and_then(|c| c.capability_score),
                 speed_score: cap.and_then(|c| c.speed_score),
                 quality_score: cap.and_then(|c| c.quality_score),
+                prompt_limit_tokens,
                 last_error: snapshot.last_error.clone(),
                 status,
                 total_calls,
@@ -234,6 +239,7 @@ pub async fn get_model_health_reports(
                 capability_score: cap.and_then(|c| c.capability_score),
                 speed_score: cap.and_then(|c| c.speed_score),
                 quality_score: cap.and_then(|c| c.quality_score),
+                prompt_limit_tokens: None,
                 last_error: None,
                 status: "unknown".to_string(),
                 total_calls: 0,

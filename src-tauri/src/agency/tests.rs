@@ -6107,6 +6107,7 @@ fn render_parts_injects_full_backstory_and_all_prior_chapter_summaries() {
         &[],
         &[],
         &ledger,
+        false,
     );
     assert!(out.contains("【前情提要"), "缺前情提要: {out}");
     assert!(out.contains("第134章逐章事实"));

@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.99.2 项目完成状态
+# StoryMoss (草苔) v0.99.3 项目完成状态
+
+> 最后更新: 2026-11-19（**v0.99.3：训练 compact/blind/probes + brief 预览 + 模型 GPU 诊断**——v0.99.2 剩余 P1/P2 收口：compact prompt（预算 6000/brief 2200/ledger 600/progress 900）、训练页盲测与紧凑勾选、资产逐章进度（35→40）、记忆探针（人物留存/线索未推进/地点跳切/疑似新专名）、V163 摘要缓存 30 天 TTL、`training_get_story_brief` 报告详情预览、`ModelHealthReport.prompt_limit_tokens` 模型页诊断。Rust **2220/17**（+5），tsc 0，Vitest **725/3**，Playwright **144/5**（全量复跑），fmt/clippy/guard/prettier 全绿。**未关闭**：真机复测 compact Qwren OOM=0、blind A/B、资产逐章进度、brief 预览、模型页 GPU 上限。
 
 > 最后更新: 2026-11-19（**v0.99.2：续写训练资产分阶段 + 网关容量路由 + 进度/评分口径收口**——v0.99.1 真机报告 0.63/承接 7.2 验证长程记忆有效，但资产重建仍失败（deepseek-v4 CoT-only 23k completion、Qwren127 GPU OOM 16,781 tokens、Ds10 空）、brief 2042 字首尾摘要/0 白名单/0 cast；网关 147 writer 调用 55 次失败；确定性摘要漏第 142 章 81% 的邵卫江；编审把原书后续差距混进 continuity（16/17/20=1/2/2）；任务 40% 停 45 分钟；gate 3 降级/1 未修订。改为逐章摘要（小 prompt/并发 3/V163 缓存）→ 聚合 brief（只喂摘要）；JSON mode 补全 reasoning 截断 JSON；GPU OOM 学习 `prompt_limit_tokens≈N*Y/X` 并按 prompt 跳过本地小模型；确定性事件摘要（首/中段冲突句/尾）；batch progress sink 每章写 progress/log/heartbeat；judge continuity 只对沙盒上一章，新增 reference_gap 分列；blind 反馈模式过滤真实后续节点。Rust **2215/17**（+12），tsc 0，Vitest **725/3**，Playwright **144/5**（全量复跑），fmt/clippy/guard/prettier 全绿。**未关闭**：安装 v0.99.2 后真机重跑 10 章训练，确认资产两阶段/缓存、brief 中段铺垫、Qwren 大 prompt OOM=0、进度逐章推进、承接/reference_gap 分列；blind A/B。
 

@@ -1,4 +1,6 @@
-# StoryMoss v0.99.2 架构文档
+# StoryMoss v0.99.3 架构文档
+
+> **v0.99.3**：**训练 compact/blind/probes + brief 预览 + 模型 GPU 诊断**——`ContinueAssetsInput.compact`（预算 6000/brief 2200/ledger 600/progress 900）与 coordinator `with_compact_prompt`；TrainingPayload `prompt_mode`/`feedback_mode=blind`（训练页勾选）；`summarize_chapters` 接收 AssetProgress，训练任务逐章写 assets progress/log/heartbeat；`memory_probes_line`（人物留存/线索未推进/地点跳切/疑似新专名）进报告；V163 摘要缓存 30 天 TTL；`training_get_story_brief` IPC + TrainingLab 报告详情《前情提要》预览；`ModelHealthReport.prompt_limit_tokens` 模型页显示 GPU 实测 prompt 上限。
 
 > **v0.99.2**：**训练资产两阶段 + 网关容量路由 + 进度/评分口径**——资产重建从「单次 26k prompt + 8192 tokens 全资产 JSON」改为 `summarize_chapters`（逐章小 prompt，JSON mode 1200 tokens，并发 3，V163 `continuation_training_chapter_briefs` 缓存）→ `aggregate_brief`（只喂结构化摘要，≤12k chars）；聚合失败确定性拼装，逐章 `key_terms`/cast 兜底 brief。`llm/openai.rs` JSON mode 从 reasoning 提取/补全截断 JSON（取最长合法对象）；空 content 的 HTTP 200 不再记 success。Gateway 从 GPU OOM 解析 `Prompt(N tokens) requires ~XMB ... only ~YMB` 学习 `prompt_limit_tokens≈N*Y/X`，`resolve_role_model`/候选打分/候选循环按 prompt 大小跳过本地小模型。`deterministic_chapter_summaries` 改事件句抽取（首句 + 中段冲突/引号/专名句 + 尾句），`progress_lines` 复用；`run_continue_batch` 加 per-chapter progress sink，训练任务每章写 progress/log/heartbeat；judge `continuity` 只对上一沙盒章，新增 `reference_gap`（原书差距诊断）并分列报告；payload `feedback_mode=blind` 过滤真实后续节点。
 

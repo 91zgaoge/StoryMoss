@@ -111,6 +111,8 @@ export interface ModelHealthReport {
   speed_score?: number;
   // v0.23.14: 质量得分（0-100）
   quality_score?: number;
+  // v0.99.3: 从 GPU OOM 实测学到的 prompt 上限（本地小模型诊断）
+  prompt_limit_tokens?: number;
   last_error?: string;
   status: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
   // v0.17.1: 数据新鲜度与调用次数

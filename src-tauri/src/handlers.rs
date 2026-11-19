@@ -225,6 +225,7 @@ tauri::generate_handler! {
     log_report::get_log_upload_history,
     task_system::commands::training_list_reports,
     task_system::commands::training_get_report,
+    task_system::commands::training_get_story_brief,
     task_system::commands::create_task,
     task_system::commands::update_task,
     task_system::commands::delete_task,

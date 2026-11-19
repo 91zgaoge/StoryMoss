@@ -296,3 +296,35 @@ pub async fn training_get_report(
     )
     .map_err(|e| crate::error::AppError::internal(format!("报告不存在: {e}")))
 }
+
+/// v0.99.3：训练沙盒《前情提要》预览（报告详情页展示模型实际拿到了什么）。
+#[derive(serde::Serialize)]
+pub struct TrainingStoryBriefView {
+    pub story_id: String,
+    pub chapters: usize,
+    pub threads: usize,
+    pub canon_terms: usize,
+    pub cast_states: usize,
+    pub preview: String,
+    pub source: String,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn training_get_story_brief(
+    pool: tauri::State<'_, crate::db::DbPool>,
+    story_id: String,
+) -> Result<Option<TrainingStoryBriefView>, crate::error::AppError> {
+    let brief = crate::agency::story_brief::StoryBriefRepository::new(pool.inner().clone())
+        .get_by_story(&story_id)
+        .map_err(|e| crate::error::AppError::internal(e.to_string()))?
+        .filter(|brief| !brief.is_empty());
+    Ok(brief.map(|brief| TrainingStoryBriefView {
+        story_id,
+        chapters: brief.chapters.len(),
+        threads: brief.threads.len(),
+        canon_terms: brief.canon_terms.len(),
+        cast_states: brief.cast_states.len(),
+        preview: brief.render(2_400),
+        source: brief.source,
+    }))
+}

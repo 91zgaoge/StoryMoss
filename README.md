@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.2-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.3-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.3 · 训练 compact/blind/probes + brief 预览 + 模型 GPU 诊断
+
+- **问题**：v0.99.2 的 P1/P2 剩余项——本地模型没有 compact 提示词模式、训练页没有盲测开关、资产摘要阶段没有逐章进度、人物/线索/地点/新专名探针未接入报告、摘要缓存无 TTL、报告详情看不到模型实际收到的《前情提要》、模型页不显示 GPU 实测 prompt 上限。
+- **结果**：新增 compact prompt（预算 6000/brief 2200/ledger 600/progress 900）、训练页盲测/紧凑勾选、资产逐章进度（35→40）+日志心跳、记忆探针（人物留存/线索未推进/地点跳切/疑似新专名）、V163 摘要缓存 30 天 TTL、`training_get_story_brief` 报告详情预览、`ModelHealthReport.prompt_limit_tokens` 模型页诊断。
 
 ### v0.99.2 · 续写训练资产分阶段 + 网关容量路由 + 进度/评分口径
 

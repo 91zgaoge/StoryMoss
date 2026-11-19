@@ -279,6 +279,13 @@ export function ModelHealthPanel() {
                     />
                   </div>
 
+                  {typeof report.prompt_limit_tokens === 'number' && (
+                    <div className="mt-3 text-xs text-yellow-300 bg-yellow-900/20 rounded-lg px-3 py-2">
+                      实测 prompt 上限约 {report.prompt_limit_tokens} tokens（GPU
+                      受限；更大的提示词会自动跳过该模型）
+                    </div>
+                  )}
+
                   {report.last_error && (
                     <div className="mt-3 text-xs text-red-300 bg-red-900/20 rounded-lg px-3 py-2">
                       最近错误：{report.last_error}

@@ -1084,6 +1084,9 @@ pub struct AgencyCoordinator {
     /// v0.99.2：批内进度回调（chapter, done, total, chars）。训练任务用它把
     /// 每章装配同步到 task progress/log/heartbeat；其它路径为 None。
     batch_progress_sink: Option<Arc<dyn Fn(i32, usize, usize, usize) + Send + Sync>>,
+    /// v0.99.3：compact 提示词模式（本地小模型）。缩 brief/ledger/progress
+    /// 与资产预算。
+    compact_prompt: bool,
     /// P0-1（v0.66.0）：测试用向量库注入。生产从 Tauri State 取
     /// （见 `retrieval_store`），测试用 `for_test_with_store` 注入。
     #[cfg(test)]
@@ -1107,6 +1110,7 @@ impl AgencyCoordinator {
             asset_ingest_enabled: true,
             assets_seeded: false,
             batch_progress_sink: None,
+            compact_prompt: false,
             #[cfg(test)]
             test_vector_store: None,
             #[cfg(test)]
@@ -1127,6 +1131,7 @@ impl AgencyCoordinator {
             asset_ingest_enabled: true,
             assets_seeded: false,
             batch_progress_sink: None,
+            compact_prompt: false,
             #[cfg(test)]
             test_vector_store: None,
             #[cfg(test)]
@@ -1165,6 +1170,12 @@ impl AgencyCoordinator {
         sink: Arc<dyn Fn(i32, usize, usize, usize) + Send + Sync>,
     ) -> Self {
         self.batch_progress_sink = Some(sink);
+        self
+    }
+
+    /// v0.99.3：compact 提示词模式（本地小模型）。
+    pub fn with_compact_prompt(mut self, compact: bool) -> Self {
+        self.compact_prompt = compact;
         self
     }
 
@@ -1543,6 +1554,7 @@ impl AgencyCoordinator {
             asset_ingest_enabled: self.asset_ingest_enabled,
             assets_seeded: self.assets_seeded,
             batch_progress_sink: self.batch_progress_sink.clone(),
+            compact_prompt: self.compact_prompt,
             #[cfg(test)]
             test_vector_store: self.test_vector_store.clone(),
             #[cfg(test)]
@@ -3702,6 +3714,7 @@ impl AgencyCoordinator {
                 asset_ingest_enabled: true,
                 assets_seeded: false,
                 batch_progress_sink: None,
+                compact_prompt: false,
                 #[cfg(test)]
                 test_vector_store: None,
                 #[cfg(test)]
@@ -5356,16 +5369,21 @@ impl AgencyCoordinator {
         // directive 前 3200 字，训练指令里排在最后的 1400 字承接锚点常被截掉，
         // planner 实际上在「不知道上一章最后一句」的情况下规划本章。
         let prior_tail_owned = prior_tail.trim().chars().take(1_400).collect::<String>();
-        let brief_owned = story_brief
-            .map(|b| b.render(crate::agency::story_brief::STORY_BRIEF_CHAR_CAP))
-            .unwrap_or_default();
+        let brief_cap = if self.compact_prompt {
+            crate::agency::continue_assets::BACKSTORY_CHAR_CAP_COMPACT
+        } else {
+            crate::agency::story_brief::STORY_BRIEF_CHAR_CAP
+        };
+        let brief_owned = story_brief.map(|b| b.render(brief_cap)).unwrap_or_default();
+        let ledger_cap = if self.compact_prompt {
+            crate::agency::continue_assets::BATCH_LEDGER_CHAR_CAP_COMPACT
+        } else {
+            crate::agency::continue_assets::BATCH_LEDGER_CHAR_CAP
+        };
         let ledger_owned = if ledger_lines.is_empty() {
             String::new()
         } else {
-            crate::agency::continue_assets::truncate_chars(
-                &ledger_lines.join("\n"),
-                crate::agency::continue_assets::BATCH_LEDGER_CHAR_CAP,
-            )
+            crate::agency::continue_assets::truncate_chars(&ledger_lines.join("\n"), ledger_cap)
         };
         let prompt_text = tokio::task::spawn_blocking(move || -> String {
             use crate::agency::continue_assets::condense_story_outline;
@@ -6148,6 +6166,7 @@ impl AgencyCoordinator {
                 &l2,
                 &continuity_blocks,
                 &[],
+                self.compact_prompt,
             );
             let deterministic = if crate::agency::narrative_contract::enabled() {
                 crate::agency::narrative_contract::compile_chapter_contract(
@@ -6919,6 +6938,7 @@ impl AgencyCoordinator {
                 &l2,
                 &pinned_blocks,
                 ledger_lines,
+                self.compact_prompt,
             )
         } else {
             String::new()
@@ -7193,6 +7213,7 @@ impl AgencyCoordinator {
             &[],
             &[],
             &[],
+            self.compact_prompt,
         );
         let existing_chars = existing.chars().count();
         // v0.93.3: base_task 与 board_write 指令拆开——熔断兜底 prose 直出时
@@ -10540,6 +10561,7 @@ pub(crate) fn render_parts(
     full_card_names: &[String],
     continuity_blocks: &[String],
     ledger_lines: &[String],
+    compact: bool,
 ) -> String {
     use crate::agency::continue_assets::{
         build_roster, render_continue_assets, slice_prior_prose, ContinueAssetsInput,
@@ -10605,6 +10627,7 @@ pub(crate) fn render_parts(
         continuity_blocks,
         story_brief: parts.story_brief.as_ref(),
         ledger_lines,
+        compact,
     });
     let address = render_address_block(parts, admitted);
     if !address.is_empty() {
@@ -11073,6 +11096,7 @@ pub(crate) fn assemble_continue_user_prompt(
         &l2,
         &pinned,
         &[],
+        false,
     );
     let state = compile_continue_beat_state(&card, Some(&parts), current_content);
     let user = crate::agency::beat_card::render_writer_user_prompt(
@@ -11223,7 +11247,7 @@ pub(crate) fn build_writer_context_from_db(pool: &DbPool, story_id: &str) -> Str
         .take(ADMITTED_CAP)
         .cloned()
         .collect();
-    render_parts(&parts, &admitted, "", "", None, None, &[], &[], &[])
+    render_parts(&parts, &admitted, "", "", None, None, &[], &[], &[], false)
 }
 
 /// P2-9（v0.71.0）：切分 logline 产出——首行 logline，其余「张力/赌注/心理」
