@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.6（2026-11-20）
+
+**日志巡检：批量/续写训练 trace 终态收尾（v0.96.1 漏掉的批量路径）。**
+
+- 日志证据：v0.99.0 日志包中，11-17 的 250 步、11-18 的 530 步续写训练 trace，最后一步早已 `completed`（分别结束于 09:50 / 04:53），但文件顶层 `status` 在 1 天后仍为 `running`。v0.96.1 只给创世/续写/单角色补了 `RunTraceGuard::finish`，`run_continue_batch_body`（批量续写/导演分批/续写训练共用）漏了收尾。
+- 修复：批量路径在 `run_batch_inner` 返回后按结果与取消标记写 trace 终态（completed / failed / cancelled），与 `agency_runs` 同源；状态判定抽成纯函数并 +1 单测锁三态。
+- **测试**：Rust **2225/17**（+1）；tsc 0；Vitest **725/3**；Playwright **144/5**（全量复跑）；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：安装后在「运维 → Tracing」跑一次批量续写，确认新 trace 结束时为 completed/failed/cancelled，而非 running。
+
 ## v0.99.5（2026-11-20）
 
 **日志巡检修复：用量统计幽灵 `cost` 列 + 功能使用命令未注册。**

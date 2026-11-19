@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.99.5 项目完成状态
+# StoryMoss (草苔) v0.99.6 项目完成状态
+
+> 最后更新: 2026-11-20（**v0.99.6：批量/续写训练 trace 终态收尾**——v0.99.0 日志包中 11-17 的 250 步、11-18 的 530 步训练 trace 在结束 1 天后仍为 `running`；v0.96.1 的 `RunTraceGuard::finish` 只覆盖创世/续写/单角色，`run_continue_batch_body`（批量续写/导演分批/续写训练共用）漏了收尾。批量路径改为按结果与取消标记写 completed/failed/cancelled，与 `agency_runs` 同源；状态判定抽纯函数 +1 单测。Rust **2225/17**（+1），tsc 0，Vitest **725/3**，Playwright **144/5**（全量复跑），fmt/clippy/guard/prettier 全绿。**未关闭**：安装后在「运维 → Tracing」跑一次批量续写，确认新 trace 不再停在 running。
 
 > 最后更新: 2026-11-20（**v0.99.5：用量统计幽灵 cost 列 + 功能使用命令未注册**——日志巡检 v0.99.0/macOS 包（11-19 上传，41 ERROR/24 WARN）：①`get_llm_call_stats`/`get_llm_usage_by_role` 查 `llm_calls.cost`，该表从未有 cost 列，用量页每次报 `no such column: cost`（11-14 实锤）；改为只聚合次数/token，`total_cost` 恒 0，`'global'` 恢复跨故事汇总；②前端 `get_feature_usage_stats` 调用的命令从未注册，功能使用页签恒报 `Command not found`（11-14 实锤）；新增命令并注册（默认 30 天、限幅 1–365）。Rust **2224/17**（+4），tsc 0，Vitest **725/3**，Playwright **144/5**（全量复跑），fmt/clippy/guard/prettier 全绿。**未关闭**：安装后打开数据洞察确认两个页签不再报错；`check_update` 平台/网络失败结合发布清单复核。
 

@@ -1,4 +1,6 @@
-# StoryMoss v0.99.5 架构文档
+# StoryMoss v0.99.6 架构文档
+
+> **v0.99.6**：**批量 trace 终态收尾**——v0.96.1 的 `RunTraceGuard::finish` 只接在创世/续写/单角色入口；`run_continue_batch_body`（批量续写/导演分批/续写训练共用）启动 trace 后从未收尾，11-17/18 的 250/530 步训练 trace 在结束 1 天后仍为 `running`。批量路径在 `run_batch_inner` 返回后调用 `batch_trace_terminal_status`（纯函数）→ `guard.finish`，写 completed / failed / cancelled，与 `agency_runs` 终态同源；单测锁定三态。
 
 > **v0.99.5**：**数据洞察统计链路修复**——`LlmCallRepository::get_stats`/`get_usage_by_purpose` 不再查询 `llm_calls.cost`（V062/V089 建表从未包含该列，真机必报 `no such column: cost`），只聚合 `COUNT`/`SUM(total_tokens)`，IPC 层 `total_cost` 保留恒 0；`get_llm_call_stats('global')` 与 `get_llm_usage_by_role` 对齐为跨故事汇总（`None` 过滤）。新增 `commands::anti_ai::get_feature_usage_stats` 命令并注册到 `generate_handler!`（`days` 默认 30、限幅 1–365），修复前端 `loggedInvoke` 的 `Command not found`；IPC 注册表契约测试同步覆盖。
 

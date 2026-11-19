@@ -204,6 +204,26 @@ impl Drop for RunTraceGuard {
     }
 }
 
+/// v0.99.6: 批量 run 的 trace 终态与 `agency_runs` 同源。
+///
+/// v0.96.1 只给创世/续写/单角色补了 `guard.finish`，批量路径
+/// （`run_continue_batch_body`，续写训练/导演分批都走它）漏了收尾：
+/// 2026-11-17 的 250 步、11-18 的 530 步训练 trace 在 1 天后仍为
+/// `running`，Tracing 面板无法区分「进行中」与「已完成」。
+/// 抽成纯函数便于用单测锁住 completed/failed/cancelled 三态。
+fn batch_trace_terminal_status(
+    result: &Result<AgencyBatchResult, AppError>,
+    cancelled: bool,
+) -> (&'static str, Option<String>) {
+    match result {
+        Ok(_) => ("completed", None),
+        Err(e) => (
+            if cancelled { "cancelled" } else { "failed" },
+            Some(e.to_string()),
+        ),
+    }
+}
+
 // ---- analyzer in-flight 注册表已上移至
 // learning.rs（analyzer_try_mark/unmark， 手动 IPC 与自动触发互斥） ----
 
@@ -8067,6 +8087,13 @@ impl AgencyCoordinator {
                 &budget,
             )
             .await;
+        // v0.99.6: 批量路径同样与 run 终态同源收尾（v0.96.1 只覆盖创世/
+        // 续写/单角色；批量/续写训练的 trace 曾永远停在 running）。
+        if let Some(guard) = _run_trace.as_ref() {
+            let (status, error) =
+                batch_trace_terminal_status(&result, cancel.load(Ordering::SeqCst));
+            guard.finish(status, error);
+        }
         match &result {
             Ok(r) => {
                 let json = serde_json::to_string(r).unwrap_or_default();
@@ -12043,5 +12070,26 @@ mod run_trace_tests {
             None,
             "guard drop 必须摘除注册"
         );
+    }
+
+    /// v0.99.6：批量 run 的 trace 终态必须跟随 agency_runs 终态，
+    /// 不能再出现「训练已结束一天、trace 仍 running」。
+    #[test]
+    fn batch_trace_terminal_status_matches_run_state() {
+        let ok = Ok(AgencyBatchResult {
+            run_id: "run-ok".to_string(),
+            story_id: "story".to_string(),
+            chapters: Vec::new(),
+        });
+        assert_eq!(batch_trace_terminal_status(&ok, false), ("completed", None));
+
+        let failed = Err::<AgencyBatchResult, AppError>(AppError::internal("boom"));
+        let (status, error) = batch_trace_terminal_status(&failed, false);
+        assert_eq!(status, "failed");
+        assert!(error.as_deref().unwrap_or_default().contains("boom"));
+
+        let cancelled = Err::<AgencyBatchResult, AppError>(AppError::internal("cancelled"));
+        let (status, _) = batch_trace_terminal_status(&cancelled, true);
+        assert_eq!(status, "cancelled");
     }
 }

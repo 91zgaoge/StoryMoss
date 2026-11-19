@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.5-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.6-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.6 · 批量/训练 trace 终态收尾（日志巡检）
+
+- **问题**：续写训练/批量续写的 trace 在任务结束后仍显示 `running`（11-17 的 250 步、11-18 的 530 步训练 trace，1 天后仍未收尾）；v0.96.1 的 trace 收尾只覆盖创世/续写/单角色。
+- **结果**：批量路径按结果与取消标记写入 completed/failed/cancelled，与 run 终态一致；新增 1 条三态回归测试。
 
 ### v0.99.5 · 用量统计与功能使用页签修复（日志巡检）
 
