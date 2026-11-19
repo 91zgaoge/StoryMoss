@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.4（2026-11-19）
+
+**官网 Release 保留策略 5→3（修复 v0.99.2 552 Disk full）。**
+
+- 现象：v0.99.2 tag 构建三平台全部成功，但 `upload-to-website` 传到 `StoryMoss_aarch64.app.tar.gz.sig` 时报 `552 Disk full`；脚本 retention=5、服务器正好 5 版，清理输出「nothing to clean up」，官网 `latest.json` 停在 0.99.1。
+- 根因：每版约 660MB，5 版约 3.3GB，镜像磁盘接近满；v0.98.9 实测 keep=3 可成功。
+- 修复：`.github/scripts/upload-releases-ftp.mjs` 默认 `RELEASE_RETENTION_COUNT` 5→3；`.github/workflows/cleanup-releases.yml` `keep` 默认 5→3；AGENTS 保留策略同步改为 3（环境变量仍可覆盖）。Cleanup Releases keep=3 已成功释放空间。
+- **未关闭**：v0.99.2 上传 job 重跑与 v0.99.3/v0.99.4 构建上传后，官网 `latest.json` 应恢复最新版本；确认 macOS `.app.tar.gz` 版本化文件名与签名校验。
+- **测试**：脚本/workflow-only 改动，Rust **2220/17** 数量不变；tsc 0；Vitest **725/3**；Playwright **144/5**。
+
 ## v0.99.3（2026-11-19）
 
 **训练 compact/blind/probes + brief 预览 + 模型 GPU 诊断（v0.99.2 剩余 P1/P2）。**

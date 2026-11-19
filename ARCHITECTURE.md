@@ -1,4 +1,6 @@
-# StoryMoss v0.99.3 架构文档
+# StoryMoss v0.99.4 架构文档
+
+> **v0.99.4**：**官网 Release 保留策略 5→3**——`upload-releases-ftp.mjs` 默认 `RELEASE_RETENTION_COUNT` 改为 3（每版约 660MB，5 版约 3.3GB 触发 552 Disk full）；`cleanup-releases.yml` keep 默认 3；上传前 cleanup + `--cleanup-only` 应急入口保留。v0.99.2 上传失败在 macOS `.app.tar.gz.sig`；Cleanup keep=3 释放空间后重跑上传。
 
 > **v0.99.3**：**训练 compact/blind/probes + brief 预览 + 模型 GPU 诊断**——`ContinueAssetsInput.compact`（预算 6000/brief 2200/ledger 600/progress 900）与 coordinator `with_compact_prompt`；TrainingPayload `prompt_mode`/`feedback_mode=blind`（训练页勾选）；`summarize_chapters` 接收 AssetProgress，训练任务逐章写 assets progress/log/heartbeat；`memory_probes_line`（人物留存/线索未推进/地点跳切/疑似新专名）进报告；V163 摘要缓存 30 天 TTL；`training_get_story_brief` IPC + TrainingLab 报告详情《前情提要》预览；`ModelHealthReport.prompt_limit_tokens` 模型页显示 GPU 实测 prompt 上限。
 

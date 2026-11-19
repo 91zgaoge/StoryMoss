@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.99.3
+- **版本**: v0.99.4
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -102,7 +102,7 @@ node scripts/cdp-inspect.js           # CDP 截图
    ```bash
    git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z
    ```
-6. **网站 Release 保留策略**：`.github/scripts/upload-releases-ftp.mjs` 每次上传后会自动清理 `/releases` 目录，仅保留最近 5 个版本的安装包（`RELEASE_RETENTION_COUNT=5`，可通过环境变量覆盖），防止服务器空间不足。禁止删除 `latest.json` 与无版本号文件（如 `StoryMoss_aarch64.app.tar.gz`）。v0.30.50 起上传**前**也会先清理（磁盘满 552 自愈——旧版仅上传后清理，磁盘已满时清理永远轮不到）；磁盘满等紧急情况可手动运行 `Cleanup Releases` 工作流（`.github/workflows/cleanup-releases.yml`，workflow_dispatch，可选保留数），它调用脚本的 `--cleanup-only` 模式，不上传只清理。
+6. **网站 Release 保留策略**：`.github/scripts/upload-releases-ftp.mjs` 每次上传前/后会自动清理 `/releases` 目录，仅保留最近 **3** 个版本的安装包（`RELEASE_RETENTION_COUNT=3`，可通过环境变量覆盖；每版约 660MB，5 版本会在本机磁盘触发 552 Disk full——v0.99.2 官网上传即因此失败），防止服务器空间不足。禁止删除 `latest.json` 与无版本号文件（如 `StoryMoss_aarch64.app.tar.gz`）。v0.30.50 起上传**前**也会先清理（磁盘满 552 自愈）；磁盘满等紧急情况可手动运行 `Cleanup Releases` 工作流（`.github/workflows/cleanup-releases.yml`，workflow_dispatch，默认保留数 3），它调用脚本的 `--cleanup-only` 模式，不上传只清理。
 7. **网站下载页内容及时同步**（用户级永久指令）：落地页（`landing/`）下载区**运行时**从 `https://storymoss.top/releases/latest.json` 拉取版本号并拼出下载链接（`landing/src/hooks/useLatestRelease.ts`），因此每次发版后下载页版本号与链接**自动跟随最新 release，无需重新部署落地页**。注意：发版（tag push）**不**触发 `deploy-landing.yml`（它只在 `landing/**` 变更时构建部署），运行时 fetch 才是保持下载页新鲜的机制。两条强制维护义务：
    - **兜底版本必须随发版 bump**：`useLatestRelease.ts` 的 `FALLBACK_VERSION` 必须与 `Cargo.toml` / `src-frontend/package.json` 的版本号同步更新--这是 fetch 失败（离线/服务器故障）时下载链接仍指向有效版本的最后一道防线，否则兜底链接会指向已被保留策略删除的旧版本而 404。
    - **文件名规律变更时必须校验**：`buildReleaseUrls` 内的 bundle 命名（`StoryMoss_{version}_aarch64.dmg` / `_x64_zh-CN.msi` / `_amd64.AppImage`）在 Tauri bundle 命名或语言包变更时需重新对照线上 `latest.json` 核对。
@@ -144,6 +144,12 @@ type:
 ## 最近完成的功能
 
 > v0.30.26–v0.73.13 的逐版本摘要已移入 `docs/archive/AGENTS_HISTORY.md`（v0.59.0 起瘦身，v0.77.0 归档 v0.74.2；根文件只保留最近 5 个版本与关键教训）。
+
+### v0.99.4 - 官网 Release 保留策略 5→3（修复 v0.99.2 552 Disk full）
+
+**为什么**：v0.99.2 tag 构建三平台全部成功，但 `upload-to-website` 传到 macOS 更新包 `.sig` 时报 `552 Disk full`；脚本 retention=5，服务器正好 5 版，清理「nothing to clean up」，官网 latest.json 停在 0.99.1。每版约 660MB、5 版约 3.3GB，本机磁盘长期接近满；v0.98.9 实测 keep=3 可成功。
+
+**改动**：`.github/scripts/upload-releases-ftp.mjs` 默认 `RELEASE_RETENTION_COUNT` 5→3；`.github/workflows/cleanup-releases.yml` `keep` 默认 5→3；AGENTS 保留策略同步改为 3（环境变量仍可覆盖）。**验证**：Cleanup Releases keep=3 已成功释放空间；v0.99.2 上传 job 重跑中；v0.99.3/v0.99.4 构建按新脚本上传后官网 latest.json 应恢复最新版本。**未关闭**：确认官网 latest.json 最终版本与 macOS `.app.tar.gz` 版本化文件名签名校验。
 
 ### v0.99.3 - 训练 compact/blind/probes + brief 预览 + 模型 GPU 诊断
 

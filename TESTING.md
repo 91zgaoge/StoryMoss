@@ -1,8 +1,13 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.99.3)
+# 🧪 StoryMoss 自动化测试环境 (v0.99.4)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.99.4 变更说明
+
+- 脚本/workflow-only：Rust **2220 passed / 17 ignored** 数量不变；tsc 0；Vitest **725 passed / 3 skipped**；Playwright **144 passed / 5 skipped**；`cargo +nightly-2026-10-05 fmt`、`cargo clippy --lib`（0 error）、`python3 scripts/architecture_guard.py`、`npm run format:check` 全绿。
+- 验收：`node .github/scripts/upload-releases-ftp.mjs artifacts --check-only` 签名/清单校验通过；Cleanup Releases keep=3 成功；上传 job 重跑验证官网 latest.json。
 
 ### v0.99.3 变更说明
 

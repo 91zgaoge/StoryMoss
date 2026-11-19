@@ -93,7 +93,9 @@ const WEBSITE_RELEASES_URL =
  * the hosting space from growing indefinitely.
  */
 const RETENTION_COUNT = parseInt(
-  process.env.RELEASE_RETENTION_COUNT || "5",
+  // v0.99.3：默认 3（每版约 660MB，5 版约 3.3GB 已在本机磁盘上触发
+  // 552 Disk full；可通过 RELEASE_RETENTION_COUNT 覆盖）。
+  process.env.RELEASE_RETENTION_COUNT || "3",
   10,
 );
 

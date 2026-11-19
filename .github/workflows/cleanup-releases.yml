@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       keep:
-        description: "保留的最新版本数（默认 5，与 RELEASE_RETENTION_COUNT 策略一致）"
+        description: "保留的最新版本数（默认 3；每版约 660MB，磁盘容量只够 3 版）"
         required: true
-        default: "5"
+        default: "3"
         type: string
 
 jobs:

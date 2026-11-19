@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.3-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.4-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.4 · 官网 Release 保留策略 5→3（修复 552 Disk full）
+
+- **问题**：v0.99.2 三平台构建成功，但 `upload-to-website` 在 macOS 更新包 `.sig` 报 `552 Disk full`；retention=5、服务器正好 5 版，清理「nothing to clean up」，官网 latest.json 停在 0.99.1。
+- **结果**：上传脚本默认 `RELEASE_RETENTION_COUNT` 5→3，Cleanup Releases keep 默认 5→3；Cleanup keep=3 已释放空间，v0.99.2 上传重跑，后续 v0.99.3/v0.99.4 按新策略上传。
 
 ### v0.99.3 · 训练 compact/blind/probes + brief 预览 + 模型 GPU 诊断
 

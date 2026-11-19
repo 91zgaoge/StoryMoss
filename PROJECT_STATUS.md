@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.99.3 项目完成状态
+# StoryMoss (草苔) v0.99.4 项目完成状态
+
+> 最后更新: 2026-11-19（**v0.99.4：官网 Release 保留策略 5→3**——v0.99.2 三平台构建成功但 `upload-to-website` 在 macOS `.sig` 报 552 Disk full；retention=5 且服务器正好 5 版，pre-upload cleanup「nothing to clean up」，官网 latest.json 停在 0.99.1。脚本默认 `RELEASE_RETENTION_COUNT` 5→3、Cleanup Releases keep 默认 5→3；Cleanup keep=3 已释放空间，v0.99.2 上传 job 重跑中，v0.99.3/v0.99.4 按新策略上传。**未关闭**：确认官网 latest.json 最终版本与 macOS 更新包签名校验。
 
 > 最后更新: 2026-11-19（**v0.99.3：训练 compact/blind/probes + brief 预览 + 模型 GPU 诊断**——v0.99.2 剩余 P1/P2 收口：compact prompt（预算 6000/brief 2200/ledger 600/progress 900）、训练页盲测与紧凑勾选、资产逐章进度（35→40）、记忆探针（人物留存/线索未推进/地点跳切/疑似新专名）、V163 摘要缓存 30 天 TTL、`training_get_story_brief` 报告详情预览、`ModelHealthReport.prompt_limit_tokens` 模型页诊断。Rust **2220/17**（+5），tsc 0，Vitest **725/3**，Playwright **144/5**（全量复跑），fmt/clippy/guard/prettier 全绿。**未关闭**：真机复测 compact Qwren OOM=0、blind A/B、资产逐章进度、brief 预览、模型页 GPU 上限。
 
