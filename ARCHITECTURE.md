@@ -1,4 +1,6 @@
-# StoryMoss v0.99.1 架构文档
+# StoryMoss v0.99.2 架构文档
+
+> **v0.99.2**：**训练资产两阶段 + 网关容量路由 + 进度/评分口径**——资产重建从「单次 26k prompt + 8192 tokens 全资产 JSON」改为 `summarize_chapters`（逐章小 prompt，JSON mode 1200 tokens，并发 3，V163 `continuation_training_chapter_briefs` 缓存）→ `aggregate_brief`（只喂结构化摘要，≤12k chars）；聚合失败确定性拼装，逐章 `key_terms`/cast 兜底 brief。`llm/openai.rs` JSON mode 从 reasoning 提取/补全截断 JSON（取最长合法对象）；空 content 的 HTTP 200 不再记 success。Gateway 从 GPU OOM 解析 `Prompt(N tokens) requires ~XMB ... only ~YMB` 学习 `prompt_limit_tokens≈N*Y/X`，`resolve_role_model`/候选打分/候选循环按 prompt 大小跳过本地小模型。`deterministic_chapter_summaries` 改事件句抽取（首句 + 中段冲突/引号/专名句 + 尾句），`progress_lines` 复用；`run_continue_batch` 加 per-chapter progress sink，训练任务每章写 progress/log/heartbeat；judge `continuity` 只对上一沙盒章，新增 `reference_gap`（原书差距诊断）并分列报告；payload `feedback_mode=blind` 过滤真实后续节点。
 
 > **v0.99.1**：**续写长程记忆层**——新增 `agency/story_brief.rs`（`StoryBrief`：逐章事实/未结线索/人物当前态/设定白名单）与 V162 `story_briefs`。训练资产重建落库时同时写 `scenes.outline_content` 与 brief；模型漏返回时用原文首尾窗口确定性兜底；训练续写前 `ensure_story_brief` + `ensure_deterministic_outline`（替换被「下一拍规划」污染的伪大纲）。`render_continue_assets` 把前情提要放 protected 稳定区最前（红线后、大纲前），有 brief/账本时资产预算 6000→9000；`progress_lines_from_parts` 改为全量逐章梗概（最近 12 章/1600 字）+ outcomes 补充，不再 `take(3)` 或整体替换上下文；`generate_chapter_outline` 单独注入 brief + 上一章结尾；`run_batch_inner` 维护本批滚动账本（gate∥writer 并发时在途 n-1 先入账）；编审参照资产同样注入前情提要；训练 coordinator `with_assets_seeded(true)` 跳过 `ensure_assets`；通用 `ensure_story_outline` 改逐章摘要归纳并拒绝执行规划。
 

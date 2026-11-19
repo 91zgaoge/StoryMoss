@@ -49,6 +49,43 @@ pub(crate) fn candidate_fits_prompt(max_context_tokens: u32, prompt_chars: usize
         >= prompt_tokens_est.saturating_add(CONTEXT_COMPLETION_RESERVE_TOKENS)
 }
 
+/// v0.99.2：从 llama.cpp 的 GPU OOM 错误里解析「prompt tokens / 需要 MB /
+/// 可用 MB」，用于学习该模型实际能承载的 prompt 上限。
+///
+/// 典型错误：
+/// `Prompt (13240 tokens) requires ~9223MB GPU memory but only ~3093MB is
+/// available` `This prompt (4275 tokens) does not fit in GPU memory ...
+/// requires ~4924MB ... only ~4590MB`
+pub(crate) fn parse_gpu_memory_error(error: &str) -> Option<(u32, u64, u64)> {
+    fn digits_before(text: &str, marker: &str) -> Option<u64> {
+        let idx = text.find(marker)?;
+        let rest = &text[idx + marker.len()..];
+        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        digits.parse::<u64>().ok()
+    }
+    fn prompt_tokens(text: &str) -> Option<u32> {
+        let lower = text.to_ascii_lowercase();
+        for marker in ["prompt (", "this prompt ("] {
+            if let Some(idx) = lower.find(marker) {
+                let rest = &text[idx + marker.len()..];
+                let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+                if let Ok(n) = digits.parse::<u32>() {
+                    return Some(n);
+                }
+            }
+        }
+        None
+    }
+    let prompt = prompt_tokens(error)?;
+    let required = digits_before(error, "requires ~")?;
+    let available = digits_before(error, "only ~")?;
+    if required > 0 && available > 0 {
+        Some((prompt, required, available))
+    } else {
+        None
+    }
+}
+
 /// 用户/看门狗取消后不得再试下一个候选。否则 600s 前端超时会再点燃本地模型。
 pub(crate) fn candidate_chain_stops_on(err: &AppError) -> bool {
     matches!(err, AppError::Cancellation { .. })
@@ -208,11 +245,22 @@ impl<R: Runtime> GatewayExecutor<R> {
             // v0.73.7: 连续空正文的显式角色模型在冷却期内不置顶，
             // 交给自动分配/候选打分（否则每轮都要先等它空转一次）。
             let empty_demoted = self.empty_content_demoted(&profile.id);
+            // v0.99.2：本地模型实测 GPU 容量不足以承载当前 prompt 时也不置顶；
+            // 大 prompt 直接交给网关打分（通常是远端大模型）。
+            let prompt_tokens = self.prompt_tokens_est(request);
+            let prompt_too_large = self.prompt_limit_exceeded(&profile.id, prompt_tokens);
             if empty_demoted {
                 log::warn!(
                     "[Gateway] resolve_role_model: 角色 {:?} 指定模型 {} 连续返回空正文，冷却期内跳过置顶",
                     role,
                     profile.id
+                );
+            } else if prompt_too_large {
+                log::warn!(
+                    "[Gateway] resolve_role_model: 角色 {:?} 指定模型 {} 实测 GPU 上限不足以承载 {} tokens，回退自动分配",
+                    role,
+                    profile.id,
+                    prompt_tokens
                 );
             } else if self.is_promotable_user_model(&profile.id) {
                 log::info!(
@@ -543,6 +591,44 @@ impl<R: Runtime> GatewayExecutor<R> {
             .unwrap_or(false)
     }
 
+    /// v0.99.2: 模型是否因实测 GPU 容量不足以承载当前 prompt。
+    fn prompt_limit_exceeded(&self, model_id: &str, prompt_tokens: u32) -> bool {
+        self.health_registry()
+            .lock()
+            .ok()
+            .map(|guard| guard.prompt_limit_exceeded(model_id, prompt_tokens))
+            .unwrap_or(false)
+    }
+
+    fn record_prompt_limit_failure(
+        &self,
+        model_id: &str,
+        model_name: &str,
+        prompt_tokens: u32,
+        required_mb: u64,
+        available_mb: u64,
+    ) {
+        if let Ok(mut guard) = self.health_registry().lock() {
+            guard.record_prompt_limit_failure(
+                model_id,
+                model_name,
+                prompt_tokens,
+                required_mb,
+                available_mb,
+            );
+        }
+    }
+
+    /// v0.99.2: prompt token 估算；优先用 request.estimated_input_tokens，
+    /// 缺省时按 heartbeat 口径 prompt_chars / 2。
+    fn prompt_tokens_est(&self, request: &GatewayRequest) -> u32 {
+        if request.estimated_input_tokens > 0 {
+            request.estimated_input_tokens
+        } else {
+            (request.prompt.chars().count() / 2) as u32
+        }
+    }
+
     /// v0.23.59: 供 LlmService 调用的公开标记 Unhealthy 接口。
     ///
     /// `generate_with_fastest` 在 5s 预探测失败时调用此方法标记模型，
@@ -605,6 +691,7 @@ impl<R: Runtime> GatewayExecutor<R> {
         // v0.23.34: health 锁限定在块作用域内，块结束后 MutexGuard 自动释放。
         // 根因：std::sync::Mutex 不可重入，若 health 锁未释放，后续
         // is_model_available / health_registry().lock() 会自死锁 → 600s 超时。
+        let prompt_tokens_est = self.prompt_tokens_est(request);
         let mut re_scored: Vec<(f64, crate::config::settings::LlmProfile)> = {
             let health = health_registry.lock().ok();
             let result: Vec<_> = candidate_profiles
@@ -625,6 +712,12 @@ impl<R: Runtime> GatewayExecutor<R> {
                         // v0.73.7: 连续空正文（推理模型 token 全烧在 CoT）的
                         // 模型在冷却期内大幅降权，避免每轮调用先等它空转。
                         if h.empty_content_demoted(&m.id) {
+                            score -= 1000.0;
+                        }
+                        // v0.99.2: 实测 GPU 容量不足以承载当前 prompt
+                        // 的本地模型
+                        // 不参与本轮候选排序（避免反复 OOM / 空转）。
+                        if h.prompt_limit_exceeded(&m.id, prompt_tokens_est) {
                             score -= 1000.0;
                         }
                     }
@@ -1248,6 +1341,38 @@ impl<R: Runtime> GatewayExecutor<R> {
                 continue;
             }
 
+            let prompt_est = prompt_chars / 2;
+            if self.prompt_limit_exceeded(&candidate.model_id, prompt_est as u32) {
+                log::warn!(
+                    "[Gateway] 候选 [{}/{}] {} 实测 GPU 容量上限装不下当前提示（约 {} tokens / {} 字符），跳过",
+                    idx + 1,
+                    decision.candidates.len(),
+                    candidate.model_id,
+                    prompt_est,
+                    prompt_chars
+                );
+                self.workflow_log(
+                    "gateway.generate.candidate_skip_gpu_limit",
+                    format!(
+                        "跳过候选 {}：实测 GPU prompt 上限不足",
+                        candidate.model_name
+                    ),
+                    Some(serde_json::json!({
+                        "request_id": request.request_id,
+                        "idx": idx,
+                        "model_id": candidate.model_id,
+                        "prompt_tokens_est": prompt_est,
+                    })),
+                );
+                last_error = Some(AppError::Internal {
+                    message: format!(
+                        "模型 {} 实测 GPU 容量不适配当前提示（约 {} tokens）",
+                        candidate.model_name, prompt_est
+                    ),
+                });
+                continue;
+            }
+
             // v0.23.47: 调用模型前必须实时检测连接是否正常（5s 超时）。
             // v0.23.60: 若后台 keepalive
             // 已保持健康数据新鲜（<15s），跳过内联探测，
@@ -1457,6 +1582,24 @@ impl<R: Runtime> GatewayExecutor<R> {
                         candidate_idx,
                         e
                     );
+                    if let Some((tokens, required_mb, available_mb)) =
+                        parse_gpu_memory_error(&e.to_string())
+                    {
+                        log::warn!(
+                            "[Gateway] 学习 GPU 容量上限: model={} prompt_tokens={} required_mb={} available_mb={}",
+                            candidate.model_id,
+                            tokens,
+                            required_mb,
+                            available_mb
+                        );
+                        self.record_prompt_limit_failure(
+                            &candidate.model_id,
+                            &candidate.model_name,
+                            tokens,
+                            required_mb,
+                            available_mb,
+                        );
+                    }
                     // v0.23.59: 真实调用失败标记 Degraded（保留在候选池受 -20
                     // 惩罚）， 递增连续失败计数。这是让"
                     // 能说 OK 但无法生成正文"的模型
@@ -2496,5 +2639,33 @@ mod tests {
         registry_inner.register(UnifiedModel::Generative(test_profile("port-model", "Port")));
         let (executor, _app) = test_executor(GatewayRegistry::new(registry_inner));
         assert_implements(&executor);
+    }
+
+    #[test]
+    fn parse_gpu_memory_error_learns_prompt_limit() {
+        let err = r#"OpenAI API error: {"error":{"message":"Prompt (13240 tokens) requires ~9223MB GPU memory but only ~3093MB is available"}}"#;
+        let (tokens, required, available) = parse_gpu_memory_error(err).expect("parse");
+        assert_eq!(tokens, 13240);
+        assert_eq!(required, 9223);
+        assert_eq!(available, 3093);
+
+        let err2 = "This prompt (4275 tokens) does not fit in GPU memory even after freeing the prefix cache: it requires ~4924MB GPU memory but only ~4590MB is available.";
+        let (tokens2, required2, available2) = parse_gpu_memory_error(err2).expect("parse 2");
+        assert_eq!(tokens2, 4275);
+        assert_eq!(required2, 4924);
+        assert_eq!(available2, 4590);
+        assert!(parse_gpu_memory_error("普通网络错误").is_none());
+    }
+
+    #[test]
+    fn health_registry_records_and_checks_prompt_limit() {
+        let mut registry = HealthRegistry::new();
+        registry.record_prompt_limit_failure("qwren", "Qwren127", 16781, 9439, 3387);
+        let limit = registry.prompt_limit_tokens("qwren").expect("limit");
+        assert!(limit < 7000, "保守估算应低于 7000: {limit}");
+        assert!(registry.prompt_limit_exceeded("qwren", 8000));
+        assert!(!registry.prompt_limit_exceeded("qwren", 1000));
+        registry.clear_prompt_limit("qwren");
+        assert!(registry.prompt_limit_tokens("qwren").is_none());
     }
 }

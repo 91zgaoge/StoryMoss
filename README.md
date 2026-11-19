@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.1-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.2-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.2 · 续写训练资产分阶段 + 网关容量路由 + 进度/评分口径
+
+- **问题**：v0.99.1 真机报告 0.63（承接 7.2）证明长程记忆有效，但资产重建仍失败——单次 26k prompt/8192 tokens 下 deepseek-v4 三次 CoT-only（content 空）、Qwren127 GPU OOM（16,781 tokens 需 9,439MB，仅 3,387MB）；brief 只剩 2042 字首尾摘要/0 白名单/0 cast；147 次 writer 调用 55 次失败；确定性摘要漏第 142 章 81% 的邵卫江；编审把原书后续差距误判为承接断裂；任务 40% 停 45 分钟。
+- **结果**：资产重建改为「逐章小 prompt（并发 3、V163 缓存）→ 聚合 brief（只喂结构化摘要）」；JSON mode 补全 reasoning 截断 JSON；GPU OOM 学习模型 prompt 上限并按大小跳过本地小模型；确定性事件摘要（首句+中段冲突/引号/专名句+尾句）；批内每章 progress/log/heartbeat；judge 分列「承接（沙盒）」与「原书差距 reference_gap」；blind 反馈模式过滤真实后续节点。
 
 ### v0.99.1 · 续写训练长程记忆（前情提要 + 本批账本 + 设定白名单）
 

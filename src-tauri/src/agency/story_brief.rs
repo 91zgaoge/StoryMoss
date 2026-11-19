@@ -76,6 +76,13 @@ pub struct BriefChapter {
     pub result: String,
     #[serde(default)]
     pub open_thread: String,
+    /// v0.99.2：本章最大转折（只写已发生事实；供聚合 brief/评分探针）。
+    #[serde(default)]
+    pub turning_point: String,
+    /// v0.99.2：本章真实出现的专名（术法/门派/器物/地名/组织），用于
+    /// 资产重建失败时的确定性 canon 白名单兜底。
+    #[serde(default)]
+    pub key_terms: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]

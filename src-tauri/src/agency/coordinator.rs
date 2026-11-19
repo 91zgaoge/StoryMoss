@@ -1081,6 +1081,9 @@ pub struct AgencyCoordinator {
     /// 头600+尾1800」生成「单章回顾+下一拍规划」伪大纲，也禁止从已生成正文
     /// 反向提取幻觉角色写回沙盒。
     assets_seeded: bool,
+    /// v0.99.2：批内进度回调（chapter, done, total, chars）。训练任务用它把
+    /// 每章装配同步到 task progress/log/heartbeat；其它路径为 None。
+    batch_progress_sink: Option<Arc<dyn Fn(i32, usize, usize, usize) + Send + Sync>>,
     /// P0-1（v0.66.0）：测试用向量库注入。生产从 Tauri State 取
     /// （见 `retrieval_store`），测试用 `for_test_with_store` 注入。
     #[cfg(test)]
@@ -1103,6 +1106,7 @@ impl AgencyCoordinator {
             continue_freeze: Arc::new(crate::agency::continue_freeze::ContinueFreezeMap::new()),
             asset_ingest_enabled: true,
             assets_seeded: false,
+            batch_progress_sink: None,
             #[cfg(test)]
             test_vector_store: None,
             #[cfg(test)]
@@ -1122,6 +1126,7 @@ impl AgencyCoordinator {
             continue_freeze: Arc::new(crate::agency::continue_freeze::ContinueFreezeMap::new()),
             asset_ingest_enabled: true,
             assets_seeded: false,
+            batch_progress_sink: None,
             #[cfg(test)]
             test_vector_store: None,
             #[cfg(test)]
@@ -1151,6 +1156,15 @@ impl AgencyCoordinator {
     /// `ensure_assets` 不再做通用兜底（大纲重造/正文反向提取角色）。
     pub fn with_assets_seeded(mut self, seeded: bool) -> Self {
         self.assets_seeded = seeded;
+        self
+    }
+
+    /// v0.99.2：批内进度回调（训练任务把每章装配同步到 task progress/log）。
+    pub fn with_batch_progress(
+        mut self,
+        sink: Arc<dyn Fn(i32, usize, usize, usize) + Send + Sync>,
+    ) -> Self {
+        self.batch_progress_sink = Some(sink);
         self
     }
 
@@ -1528,6 +1542,7 @@ impl AgencyCoordinator {
             continue_freeze: self.continue_freeze.clone(),
             asset_ingest_enabled: self.asset_ingest_enabled,
             assets_seeded: self.assets_seeded,
+            batch_progress_sink: self.batch_progress_sink.clone(),
             #[cfg(test)]
             test_vector_store: self.test_vector_store.clone(),
             #[cfg(test)]
@@ -3686,6 +3701,7 @@ impl AgencyCoordinator {
                 continue_freeze: Arc::new(crate::agency::continue_freeze::ContinueFreezeMap::new()),
                 asset_ingest_enabled: true,
                 assets_seeded: false,
+                batch_progress_sink: None,
                 #[cfg(test)]
                 test_vector_store: None,
                 #[cfg(test)]
@@ -8385,6 +8401,14 @@ impl AgencyCoordinator {
                         &prev_outline,
                         &prev.increment,
                     ));
+                    if let Some(sink) = self.batch_progress_sink.as_ref() {
+                        sink(
+                            prev.chapter_number,
+                            chapters.len() + 1,
+                            count,
+                            prev.increment.chars().count(),
+                        );
+                    }
                     chapters.push(prev);
                     // 每章 gate 处理完：自动会话快照（best-effort）
                     self.snapshot_phase(run_id, "assembly", "auto").await;
@@ -8468,6 +8492,14 @@ impl AgencyCoordinator {
                 &last_outline,
                 &last.increment,
             ));
+            if let Some(sink) = self.batch_progress_sink.as_ref() {
+                sink(
+                    last.chapter_number,
+                    chapters.len() + 1,
+                    count,
+                    last.increment.chars().count(),
+                );
+            }
             chapters.push(last);
             // 末章 gate 处理完：自动会话快照（best-effort）
             self.snapshot_phase(run_id, "assembly", "auto").await;

@@ -1194,8 +1194,17 @@ impl<R: Runtime> LlmService<R> {
         let prompt = record.prompt.to_string();
         let duration_ms = record.duration_ms as u32;
         let completion_tokens = record.response.map(|r| r.tokens_used).unwrap_or(0);
-        let error_msg = record.error.map(|e| e.to_string());
-        let success = record.error.is_none();
+        // v0.99.2：HTTP 200 但 content 为空（推理模型 token 全烧在 CoT）不是
+        // 成功；否则 llm_calls 的成功率误报，asset/editor 故障无法归因。
+        let empty_content = record
+            .response
+            .map(|r| r.content.trim().is_empty())
+            .unwrap_or(false);
+        let error_msg = record
+            .error
+            .map(|e| e.to_string())
+            .or_else(|| empty_content.then(|| "empty content".to_string()));
+        let success = record.error.is_none() && !empty_content;
 
         self.workflow_log(
             "llm.record_call.spawn",

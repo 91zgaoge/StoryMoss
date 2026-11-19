@@ -30,6 +30,11 @@ pub struct HealthRecord {
     pub empty_content_failures: u32,
     /// v0.73.7: 最近一次空正文失败时间（冷却窗口起点）。
     pub last_empty_content_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// v0.99.2：从 GPU OOM 错误学习到的「该模型实际能承载的 prompt 上限」。
+    /// 本地 llama.cpp 报 `Prompt (N tokens) requires ~X MB ... only ~Y MB`
+    /// 时，按 N * Y / X 估算；只在 30 分钟窗口内生效，避免永久误杀。
+    pub prompt_limit_tokens: Option<u32>,
+    pub last_prompt_limit_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// 健康注册表
@@ -273,8 +278,57 @@ impl HealthRegistry {
         }
     }
 
-    /// v0.26.54: 用户显式重选模型时清除粘性降级。
-    ///
+    /// v0.99.2: 记录一次 GPU OOM 并估算该模型的实际 prompt 上限。
+    pub fn record_prompt_limit_failure(
+        &mut self,
+        model_id: &str,
+        model_name: &str,
+        prompt_tokens: u32,
+        required_mb: u64,
+        available_mb: u64,
+    ) {
+        if required_mb == 0 || available_mb == 0 || prompt_tokens == 0 {
+            return;
+        }
+        let estimate = (prompt_tokens as u64 * available_mb / required_mb).max(256) as u32;
+        let record = self.records.entry(model_id.to_string()).or_default();
+        let limit = record.prompt_limit_tokens.unwrap_or(u32::MAX).min(estimate);
+        record.prompt_limit_tokens = Some(limit);
+        record.last_prompt_limit_at = Some(chrono::Utc::now());
+        record.snapshot.model_id = model_id.to_string();
+        if record.snapshot.model_name.is_empty() {
+            record.snapshot.model_name = model_name.to_string();
+        }
+    }
+
+    /// v0.99.2: 该模型近期从 GPU OOM 学到的 prompt 上限（30 分钟 TTL）。
+    pub fn prompt_limit_tokens(&self, model_id: &str) -> Option<u32> {
+        const TTL_MINUTES: i64 = 30;
+        let record = self.records.get(model_id)?;
+        let limit = record.prompt_limit_tokens?;
+        match record.last_prompt_limit_at {
+            Some(ts)
+                if chrono::Utc::now().signed_duration_since(ts).num_minutes() < TTL_MINUTES =>
+            {
+                Some(limit)
+            }
+            _ => None,
+        }
+    }
+
+    /// v0.99.2: prompt 是否超过该模型近期实测上限。
+    pub fn prompt_limit_exceeded(&self, model_id: &str, prompt_tokens: u32) -> bool {
+        self.prompt_limit_tokens(model_id)
+            .map(|limit| prompt_tokens > limit)
+            .unwrap_or(false)
+    }
+
+    pub fn clear_prompt_limit(&mut self, model_id: &str) {
+        if let Some(record) = self.records.get_mut(model_id) {
+            record.prompt_limit_tokens = None;
+            record.last_prompt_limit_at = None;
+        }
+    }
     /// 连续失败阈值会让模型失去强制置顶资格；若用户在设置里再次指定该模型
     /// （创作/活跃），必须给一次重新探测机会，否则表现为「设了创作模型仍用
     /// 网关打分选出的本地模型」。
@@ -290,6 +344,8 @@ impl HealthRegistry {
         record.consecutive_failures = 0;
         record.empty_content_failures = 0;
         record.last_empty_content_at = None;
+        record.prompt_limit_tokens = None;
+        record.last_prompt_limit_at = None;
         if matches!(
             record.snapshot.status,
             HealthStatus::Unhealthy | HealthStatus::Degraded

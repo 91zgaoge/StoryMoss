@@ -143,6 +143,11 @@ pub struct TrainingPayload {
     pub strategy: String,
     #[serde(default)]
     pub start_chapter: Option<usize>,
+    /// v0.99.2：反馈模式。`truth_hints`（默认，允许注入上一轮“真实后续节点”）/
+    /// `blind`（盲测：过滤含真实后续节点的建议，避免用原书后续给 writer
+    /// 提示）。
+    #[serde(default)]
+    pub feedback_mode: Option<String>,
     #[serde(default)]
     pub source: SourceSpec,
 }
@@ -330,6 +335,7 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         let continuation_want = payload
             .continuation_chapters
             .clamp(1, MAX_CONTINUATION_CHAPTERS);
+        let blind = payload.feedback_mode.as_deref() == Some("blind");
 
         // ── 1. 取源章节（上下文 + 真实后续基准）──────────────────
         ctx.update_progress(
@@ -459,7 +465,12 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             ctx.log(
                 "info",
                 &format!(
-                    "资产重建完成：世界观{}｜故事大纲{}｜角色{}｜关系{}｜章节梗概{}｜前情提要{}章/{}线索/{}白名单",
+                    "资产重建完成（两阶段）：逐章摘要{}/{}（缓存{}、兜底{}）｜聚合{}｜世界观{}｜故事大纲{}｜角色{}｜关系{}｜章节梗概{}｜前情提要{}章/{}线索/{}白名单",
+                    rebuilt.chapter_summaries,
+                    asset_input.len(),
+                    rebuilt.summary_cached,
+                    rebuilt.summary_fallback,
+                    if rebuilt.aggregate_ok { "✓" } else if rebuilt.aggregate_fallback { "兜底" } else { "—" },
                     if rebuilt.world { "✓" } else { "—" },
                     if rebuilt.story_outline { "✓" } else { "—" },
                     rebuilt.characters,
@@ -546,7 +557,8 @@ impl TaskExecutor for ContinuationTrainingExecutor {
                 ),
             );
         }
-        let prior = self.load_prior_insights(&payload.book_title, context_start, &context_prose);
+        let prior =
+            self.load_prior_insights(&payload.book_title, context_start, &context_prose, blind);
         let first_gen = context_n + 1;
         let last_gen = context_n + truth_n;
         let base_instruction = format!(
@@ -612,6 +624,25 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             TrainingStage::Continue.label(),
         );
         let run_id = uuid::Uuid::new_v4().to_string();
+        // v0.99.2：批内每章装配后同步 task progress/log/heartbeat。
+        // v0.98.9 的前端刷新机制会随 `task-progress` 事件同步任务列表与日志。
+        let task_id_for_progress = task.id.clone();
+        let pool_for_progress = self.pool.clone();
+        let app_for_progress = self.app_handle.clone();
+        let progress_sink: std::sync::Arc<dyn Fn(i32, usize, usize, usize) + Send + Sync> =
+            std::sync::Arc::new(move |chapter_number, done, total, chars| {
+                let ctx = crate::task_system::executor::TaskExecutionContext::new(
+                    task_id_for_progress.clone(),
+                    pool_for_progress.clone(),
+                    app_for_progress.clone(),
+                );
+                let total = total.max(1);
+                let progress = 40 + ((done.min(total) as i32 * 32) / total as i32).min(32);
+                let label =
+                    format!("续写第 {done}/{total} 章完成（第 {chapter_number} 章，{chars} 字）");
+                ctx.update_progress("continue", progress, &label);
+                ctx.log("info", &label);
+            });
         // v0.98.7：训练沙盒关闭后台 ingest——生成正文不是原书事实，
         // 反向资产桥接会把臆造人名/大纲写回，后续章节持续放大幻觉。
         let coordinator = crate::agency::coordinator::AgencyCoordinator::new(
@@ -622,7 +653,8 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         // v0.99.1：训练资产（前情提要/大纲/角色）已在上方显式就绪，
         // 禁止 ensure_assets 再用「正文头600+尾1800」重造大纲或从生成正文
         // 提取幻觉角色写回沙盒。
-        .with_assets_seeded(true);
+        .with_assets_seeded(true)
+        .with_batch_progress(progress_sink);
         let cancel = Arc::new(AtomicBool::new(false));
         // 取消传播：任务被取消时同步中断续写管线（统一取消监听器，500ms）。
         // 监听句柄 Drop 随 execute 结束自动停止轮询，不再泄漏协程。
@@ -843,10 +875,25 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             collect_unquoted_ungrounded_names(&review.comments, &context_prose, &mut ungrounded);
             collect_unquoted_ungrounded_names(&review.improvement, &context_prose, &mut ungrounded);
         }
+        let summary_diag = format!(
+            "逐章摘要{}/{}（缓存{}、兜底{}）｜聚合{}",
+            rebuilt.chapter_summaries,
+            asset_input.len(),
+            rebuilt.summary_cached,
+            rebuilt.summary_fallback,
+            if rebuilt.aggregate_ok {
+                "✓"
+            } else if rebuilt.aggregate_fallback {
+                "兜底"
+            } else {
+                "—"
+            }
+        );
         let asset_line = if let Some(err) = rebuilt.llm_error.as_deref() {
             format!(
-                "资产重建失败（继续训练）：{}",
-                Self::preview_chars(err, 160)
+                "资产重建失败（继续训练）：{}｜{}",
+                Self::preview_chars(err, 160),
+                summary_diag
             )
         } else {
             let outline_fallback = rebuilt
@@ -854,7 +901,8 @@ impl TaskExecutor for ContinuationTrainingExecutor {
                 .iter()
                 .any(|w| w.contains("原文首尾窗口兜底"));
             format!(
-                "世界观{}｜故事大纲{}｜角色{}｜关系{}｜章节梗概{}{}",
+                "{}｜世界观{}｜故事大纲{}｜角色{}｜关系{}｜章节梗概{}{}",
+                summary_diag,
                 if rebuilt.world { "✓" } else { "—" },
                 if rebuilt.story_outline { "✓" } else { "—" },
                 rebuilt.characters,
@@ -877,7 +925,12 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             brief.cast_states.len(),
             brief_rendered.chars().count()
         );
-        let asset_line = format!("{asset_line}\n- 长程记忆：{memory_line}");
+        let feedback_line = if blind {
+            "- 反馈模式：blind（过滤真实后续节点，避免基准泄漏）"
+        } else {
+            "- 反馈模式：truth_hints（允许注入上一轮真实后续节点）"
+        };
+        let asset_line = format!("{asset_line}\n- 长程记忆：{memory_line}\n{feedback_line}");
         let (report_md, scores_json, improvement_md) = Self::build_report(
             &payload.book_title,
             context_n,
@@ -1452,6 +1505,7 @@ impl ContinuationTrainingExecutor {
         book_title: &str,
         start_chapter: usize,
         context_prose: &str,
+        blind: bool,
     ) -> Option<String> {
         let conn = self.pool.get().ok()?;
         let mut stmt = conn
@@ -1495,7 +1549,10 @@ impl ContinuationTrainingExecutor {
                 }
             }
         }
-        let filtered = filter_improvement_lines(&improvement, &ungrounded);
+        let mut filtered = filter_improvement_lines(&improvement, &ungrounded);
+        if blind {
+            filtered = strip_truth_hint_lines(&filtered);
+        }
         if filtered.trim().is_empty() {
             return None;
         }
@@ -1676,6 +1733,7 @@ impl ContinuationTrainingExecutor {
                 overall: None,
                 scores: serde_json::Map::new(),
                 continuity: None,
+                reference_gap: None,
                 comments: "本章 AI 续写缺失（gate 失败或空稿），无法对比".into(),
                 improvement: String::new(),
                 prose_available: false,
@@ -1744,6 +1802,7 @@ impl ContinuationTrainingExecutor {
                 overall: None,
                 scores: serde_json::Map::new(),
                 continuity: None,
+                reference_gap: None,
                 comments: format!(
                     "评分不可用（编审输出无法解析）：{}",
                     Self::preview_chars(&last_raw, 120)
@@ -1759,6 +1818,7 @@ impl ContinuationTrainingExecutor {
             overall: Some(judge.overall),
             scores: judge.scores,
             continuity: judge.continuity,
+            reference_gap: judge.reference_gap,
             comments: judge.comments,
             improvement: judge.improvement,
             prose_available: true,
@@ -1787,29 +1847,30 @@ impl ContinuationTrainingExecutor {
             String::new()
         } else {
             format!(
-                "【上一章结尾（承接基准；只用于判断续写是否紧接该现场，不是评分基准）】\n\
+                "【上一章结尾（沙盒第 {prior_chapter} 章；唯一的承接基准）】\n\
                  {prior_tail}\n\n"
             )
         };
         format!(
-            r#"{strict_line}你是编审。下面是《{book_title}》第 {truth_chapter} 章的原作者真实原文（评分基准），以及 AI 按前文续写出的对应章（沙盒第 {generated_chapter} 章，对应真实第 {truth_chapter} 章）。请做「续写质量对比评审」：按五维打分（1-10，10=与作者本人水准不可区分），并单独判断承接。
+            r#"{strict_line}你是编审。下面是《{book_title}》第 {truth_chapter} 章的原作者真实原文（仅用于衡量「与原书后续差距」，不是承接基准），以及 AI 按前文续写出的对应章（沙盒第 {generated_chapter} 章，对应真实第 {truth_chapter} 章）。请做「续写质量对比评审」：按五维打分（1-10，10=与作者本人水准不可区分），并分别判断沙盒承接与原书差距。
 
 评分口径：
 - style 文笔风格：句式长度分布、用词、语感、时代感、生活细节密度；
-- plot 情节推进：本章是否完成真实的状态变化（信息/关系/目标/风险/情绪），而非原地踏步或说明性对白；
+- plot 情节推进：本章**内部**是否完成真实的状态变化（信息/关系/目标/风险/情绪），而非原地踏步或说明性对白；不以是否撞见原书后续剧情扣分；
 - voice 人物口吻：对白与反应是否符合各角色身份、伤口/需求/防御，而非全员同一腔调；
 - pacing 节奏密度：详略比例、信息密度、有无注水铺垫；
 - hooks 钩子悬念：开头抓力与章末钩子经营。
-承接 continuity（1-10）：AI 续写是否紧接「上一章结尾」的现场、人物、时代与未完结事件（禁止换场、新主角、新委托、新事件）。
+承接 continuity（1-10）：**只相对上一沙盒章**——AI 续写是否紧接第 {prior_chapter} 章结尾的现场、人物、时代与未完结事件（禁止换场、新主角、新委托、新事件）。即使 AI 未采用原书后续的真实走向，只要紧接上一沙盒章，continuity 仍应给高分。
+原书差距 reference_gap（1-10）：AI 续写与原作者后续真实章的世界线/事件/人物距离；10=几乎一致，1=完全另开一条线。只做诊断，不参与 continuity。
 
-{prior_block}【原作者的后续真实章（基准）】
+{prior_block}【原作者的后续真实章（仅用于 reference_gap，不是承接基准）】
 {truth_cap}
 
 【AI 续写】
 {gen_cap}
 
 仅输出 JSON：
-{{"verdict":"pass 或 revise","scores":{{"style":1-10,"plot":1-10,"voice":1-10,"pacing":1-10,"hooks":1-10}},"continuity":1-10,"overall":0.0-1.0加权总分,"comments":"每维 1-2 句依据（含承接判断，≤200字）","improvement":"下一轮续写必须落实的 2-3 条具体改进（含承接修正，给模型看，不超过 150 字）","blocking_issues":["带原文证据的阻断问题（可空）"]}}"#
+{{"verdict":"pass 或 revise","scores":{{"style":1-10,"plot":1-10,"voice":1-10,"pacing":1-10,"hooks":1-10}},"continuity":1-10,"reference_gap":1-10,"overall":0.0-1.0加权总分,"comments":"每维 1-2 句依据（含沙盒承接判断与原书差距，≤200字）","improvement":"下一轮续写必须落实的 2-3 条具体改进（含承接修正，给模型看，不超过 150 字）","blocking_issues":["带原文证据的阻断问题（可空）"]}}"#
         )
     }
 
@@ -1959,6 +2020,10 @@ impl ContinuationTrainingExecutor {
                 "continuity",
                 avg_dim(reviews, "continuity"),
             )))
+            .chain(std::iter::once((
+                "reference_gap",
+                avg_dim(reviews, "reference_gap"),
+            )))
             .collect();
         let overalls: Vec<f64> = reviews.iter().filter_map(|r| r.overall).collect();
         let overall = if overalls.is_empty() {
@@ -1997,7 +2062,7 @@ impl ContinuationTrainingExecutor {
                 .collect::<Vec<_>>()
                 .join(" | ");
             rows.push_str(&format!(
-                "| {} | {} | {} | {} | {} | {} | {} |\n",
+                "| {} | {} | {} | {} | {} | {} | {} | {} |\n",
                 review.generated_chapter,
                 review.truth_chapter,
                 review.verdict,
@@ -2008,6 +2073,10 @@ impl ContinuationTrainingExecutor {
                 dims,
                 review
                     .continuity
+                    .map(|v| format!("{v:.0}"))
+                    .unwrap_or_else(|| "-".into()),
+                review
+                    .reference_gap
                     .map(|v| format!("{v:.0}"))
                     .unwrap_or_else(|| "-".into()),
                 Self::preview_chars(&review.comments, 70).replace('|', "/")
@@ -2072,8 +2141,8 @@ impl ContinuationTrainingExecutor {
              - 编审判裁：{audit_pass} 章 pass / {audit_revise} 章 revise / {audit_unavailable} 章不可用（逐章对比裁定）\n\n\
              ## 五维均值\n\n{}\n\n\
              ## 逐章对比\n\n\
-             | 沙盒章 | 原书章 | 裁决 | 总分 | {} | 承接 | 摘要 |\n\
-             |---|---|---|---|---|---|---|---|---|---|---|\n\
+             | 沙盒章 | 原书章 | 裁决 | 总分 | {} | 承接（沙盒） | 原书差距 | 摘要 |\n\
+             |---|---|---|---|---|---|---|---|\n\
              {rows}\n\
              ## 跨章全面对比\n\n",
             context.first().map(|c| c.0).unwrap_or(0),
@@ -2145,8 +2214,9 @@ impl ContinuationTrainingExecutor {
 
         let scores_json = serde_json::json!({
             "overall": overall,
-            "scores": dim_avgs.iter().filter(|(dim, _)| *dim != "continuity").map(|(dim, avg)| (dim.to_string(), avg.map(|v| serde_json::json!(v)))).collect::<std::collections::HashMap<_, _>>(),
+            "scores": dim_avgs.iter().filter(|(dim, _)| *dim != "continuity" && *dim != "reference_gap").map(|(dim, avg)| (dim.to_string(), avg.map(|v| serde_json::json!(v)))).collect::<std::collections::HashMap<_, _>>(),
             "continuity": dim_avgs.iter().find(|(dim, _)| *dim == "continuity").and_then(|(_, avg)| *avg),
+            "reference_gap": dim_avgs.iter().find(|(dim, _)| *dim == "reference_gap").and_then(|(_, avg)| *avg),
             "chapters": truth_n,
             "reviewed": reviews.iter().filter(|r| r.overall.is_some()).count(),
         })
@@ -2206,6 +2276,9 @@ struct JudgeReport {
     improvement: String,
     verdict: String,
     continuity: Option<f64>,
+    /// v0.99.2：与原书后续真实章的差距（1-10，10=几乎一致），仅作参考诊断；
+    /// 不得混入 continuity（承接只看上一沙盒章）。
+    reference_gap: Option<f64>,
 }
 
 const JUDGE_DIMENSIONS: [&str; 5] = ["style", "plot", "voice", "pacing", "hooks"];
@@ -2219,6 +2292,8 @@ struct ChapterReviewOutcome {
     overall: Option<f64>,
     scores: serde_json::Map<String, serde_json::Value>,
     continuity: Option<f64>,
+    /// 与原书后续差距（诊断）。
+    reference_gap: Option<f64>,
     comments: String,
     improvement: String,
     prose_available: bool,
@@ -2308,7 +2383,8 @@ fn dimension_label(dim: &str) -> &'static str {
         "voice" => "人物口吻",
         "pacing" => "节奏密度",
         "hooks" => "钩子悬念",
-        "continuity" => "承接",
+        "continuity" => "承接（沙盒）",
+        "reference_gap" => "原书差距（诊断）",
         _ => "未知维度",
     }
 }
@@ -2316,7 +2392,7 @@ fn dimension_label(dim: &str) -> &'static str {
 /// 维度修正提示（静态、可执行；用于报告短板与下一轮指令）。
 fn dimension_correction(dim: &str) -> &'static str {
     match dim {
-        "continuity" => "紧接上一章末尾现场（同地点/同人物/同时代/未完结事件），禁止跳切、新主角、新委托、新场景。",
+        "continuity" => "紧接上一沙盒章末尾现场（同地点/同人物/同时代/未完结事件），禁止跳切、新主角、新委托、新场景。",
         "style" => "逐段模仿原文的句式长度、用词与生活细节密度；禁止书面化、翻译腔、总结句与抒情收尾。",
         "plot" => "每章必须发生可验证的状态变化（信息/关系/目标/风险/情绪），不得只写说明性对白或原地踏步。",
         "voice" => "对白必须贴合各角色身份、时代语感与伤口/防御，不得全员同一腔调或腔调轮换式标签。",
@@ -2334,7 +2410,8 @@ fn dimension_hint(dim: &str) -> &'static str {
         "voice" => "（对白/反应）",
         "pacing" => "（详略/信息密度）",
         "hooks" => "（开头抓力/章末钩子）",
-        "continuity" => "（紧接上一章现场）",
+        "continuity" => "（紧接上一沙盒章现场）",
+        "reference_gap" => "（与原书后续差距，仅诊断）",
         _ => "",
     }
 }
@@ -2353,6 +2430,8 @@ struct RawJudgeReport {
     verdict: Option<serde_json::Value>,
     #[serde(default)]
     continuity: Option<serde_json::Value>,
+    #[serde(default)]
+    reference_gap: Option<serde_json::Value>,
 }
 
 /// 结构化评审输出的宽容解析：宽松 JSON → 补全截断括号 → 取最后一个完整
@@ -2408,6 +2487,10 @@ fn parse_judge_report(raw: &str) -> Option<JudgeReport> {
         improvement: value_as_text(parsed.improvement.as_ref()).unwrap_or_default(),
         verdict: value_as_text(parsed.verdict.as_ref()).unwrap_or_else(|| "pass".into()),
         continuity: parsed.continuity.as_ref().and_then(coerce_dimension_score),
+        reference_gap: parsed
+            .reference_gap
+            .as_ref()
+            .and_then(coerce_dimension_score),
     })
 }
 
@@ -2485,6 +2568,8 @@ fn avg_dim(reviews: &[ChapterReviewOutcome], dim: &str) -> Option<f64> {
         .filter_map(|review| {
             if dim == "continuity" {
                 review.continuity
+            } else if dim == "reference_gap" {
+                review.reference_gap
             } else {
                 review.scores.get(dim).and_then(|value| match value {
                     serde_json::Value::Number(number) => number.as_f64(),
@@ -2685,6 +2770,13 @@ fn character_like(token: &str) -> bool {
 }
 
 /// 过滤含幻觉人名的建议行（保留其余可执行条目）。
+fn strip_truth_hint_lines(text: &str) -> String {
+    text.lines()
+        .filter(|line| !line.contains("真实后续节点"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn filter_improvement_lines(text: &str, ungrounded: &std::collections::HashSet<String>) -> String {
     text.lines()
         .filter(|line| {
@@ -3196,6 +3288,7 @@ mod tests {
             overall: Some(score / 10.0),
             scores,
             continuity,
+            reference_gap: None,
             comments: "承接紧接上一章现场；人物口吻一致".into(),
             improvement: "加强章末钩子".into(),
             prose_available: true,
@@ -3294,9 +3387,10 @@ mod tests {
         assert!(!improvement.trim().is_empty());
         assert!(report.contains("编审判裁：2 章 pass"));
         assert!(report.contains("生成质量门：2 章通过 / 0 章修订 / 0 章质检降级"));
-        // 逐章表头只能有一个「承接」列（v0.98.7 修掉重复列/错位分隔线）。
-        assert_eq!(report.matches("| 承接 |").count(), 1, "{report}");
-        assert!(report.contains("|---|---|---|---|---|---|---|---|---|---|---|"));
+        // 逐章表头只能有一个「承接（沙盒）」列 + 独立的「原书差距」列。
+        assert_eq!(report.matches("| 承接（沙盒） |").count(), 1, "{report}");
+        assert_eq!(report.matches("| 原书差距 |").count(), 1, "{report}");
+        assert!(report.contains("|---|---|---|---|---|---|---|---|"));
         let parsed: serde_json::Value = serde_json::from_str(&scores).unwrap();
         assert_eq!(parsed["chapters"], 2);
         assert_eq!(parsed["reviewed"], 2);
@@ -3453,5 +3547,22 @@ mod tests {
         assert!(read_cached_chapter(&pool, "legado", book, 135).is_none());
         assert!(read_cached_chapter(&pool, "legado", "https://other/book", 134).is_none());
         assert!(read_cached_chapter(&pool, "another", book, 134).is_none());
+    }
+
+    #[test]
+    fn judge_parses_reference_gap_separately_from_continuity() {
+        let raw = r#"{"scores":{"style":6,"plot":7,"voice":5,"pacing":8,"hooks":9},"continuity":9,"reference_gap":2,"comments":"依据","improvement":"改进"}"#;
+        let judge = parse_judge_report(raw).expect("应解析");
+        assert_eq!(judge.continuity, Some(9.0));
+        assert_eq!(judge.reference_gap, Some(2.0));
+    }
+
+    #[test]
+    fn blind_feedback_strips_truth_hints() {
+        let text = "真实后续节点：周成主动破局、立威\n禁止另开长期悬疑线\n每章必须主动出手";
+        let kept = strip_truth_hint_lines(text);
+        assert!(!kept.contains("真实后续节点"));
+        assert!(kept.contains("禁止另开长期悬疑线"));
+        assert!(kept.contains("每章必须主动出手"));
     }
 }

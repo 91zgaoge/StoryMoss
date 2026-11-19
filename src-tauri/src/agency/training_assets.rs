@@ -16,6 +16,9 @@
 
 use std::collections::{HashMap, HashSet};
 
+use chrono::Local;
+use futures::stream::{self, StreamExt};
+use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -46,6 +49,18 @@ use crate::{
 
 /// 资产分析 prompt 的上下文预算（字符）。训练章节多时按比例截断。
 const ASSET_PROMPT_CHARS: usize = 26_000;
+/// v0.99.2：逐章摘要单章采样上限（短章全文；长章头尾窗口）。
+const SUMMARY_CHAPTER_CHARS: usize = 2_600;
+/// 逐章摘要输出上限。
+const SUMMARY_OUTPUT_TOKENS: i32 = 1_200;
+/// 逐章摘要并发（本地小模型可承受 2–4 路小 prompt）。
+const SUMMARY_CONCURRENCY: usize = 3;
+/// 聚合 brief 的输入上限（只喂结构化摘要，不再喂原文）。
+const AGGREGATE_PROMPT_CHARS: usize = 12_000;
+/// 聚合 brief 输出上限（推理模型留足 reasoning 余量）。
+const AGGREGATE_OUTPUT_TOKENS: i32 = 8_192;
+/// 摘要缓存版本：prompt 结构变化时改这个值即可失效旧缓存。
+const BRIEF_PROMPT_VERSION: &str = "v1-2026-11-19";
 /// 每章在资产 prompt 的最小/最大采样窗口。
 const CHAPTER_SAMPLE_MIN: usize = 800;
 const CHAPTER_SAMPLE_MAX: usize = 2_600;
@@ -67,6 +82,12 @@ pub struct TrainingAssetSummary {
     pub brief_threads: usize,
     pub brief_terms: usize,
     pub brief_written: bool,
+    /// v0.99.2：逐章摘要阶段诊断。
+    pub chapter_summaries: usize,
+    pub summary_cached: usize,
+    pub summary_fallback: usize,
+    pub aggregate_ok: bool,
+    pub aggregate_fallback: bool,
     pub warnings: Vec<String>,
     pub llm_error: Option<String>,
 }
@@ -83,11 +104,21 @@ impl TrainingAssetSummary {
         self.brief_threads = self.brief_threads.max(other.brief_threads);
         self.brief_terms = self.brief_terms.max(other.brief_terms);
         self.brief_written |= other.brief_written;
+        self.chapter_summaries = self.chapter_summaries.max(other.chapter_summaries);
+        self.summary_cached += other.summary_cached;
+        self.summary_fallback += other.summary_fallback;
+        self.aggregate_ok |= other.aggregate_ok;
+        self.aggregate_fallback |= other.aggregate_fallback;
         self.warnings.extend(other.warnings);
     }
 }
 
-/// 训练资产重建的主入口。失败只返回摘要，不阻断训练。
+/// 训练资产重建的主入口（v0.99.2：两阶段）。
+///
+/// Stage 1：逐章摘要（小 prompt、并发、可缓存）——单章失败只降级该章；
+/// Stage 2：聚合 brief（只喂结构化摘要，不再喂原文）——失败走确定性聚合；
+/// 最后复用原有 persist 链路（scene outline_content + story_briefs）。
+/// 资产重建失败不阻断训练：summary/fallback 都会写确定性 brief。
 pub async fn rebuild_from_context(
     pool: &DbPool,
     llm: &LlmService,
@@ -100,70 +131,347 @@ pub async fn rebuild_from_context(
         summary.llm_error = Some("没有上下文章可重建资产".into());
         return summary;
     }
-    let prompt = build_asset_rebuild_prompt(book_title, chapters);
-    let mut last_raw = String::new();
+
+    // ── Stage 1：逐章摘要 ─────────────────────────────────────
+    let summaries = summarize_chapters(pool, llm, book_title, chapters, &mut summary).await;
+    if summaries.is_empty() {
+        summary.llm_error = Some("逐章摘要全部失败（无可用章节事实）".into());
+        return summary;
+    }
+
+    // ── Stage 2：聚合 brief ───────────────────────────────────
+    let aggregate = aggregate_brief(llm, book_title, &summaries).await;
+    let mut bundle = match aggregate {
+        Some(bundle) => {
+            summary.aggregate_ok = true;
+            bundle
+        }
+        None => {
+            summary.aggregate_fallback = true;
+            summary
+                .warnings
+                .push("聚合 brief 不可用，改用逐章摘要确定性拼装".to_string());
+            RawBundle::default()
+        }
+    };
+    // 逐章摘要才是事实权威；聚合输出不提供/覆盖 chapter_outlines。
+    bundle.chapter_outlines = Some(brief_chapters_value(&summaries));
+    summary.chapter_summaries = summaries.len();
+    if summary.summary_fallback > 0 {
+        summary.warnings.push(format!(
+            "{} 章逐章摘要走确定性兜底",
+            summary.summary_fallback
+        ));
+    }
+
+    let pool_c = pool.clone();
+    let sid = story_id.to_string();
+    let chs = chapters.to_vec();
+    let persisted =
+        tokio::task::spawn_blocking(move || persist_training_bundle(&pool_c, &sid, &chs, &bundle))
+            .await;
+    match persisted {
+        Ok(result) => {
+            summary.merge(result);
+            summary
+        }
+        Err(e) => {
+            log::warn!("[ContinuationTraining] 资产重建落库失败: {e}");
+            summary.llm_error = Some(format!("资产重建落库失败：{e}"));
+            summary
+        }
+    }
+}
+
+async fn summarize_chapters(
+    pool: &DbPool,
+    llm: &LlmService,
+    book_title: &str,
+    chapters: &[(usize, String)],
+    summary: &mut TrainingAssetSummary,
+) -> Vec<BriefChapter> {
+    let llm = llm.clone();
+    let book_title = book_title.to_string();
+    let tasks = stream::iter(chapters.iter().cloned()).map(|(number, content)| {
+        let llm = llm.clone();
+        let book = book_title.clone();
+        let pool = pool.clone();
+        async move { summarize_one(&pool, &llm, &book, number, content).await }
+    });
+    let mut results: Vec<(BriefChapter, bool, bool)> =
+        tasks.buffer_unordered(SUMMARY_CONCURRENCY).collect().await;
+    results.sort_by_key(|(brief, _, _)| brief.chapter);
+    let mut out = Vec::new();
+    for (brief, fallback, cached) in results {
+        if cached {
+            summary.summary_cached += 1;
+        }
+        if fallback {
+            summary.summary_fallback += 1;
+        }
+        out.push(brief);
+    }
+    out.truncate(MAX_BRIEF_CHAPTERS);
+    out
+}
+
+/// 单章摘要：优先缓存；LLM 两次失败后走确定性事件摘要。
+async fn summarize_one(
+    pool: &DbPool,
+    llm: &LlmService,
+    book_title: &str,
+    number: usize,
+    content: String,
+) -> (BriefChapter, bool, bool) {
+    let chapter = number as i32;
+    if let Some(cached) = brief_cache_read(pool, book_title, chapter) {
+        return (cached, false, true);
+    }
+    let prompt = build_chapter_summary_prompt(book_title, number, &content);
     for attempt in 0..=1 {
         let req = if attempt == 0 {
             prompt.clone()
         } else {
             format!(
                 "上一次输出为空、被截断或无法解析。这次严格只输出一个完整、合法的 JSON \
-                 对象（不要 markdown、不要解释、不要代码围栏），字段可精简但必须闭合所有括号。\n\n{prompt}"
+                 对象（不要 markdown、不要解释文字、不要代码围栏），字段可精简但必须闭合所有括号。\n\n{prompt}"
             )
         };
-        // v0.98.3：JSON mode + 8192 tokens。真机 deepseek-v4 在 4096 下把
-        // 全部额度烧在 reasoning_content（7770 字），content 为空；JSON mode
-        // 允许适配器在 content 为空时从思维链提取最终 JSON。
-        let resp = match llm
+        match llm
             .generate_for_task_with_format(
                 TaskType::Analysis,
                 req,
-                Some(8192),
+                Some(SUMMARY_OUTPUT_TOKENS),
                 Some(0.2),
-                Some("continuation_training_assets"),
+                Some("continuation_training_chapter_summary"),
                 Some(ResponseFormat::JsonObject),
             )
             .await
         {
-            Ok(resp) => resp,
-            Err(e) => {
-                log::warn!("[ContinuationTraining] 资产重建 LLM 调用失败: {e}");
-                summary.llm_error = Some(format!("资产重建 LLM 调用失败：{e}"));
-                return summary;
+            Ok(resp) => {
+                if let Some(brief) = parse_chapter_summary(&resp.content, chapter) {
+                    let _ = brief_cache_write(pool, book_title, &brief);
+                    return (brief, false, false);
+                }
+                log::warn!(
+                    "[ContinuationTraining] 第 {} 章摘要输出无法解析（第 {} 次）: raw={}",
+                    number,
+                    attempt + 1,
+                    preview_chars(&resp.content, 180)
+                );
             }
-        };
-        last_raw = resp.content;
-        if let Some(bundle) = parse_bundle(&last_raw) {
-            let pool_c = pool.clone();
-            let sid = story_id.to_string();
-            let chs = chapters.to_vec();
-            let persisted = tokio::task::spawn_blocking(move || {
-                persist_training_bundle(&pool_c, &sid, &chs, &bundle)
-            })
-            .await;
-            match persisted {
-                Ok(result) => {
-                    summary.merge(result);
-                    return summary;
-                }
-                Err(e) => {
-                    log::warn!("[ContinuationTraining] 资产重建落库失败: {e}");
-                    summary.llm_error = Some(format!("资产重建落库失败：{e}"));
-                    return summary;
-                }
+            Err(e) => {
+                log::warn!(
+                    "[ContinuationTraining] 第 {} 章摘要 LLM 调用失败（第 {} 次）: {}",
+                    number,
+                    attempt + 1,
+                    e
+                );
             }
         }
-        log::warn!(
-            "[ContinuationTraining] 资产重建输出无法解析（第 {} 次）: raw={}",
-            attempt + 1,
-            preview_chars(&last_raw, 240)
-        );
     }
-    summary.llm_error = Some(format!(
-        "资产重建输出无法解析（已重试）；raw 前 240 字: {}",
-        preview_chars(&last_raw, 240)
-    ));
-    summary
+    let summary = deterministic_chapter_summary(number, &content);
+    (
+        BriefChapter {
+            chapter,
+            summary,
+            ..Default::default()
+        },
+        true,
+        false,
+    )
+}
+
+fn build_chapter_summary_prompt(book_title: &str, number: usize, content: &str) -> String {
+    let text = sample_chapter_text(content, SUMMARY_CHAPTER_CHARS);
+    format!(
+        r#"你是小说逐章摘要师。只依据下面这一章的真实正文，输出一个 JSON 对象；不得发明人名、地名、术语或与原文冲突的设定。不确定的字段留空或 []。
+{{
+  "chapter": {number},
+  "summary": "本章已发生的事件与结果（80-150字；只写事实，不写规划）",
+  "location": "本章主要地点",
+  "cast": ["本章在场人名"],
+  "result": "本章结束时的状态变化",
+  "open_thread": "本章留下的未决问题（没有就留空）",
+  "turning_point": "本章最大的转折（没有就留空）",
+  "key_terms": ["本章真实出现的术法/门派/器物/地名/组织名，最多6个"]
+}}
+约束：
+- 只能使用正文中实际出现的人名、地名、术语；不得把书名/空简介当情节。
+- 只写已经发生的事实与结果，不写下一拍规划、场景编号或方法论步骤。
+- key_terms 只列正文真实出现过的名词；不确定就 []。
+- 只输出 JSON，不要 markdown/解释文字/代码围栏。
+
+小说：《{book_title}》
+【第 {number} 章正文（只用于归纳，不要续写）】
+{text}"#
+    )
+}
+
+fn parse_chapter_summary(raw: &str, chapter: i32) -> Option<BriefChapter> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let value = parse_lenient::<Value>(trimmed).or_else(|| {
+        crate::utils::json::complete_truncated_json(trimmed)
+            .and_then(|fixed| serde_json::from_str::<Value>(&fixed).ok())
+    })?;
+    let mut briefs = parse_chapter_briefs(Some(&value));
+    briefs.retain(|b| b.chapter == chapter);
+    briefs.into_iter().next()
+}
+
+fn brief_chapters_value(chapters: &[BriefChapter]) -> Value {
+    Value::Array(
+        chapters
+            .iter()
+            .map(|b| {
+                serde_json::json!({
+                    "chapter": b.chapter,
+                    "summary": b.summary,
+                    "location": b.location,
+                    "cast": b.cast,
+                    "result": b.result,
+                    "open_thread": b.open_thread,
+                    "turning_point": b.turning_point,
+                    "key_terms": b.key_terms,
+                })
+            })
+            .collect(),
+    )
+}
+
+fn build_brief_aggregate_prompt(book_title: &str, summaries: &[BriefChapter]) -> String {
+    let mut lines = String::new();
+    for b in summaries.iter().take(MAX_BRIEF_CHAPTERS) {
+        lines.push_str(&format!(
+            "第{}章：{}｜地点：{}｜在场：{}｜结果：{}｜未决：{}｜转折：{}｜术语：{}\n",
+            b.chapter,
+            b.summary,
+            b.location,
+            b.cast.join("、"),
+            b.result,
+            b.open_thread,
+            b.turning_point,
+            b.key_terms.join("、")
+        ));
+    }
+    let joined = lines
+        .chars()
+        .take(AGGREGATE_PROMPT_CHARS)
+        .collect::<String>();
+    format!(
+        r#"你是小说资产聚合师。下面已有逐章事实摘要，只聚合，不新增事实；不得发明人名、地名、组织名或与原文冲突的设定。
+请输出一个 JSON 对象（不要 markdown、不要解释文字、不要代码围栏），字段按顺序：
+{{
+  "logline": "一句话故事线（<=80字）",
+  "story_outline": {{"core_conflict": "当前核心冲突", "turning_points": ["已发生的转折"], "next_node": "紧接最后一章之后、尚未写过的下一推进方向"}},
+  "open_threads": [{{"id": "t1", "description": "仍未解决的事件/目标/危险", "status": "open", "next_expected": "下一章最可能怎么推进"}}],
+  "canon_terms": [{{"term": "前文真实出现的术法/门派/器物/地名/组织名", "type": "术法/组织/地点/器物/身份", "note": "一句话含义"}}],
+  "world": {{"concept": "世界概念与冲突土壤（150-400字）", "history": "历史/势力背景（80-250字）", "rules": [{{"name": "规则名", "description": "规则说明", "importance": 8}}]}},
+  "characters": [{{"name": "前文出现的人名", "background": "来历", "personality": "性格", "goals": "目标"}}],
+  "relationships": [{{"source": "角色A", "target": "角色B", "relationship_type": "关系", "emotional_bond": "情感纽带", "description": "关系描述"}}]
+}}
+约束：
+- open_threads 3-8 条；canon_terms 8-20 条；characters 只写摘要中出现过的人名。
+- story_outline.next_node 不得与已发生事件重复；不得换主角/地点/委托。
+- 不确定的数组用 []；不要输出大段解释。
+
+小说：《{book_title}》
+逐章摘要（只用于聚合，不要续写）：
+{joined}"#
+    )
+}
+
+async fn aggregate_brief(
+    llm: &LlmService,
+    book_title: &str,
+    summaries: &[BriefChapter],
+) -> Option<RawBundle> {
+    if summaries.is_empty() {
+        return None;
+    }
+    let prompt = build_brief_aggregate_prompt(book_title, summaries);
+    for attempt in 0..=1 {
+        let req = if attempt == 0 {
+            prompt.clone()
+        } else {
+            format!(
+                "上一次输出为空、被截断或无法解析。这次严格只输出一个完整、合法的 JSON \
+                 对象（不要 markdown、不要解释文字、不要代码围栏），字段可精简但必须闭合所有括号。\n\n{prompt}"
+            )
+        };
+        match llm
+            .generate_for_task_with_format(
+                TaskType::Analysis,
+                req,
+                Some(AGGREGATE_OUTPUT_TOKENS),
+                Some(0.2),
+                Some("continuation_training_brief_aggregate"),
+                Some(ResponseFormat::JsonObject),
+            )
+            .await
+        {
+            Ok(resp) => {
+                if let Some(bundle) = parse_bundle(&resp.content) {
+                    if bundle_has_content(&bundle) {
+                        return Some(bundle);
+                    }
+                }
+                log::warn!(
+                    "[ContinuationTraining] 聚合 brief 输出无法解析（第 {} 次）: raw={}",
+                    attempt + 1,
+                    preview_chars(&resp.content, 180)
+                );
+            }
+            Err(e) => {
+                log::warn!(
+                    "[ContinuationTraining] 聚合 brief LLM 调用失败（第 {} 次）: {}",
+                    attempt + 1,
+                    e
+                );
+            }
+        }
+    }
+    None
+}
+
+fn brief_cache_read(pool: &DbPool, book_ref: &str, chapter: i32) -> Option<BriefChapter> {
+    let conn = pool.get().ok()?;
+    let raw: Option<String> = conn
+        .query_row(
+            "SELECT summary_json FROM continuation_training_chapter_briefs \
+             WHERE book_ref = ?1 AND chapter_index = ?2 AND prompt_version = ?3",
+            rusqlite::params![book_ref, chapter, BRIEF_PROMPT_VERSION],
+            |r| r.get(0),
+        )
+        .optional()
+        .ok()
+        .flatten();
+    raw.and_then(|json| serde_json::from_str::<BriefChapter>(&json).ok())
+}
+
+fn brief_cache_write(
+    pool: &DbPool,
+    book_ref: &str,
+    brief: &BriefChapter,
+) -> Result<(), rusqlite::Error> {
+    let conn = pool
+        .get()
+        .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    let json = serde_json::to_string(brief)
+        .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+    let now = Local::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO continuation_training_chapter_briefs \
+         (book_ref, chapter_index, prompt_version, summary_json, fetched_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5) \
+         ON CONFLICT(book_ref, chapter_index, prompt_version) DO UPDATE SET \
+            summary_json = excluded.summary_json, fetched_at = excluded.fetched_at",
+        rusqlite::params![book_ref, brief.chapter, BRIEF_PROMPT_VERSION, json, now],
+    )?;
+    Ok(())
 }
 
 fn preview_chars(text: &str, limit: usize) -> String {
@@ -415,6 +723,19 @@ fn parse_chapter_briefs(value: Option<&Value>) -> Vec<BriefChapter> {
     let Some(value) = value else {
         return Vec::new();
     };
+    // v0.99.2：逐章摘要 LLM 返回单个对象 `{chapter,summary,...}`；旧解析只认
+    // 数组或「章号 key → 字符串」映射，会把它当空对象丢掉。
+    if value
+        .as_object()
+        .map(|obj| {
+            obj.get("chapter").is_some()
+                || obj.get("index").is_some()
+                || obj.get("chapter_number").is_some()
+        })
+        .unwrap_or(false)
+    {
+        return parse_chapter_briefs(Some(&Value::Array(vec![value.clone()])));
+    }
     let mut out: Vec<BriefChapter> = Vec::new();
     if let Some(arr) = value.as_array() {
         for item in arr {
@@ -458,6 +779,18 @@ fn parse_chapter_briefs(value: Option<&Value>) -> Vec<BriefChapter> {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string(),
+                turning_point: item
+                    .get("turning_point")
+                    .or_else(|| item.get("twist"))
+                    .or_else(|| item.get("key_event"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                key_terms: item
+                    .get("key_terms")
+                    .or_else(|| item.get("terms"))
+                    .and_then(string_list)
+                    .unwrap_or_default(),
             }) {
                 out.push(b);
             }
@@ -496,7 +829,10 @@ fn normalize_brief_chapter(mut b: BriefChapter) -> Option<BriefChapter> {
     b.location = b.location.trim().to_string();
     b.result = b.result.trim().to_string();
     b.open_thread = b.open_thread.trim().to_string();
+    b.turning_point = b.turning_point.trim().to_string();
     b.cast.retain(|n| !n.trim().is_empty());
+    b.key_terms
+        .retain(|n| !n.trim().is_empty() && n.trim().chars().count() >= 2);
     Some(b)
 }
 
@@ -760,22 +1096,104 @@ fn parse_scene_outline_summary(value: Option<&Value>) -> Vec<(i32, String)> {
 /// 下一节点编译至少能看到「这一章发生过什么」。不冒充 LLM 摘要，报告里
 /// 通过 warning 标明是兜底。
 pub(crate) fn deterministic_chapter_summaries(chapters: &[(usize, String)]) -> Vec<(i32, String)> {
-    const WINDOW: usize = 70;
-    let mut out = Vec::with_capacity(chapters.len());
-    for (number, content) in chapters {
-        let plain = strip_editor_markup(content);
-        let chars: Vec<char> = plain.chars().filter(|c| !c.is_whitespace()).collect();
-        if chars.is_empty() {
-            continue;
+    chapters
+        .iter()
+        .map(|(number, content)| {
+            (
+                *number as i32,
+                deterministic_chapter_summary(*number, content),
+            )
+        })
+        .filter(|(_, summary)| !summary.trim().is_empty())
+        .collect()
+}
+
+/// v0.99.2：确定性逐章摘要——不再只取首尾 70 字。切句后按「冲突/转折动词、
+/// 引号对白、专名/地名/器物」打分，保留开头 1 句 + 中段得分最高 3 句 + 结尾
+/// 1 句；这样第 142 章 81% 处的「邵卫江/福摩萨夜总会」能进入 brief。
+pub(crate) fn deterministic_chapter_summary(_number: usize, content: &str) -> String {
+    const SUMMARY_CAP: usize = 260;
+    const CONFLICT_MARKERS: [&str; 24] = [
+        "对峙", "逼", "拒绝", "发现", "答应", "交换", "动手", "逃", "追", "审", "藏", "夺", "算计",
+        "杀", "换", "进", "退", "拦住", "按住", "抓住", "约", "见面", "合作", "警告",
+    ];
+    let plain = strip_editor_markup(content);
+    let chars: Vec<char> = plain.chars().collect();
+    if chars.len() <= 400 {
+        return plain.trim().chars().take(SUMMARY_CAP).collect::<String>();
+    }
+    let sentences = split_sentences(&plain);
+    if sentences.is_empty() {
+        let head: String = plain.trim().chars().take(120).collect();
+        let tail_start = chars.len().saturating_sub(120);
+        let tail: String = chars[tail_start..].iter().collect();
+        return format!("{head}…{tail}")
+            .trim()
+            .chars()
+            .take(SUMMARY_CAP)
+            .collect::<String>();
+    }
+    let score = |s: &str| -> i32 {
+        let mut score = 0i32;
+        if CONFLICT_MARKERS.iter().any(|m| s.contains(m)) {
+            score += 4;
         }
-        let summary = if chars.len() <= WINDOW * 2 {
-            chars.iter().collect::<String>()
+        if s.contains('“') || s.contains('「') || s.contains('『') {
+            score += 3;
+        }
+        if s.contains("第") || s.chars().any(|c| c.is_ascii_digit()) {
+            score += 1;
+        }
+        let len = s.chars().count();
+        if (15..=90).contains(&len) {
+            score += 1;
+        }
+        score
+    };
+    let mut middle: Vec<(usize, i32)> = sentences
+        .iter()
+        .enumerate()
+        .skip(1)
+        .take(sentences.len().saturating_sub(2))
+        .map(|(i, s)| (i, score(s)))
+        .filter(|(_, s)| *s > 1)
+        .collect();
+    middle.sort_by_key(|(_, s)| std::cmp::Reverse(*s));
+    let mut picked: Vec<usize> = middle.iter().take(3).map(|(i, _)| *i).collect();
+    picked.sort_unstable();
+    if picked.is_empty() {
+        picked.push(sentences.len() / 2);
+    }
+    let mut summary = String::new();
+    summary.push_str(sentences.first().unwrap().trim());
+    for i in picked {
+        summary.push('…');
+        summary.push_str(sentences[i].trim());
+    }
+    if sentences.len() > 1 {
+        summary.push('…');
+        summary.push_str(sentences.last().unwrap().trim());
+    }
+    summary.chars().take(SUMMARY_CAP).collect()
+}
+
+fn split_sentences(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    for c in text.chars() {
+        if matches!(c, '。' | '！' | '？' | '；' | '\n' | '\r') {
+            let trimmed = current.trim();
+            if trimmed.chars().count() >= 6 {
+                out.push(trimmed.to_string());
+            }
+            current.clear();
         } else {
-            let head: String = chars.iter().take(WINDOW).collect();
-            let tail: String = chars.iter().skip(chars.len() - WINDOW).collect();
-            format!("开头：{head}…结尾：{tail}")
-        };
-        out.push((*number as i32, summary));
+            current.push(c);
+        }
+    }
+    let trimmed = current.trim();
+    if trimmed.chars().count() >= 6 {
+        out.push(trimmed.to_string());
     }
     out
 }
@@ -1066,6 +1484,23 @@ pub(crate) fn persist_training_bundle(
 
     let mut terms = parse_terms(bundle.canon_terms.as_ref());
     terms.retain(|t| !t.term.trim().is_empty() && prose.contains(t.term.trim()));
+    // v0.99.2：逐章摘要的 key_terms 是资产失败时最后的 grounded 白名单来源。
+    for b in &brief_chapters {
+        for term in &b.key_terms {
+            let term = term.trim();
+            if term.chars().count() < 2
+                || !prose.contains(term)
+                || terms.iter().any(|t| t.term == term)
+            {
+                continue;
+            }
+            terms.push(BriefTerm {
+                term: term.to_string(),
+                kind: "设定".to_string(),
+                note: format!("第{}章正文出现", b.chapter),
+            });
+        }
+    }
     if terms.is_empty() {
         // 兜底：角色名 + 世界观规则名（都必须是前文出现过的词）
         for name in &roster {
@@ -1093,11 +1528,11 @@ pub(crate) fn persist_training_bundle(
     terms.dedup_by(|a, b| a.term == b.term);
     terms.truncate(24);
 
-    let cast_states = {
+    let mut states: Vec<BriefCastState> = {
         let chars = CharacterRepository::new(pool.clone())
             .get_by_story(story_id)
             .unwrap_or_default();
-        let mut states: Vec<BriefCastState> = chars
+        chars
             .into_iter()
             .filter(|c| c.source.as_deref() == Some("training_assets"))
             .take(12)
@@ -1108,10 +1543,34 @@ pub(crate) fn persist_training_bundle(
                 goal: c.goals.unwrap_or_default(),
                 knows: Vec::new(),
             })
-            .collect();
-        states.sort_by(|a, b| a.name.cmp(&b.name));
-        states
+            .collect()
     };
+    if states.is_empty() {
+        // v0.99.2：资产重建 0 角色时，用逐章摘要的 cast 做 grounded
+        // 人物态兜底。
+        let mut seen = HashSet::new();
+        for b in &brief_chapters {
+            for name in &b.cast {
+                let name = name.trim();
+                if name.chars().count() < 2
+                    || !prose.contains(name)
+                    || !seen.insert(name.to_string())
+                {
+                    continue;
+                }
+                states.push(BriefCastState {
+                    name: name.to_string(),
+                    role: "前文已登场".to_string(),
+                    location: String::new(),
+                    goal: String::new(),
+                    knows: Vec::new(),
+                });
+            }
+        }
+    }
+    states.sort_by(|a, b| a.name.cmp(&b.name));
+    states.truncate(12);
+    let cast_states = states;
 
     let arc_hint = bundle
         .logline
@@ -1751,5 +2210,109 @@ mod tests {
         assert!(outline.content.contains("【已发生主线】"));
         assert!(!outline.content.contains("下一拍规划"));
         assert!(!outline.content.contains("### 场景一"));
+    }
+
+    #[test]
+    fn deterministic_summary_keeps_mid_chapter_key_setup() {
+        let mut content = String::from("第142章 燕归来。杨晓雯又没做晚课，我怀疑人面斑后遗症。");
+        for i in 0..16 {
+            content.push_str(&format!(
+                "第{i}段：院里的风把纸角吹得响，我站着看了一会儿。"
+            ));
+        }
+        content.push_str(
+            "赵开来却说：「你去一趟福摩萨夜总会，有个叫邵卫江的，一打听就知道，你去见见他。」",
+        );
+        content.push_str("挂了电话，我看着灯火通明的小院，思忖了一会儿才走进去。");
+        let summary = deterministic_chapter_summary(142, &content);
+        assert!(
+            summary.contains("邵卫江") || summary.contains("福摩萨夜总会"),
+            "中段关键铺垫必须进入确定性摘要: {summary}"
+        );
+    }
+
+    #[test]
+    fn chapter_brief_cache_roundtrip() {
+        let pool = create_test_pool().unwrap();
+        let brief = BriefChapter {
+            chapter: 142,
+            summary: "赵开来赠送福摩萨夜总会道场线索。".into(),
+            location: "金城饭馆".into(),
+            cast: vec!["周先生".into(), "赵开来".into()],
+            result: "主角决定去福摩萨夜总会见邵卫江".into(),
+            open_thread: "邵卫江身份未明".into(),
+            turning_point: "赵开来提出道场交换".into(),
+            key_terms: vec!["福摩萨夜总会".into(), "邵卫江".into()],
+        };
+        brief_cache_write(&pool, "阴脉先生", &brief).unwrap();
+        let read = brief_cache_read(&pool, "阴脉先生", 142).unwrap();
+        assert_eq!(read.summary, brief.summary);
+        assert_eq!(read.key_terms, brief.key_terms);
+        assert_eq!(read.turning_point, brief.turning_point);
+        assert!(brief_cache_read(&pool, "阴脉先生", 999).is_none());
+    }
+
+    #[test]
+    fn chapter_summary_prompt_is_single_chapter_and_has_key_terms() {
+        let prompt =
+            build_chapter_summary_prompt("阴脉先生", 142, "正文第一段。正文第二段。正文第三段。");
+        assert!(prompt.contains("第 142 章"));
+        assert!(prompt.contains("key_terms"));
+        assert!(prompt.contains("turning_point"));
+        assert!(prompt.contains("正文第一段"));
+        assert!(!prompt.contains("第 143 章"));
+    }
+
+    #[test]
+    fn aggregate_prompt_only_uses_structured_summaries() {
+        let summaries = vec![
+            BriefChapter {
+                chapter: 142,
+                summary: "赵开来赠送福摩萨夜总会道场线索。".into(),
+                ..Default::default()
+            },
+            BriefChapter {
+                chapter: 143,
+                summary: "主角在医院截住小护士。".into(),
+                ..Default::default()
+            },
+        ];
+        let prompt = build_brief_aggregate_prompt("阴脉先生", &summaries);
+        assert!(prompt.contains("第142章"));
+        assert!(prompt.contains("福摩萨夜总会"));
+        assert!(prompt.contains("open_threads"));
+        assert!(prompt.contains("canon_terms"));
+        assert!(!prompt.contains("正文第一段"));
+    }
+
+    #[test]
+    fn brief_chapters_value_roundtrips_v0992_fields() {
+        let brief = BriefChapter {
+            chapter: 142,
+            summary: "赵开来提出道场交换。".into(),
+            cast: vec!["周先生".into()],
+            result: "主角要去福摩萨夜总会".into(),
+            open_thread: "邵卫江身份未明".into(),
+            turning_point: "道场交换".into(),
+            key_terms: vec!["福摩萨夜总会".into()],
+            ..Default::default()
+        };
+        let value = brief_chapters_value(&[brief.clone()]);
+        let parsed = parse_chapter_briefs(Some(&value));
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].key_terms, brief.key_terms);
+        assert_eq!(parsed[0].turning_point, brief.turning_point);
+    }
+
+    #[test]
+    fn parse_single_chapter_summary_object() {
+        let raw = r#"{"chapter":142,"summary":"赵开来赠送福摩萨夜总会线索。","location":"金城饭馆","cast":["周先生","赵开来"],"result":"主角决定去夜总会","open_thread":"邵卫江身份未明","turning_point":"道场交换","key_terms":["福摩萨夜总会","邵卫江"]}"#;
+        let value: Value = serde_json::from_str(raw).unwrap();
+        let parsed = parse_chapter_briefs(Some(&value));
+        assert_eq!(parsed.len(), 1, "单个摘要对象必须解析");
+        assert_eq!(parsed[0].chapter, 142);
+        assert_eq!(parsed[0].summary, "赵开来赠送福摩萨夜总会线索。");
+        assert_eq!(parsed[0].key_terms.len(), 2);
+        assert_eq!(parsed[0].turning_point, "道场交换");
     }
 }

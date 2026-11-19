@@ -2,6 +2,21 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.2（2026-11-19）
+
+**续写训练资产分阶段 + 网关 GPU 容量路由 + 进度/评分口径收口。**
+
+- 现象：v0.99.1 真机实跑报告 `321a0a75` 总分 **0.63**、承接 **7.2**（3.1→7.2），说明长程记忆方向有效；但资产重建仍失败：单次 26k prompt + 8192 max_tokens，deepseek-v4 三次 CoT-only（completion 23,877/23,921/23,914，content 空）、Qwren127 GPU OOM（16,781 tokens 需 9,439MB，仅 3,387MB）、Ds10 无内容。brief 只剩 2042 字首尾摘要/1 线索/0 白名单/0 cast；生成 11–20 章「邵卫江/福摩萨/夜总会」0 次。
+- **资产分阶段**：新增 `summarize_chapters`（逐章小 prompt：单章采样 2.6k、JSON mode、1200 tokens、并发 3、可缓存）→ `aggregate_brief`（只喂结构化摘要，≤12k chars、8192 tokens）；聚合失败用确定性拼装；逐章摘要/`key_terms`/cast 兜底写 brief。V163 `continuation_training_chapter_briefs` 缓存。
+- **推理 JSON 硬化**：JSON mode 从 reasoning 提取完整 JSON → 补全截断 JSON（取最长合法对象）→ 含 `{` 的 reasoning 交调用方 salvage；空 content 的 HTTP 200 不再记 success（llm_calls 成功率真实）。
+- **网关容量路由**：从 GPU OOM 解析 `Prompt(N tokens) requires ~XMB ... only ~YMB`，学到 `prompt_limit_tokens≈N*Y/X`；`resolve_role_model`/候选打分/候选循环按 prompt 大小跳过本地小模型；避免 147 次 writer 中 55 次 Qwren 空转。
+- **确定性摘要升级**：不再只取首尾 70 字；首句 + 中段冲突/引号/专名句 + 尾句，第 142 章 81% 处的「邵卫江/福摩萨夜总会」可进入 brief；progress 复用同一摘要；`key_terms`/cast 进 brief 兜底。
+- **进度闭环**：`run_continue_batch` 增加 per-chapter progress sink；训练任务每章写 progress/log/heartbeat（40→72），不再 40% 停 45 分钟。
+- **评分口径分离**：`continuity` 只相对上一沙盒章；新增 `reference_gap` 表示与原书后续差距（诊断），报告分列「承接（沙盒）」与「原书差距」，不再把 truth 差异误判为承接断裂。
+- **反馈模式**：训练 payload 支持 `feedback_mode=blind`，过滤上一轮「真实后续节点」；报告标注 truth_hints/blind。
+- **测试**：Rust **2215 passed / 17 ignored**（+12）；tsc 0；Vitest **725 passed / 3 skipped**；Playwright **144 passed / 5 skipped**（全量复跑）；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：安装 v0.99.2 后真机重跑 10 章训练，确认资产两阶段成功/缓存命中、brief 含中段铺垫、Qwren 不再大 prompt OOM、任务进度逐章推进、承接（沙盒）与 reference_gap 分列；blind A/B 待验证。
+
 ## v0.99.1（2026-11-19）
 
 **续写训练长程记忆：前情提要 + 本批账本 + 设定白名单，writer/planner/编审全量注入。**

@@ -2781,12 +2781,25 @@ async fn test_batch_parallel_two_chapters() {
         r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好1\"}"}"#,
         r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好2\"}"}"#,
     ]);
-    let coordinator = AgencyCoordinator::for_test(pool.clone(), mock.clone());
+    let progress_events: Arc<Mutex<Vec<(i32, usize, usize, usize)>>> =
+        Arc::new(Mutex::new(Vec::new()));
+    let events_c = progress_events.clone();
+    let sink: Arc<dyn Fn(i32, usize, usize, usize) + Send + Sync> =
+        Arc::new(move |chapter, done, total, chars| {
+            events_c.lock().unwrap().push((chapter, done, total, chars));
+        });
+    let coordinator =
+        AgencyCoordinator::for_test(pool.clone(), mock.clone()).with_batch_progress(sink);
     let result = coordinator
         .run_continue_batch("rb-1", &story_id, 1, 2)
         .await
         .unwrap();
     assert_eq!(result.chapters.len(), 2);
+    let recorded = progress_events.lock().unwrap().clone();
+    assert_eq!(recorded.len(), 2, "两章都应回调进度");
+    assert_eq!(recorded[0].1, 1, "第一章 done=1");
+    assert_eq!(recorded[1].1, 2, "第二章 done=2");
+    assert!(recorded.iter().all(|(_, _, total, _)| *total == 2));
     // 两章场景均落库
     let scenes = crate::db::repositories::SceneRepository::new(pool.clone())
         .get_by_story(&story_id)

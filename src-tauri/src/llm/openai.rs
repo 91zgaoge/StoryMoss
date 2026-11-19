@@ -155,6 +155,26 @@ fn resolve_content_with_options(
                         );
                         return json;
                     }
+                    // v0.99.2：推理模型常在 JSON 中途撞 max_tokens；从
+                    // reasoning 中找可补全的最长合法
+                    // JSON（嵌套 `{` 可能是内层对象，不能只取最后一个）。
+                    if let Some(fixed) = complete_json_from_reasoning(rc) {
+                        log::info!(
+                            "[OpenAI] JSON mode 已补全 reasoning_content 中的截断 JSON（{} 字符）",
+                            fixed.chars().count()
+                        );
+                        return fixed;
+                    }
+                    // 仍没有完整 JSON：仅当 reasoning 含 JSON 片段时交给
+                    // JSON-mode 调用方 salvage；纯 CoT
+                    // 散文仍保持空 content（v0.30.45）。
+                    if rc.contains('{') {
+                        log::warn!(
+                            "[OpenAI] JSON mode content 为空，未找到完整 JSON；返回 reasoning 供调用方 salvage（{} 字符）",
+                            rc.chars().count()
+                        );
+                        return rc.trim().to_string();
+                    }
                 }
                 log::warn!(
                     "[OpenAI] content 为空但 reasoning_content 有 {} 字符（思维链/CoT）。\
@@ -166,6 +186,38 @@ fn resolve_content_with_options(
         }
     }
     content.to_string()
+}
+
+fn complete_json_from_reasoning(reasoning: &str) -> Option<String> {
+    // 取最后 12 个 `{` 候选；嵌套对象可能也是合法 JSON，因此取补全后
+    // 字符最长的有效对象（外层对象包含更多字段）。
+    let positions: Vec<usize> = reasoning
+        .match_indices('{')
+        .map(|(idx, _)| idx)
+        .rev()
+        .take(12)
+        .collect();
+    let mut best: Option<String> = None;
+    for idx in positions {
+        let fragment = reasoning[idx..].trim();
+        if fragment.chars().count() < 2 {
+            continue;
+        }
+        let Some(fixed) = crate::utils::json::complete_truncated_json(fragment) else {
+            continue;
+        };
+        if serde_json::from_str::<serde_json::Value>(&fixed).is_err() {
+            continue;
+        }
+        if best
+            .as_ref()
+            .map(|prev| fixed.chars().count() > prev.chars().count())
+            .unwrap_or(true)
+        {
+            best = Some(fixed);
+        }
+    }
+    best
 }
 
 /// 已解析的 chat completion（`resolve_content` 与 tool_calls 提取均已应用）。
@@ -615,6 +667,16 @@ mod tests {
         // CoT 里没有 JSON → 仍为空，不得把散文当答案。
         let prose = Some("这是一段纯思维链，没有 JSON".to_string());
         assert_eq!(resolve_content_with_options("", &prose, true), "");
+    }
+
+    #[test]
+    fn resolve_content_json_mode_completes_truncated_json_from_reasoning() {
+        let rc =
+            Some("先梳理字段，最终输出 {\"verdict\":\"pass\",\"scores\":{\"style\":8".to_string());
+        let out = resolve_content_with_options("", &rc, true);
+        let value: serde_json::Value = serde_json::from_str(&out).expect("补全后应可解析");
+        assert_eq!(value["verdict"], "pass");
+        assert_eq!(value["scores"]["style"], 8);
     }
 
     #[test]
