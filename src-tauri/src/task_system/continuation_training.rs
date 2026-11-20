@@ -678,7 +678,10 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         // 提取幻觉角色写回沙盒。
         .with_assets_seeded(true)
         .with_batch_progress(progress_sink)
-        .with_compact_prompt(compact_prompt);
+        .with_compact_prompt(compact_prompt)
+        // v0.99.7：训练批量质检直连 JSON，绕开本地模型永不遵从的
+        // ReAct action 格式（真机 v0.99.6 9/10 章质检降级）。
+        .with_direct_gate_json(true);
         let cancel = Arc::new(AtomicBool::new(false));
         // 取消传播：任务被取消时同步中断续写管线（统一取消监听器，500ms）。
         // 监听句柄 Drop 随 execute 结束自动停止轮询，不再泄漏协程。
@@ -1233,11 +1236,17 @@ impl ContinuationTrainingExecutor {
 
     /// 编审对比用采样上限（6k/章，控制 10 对对比的提示词体积）。
     fn cap_review(text: &str) -> String {
-        if text.chars().count() <= REVIEW_CHAPTER_CHARS {
+        Self::cap_review_with_limit(text, REVIEW_CHAPTER_CHARS)
+    }
+
+    /// v0.99.7：编审第三次尝试用更短采样，避免推理模型在 7k+ prompt 上
+    /// 只产 CoT、content 为空。
+    fn cap_review_with_limit(text: &str, limit: usize) -> String {
+        if text.chars().count() <= limit {
             text.to_string()
         } else {
-            let cut: String = text.chars().take(REVIEW_CHAPTER_CHARS).collect();
-            format!("{cut}\n\n[编审采样截断到 {REVIEW_CHAPTER_CHARS} 字符]")
+            let cut: String = text.chars().take(limit).collect();
+            format!("{cut}\n\n[编审采样截断到 {limit} 字符]")
         }
     }
 
@@ -1771,16 +1780,28 @@ impl ContinuationTrainingExecutor {
                 prose_available: false,
             };
         }
-        let truth_cap =
-            Self::cap_review(&crate::export::content::content_to_plain_text(truth_text));
+        let truth_plain = crate::export::content::content_to_plain_text(truth_text);
+        let truth_cap = Self::cap_review(&truth_plain);
         let gen_cap = Self::cap_review(generated_text);
         let mut judge: Option<JudgeReport> = None;
         let mut last_raw = String::new();
-        for attempt in 0..=1 {
+        // v0.99.7：第三次改用更短采样 + 换任务类型（CreativeWriting 路由到
+        // 非审计模型）。真机 v0.99.6 deepseek-v4 在 ~7.6k prompt 上连续
+        // CoT-only（completion 8-9k、content 空），第三次必须降 prompt
+        // 并换路由。
+        for attempt in 0..=2 {
+            let (truth_arg, gen_arg) = if attempt == 2 {
+                (
+                    Self::cap_review_with_limit(&truth_plain, 2_500),
+                    Self::cap_review_with_limit(generated_text, 2_500),
+                )
+            } else {
+                (truth_cap.clone(), gen_cap.clone())
+            };
             let prompt = Self::review_prompt(
                 book_title,
-                &truth_cap,
-                &gen_cap,
+                &truth_arg,
+                &gen_arg,
                 truth_chapter,
                 generated_chapter,
                 prior_chapter,
@@ -1791,11 +1812,16 @@ impl ContinuationTrainingExecutor {
             // comments/improvement 中途截断（真机 3/10 章「编审输出无法
             // 解析」）；JSON mode 也让推理模型在 content 为空时从思维链
             // 提取完整裁决。
+            let (task, max_tokens) = if attempt == 2 {
+                (crate::router::TaskType::CreativeWriting, 4_096)
+            } else {
+                (crate::router::TaskType::Proofreading, 3_200)
+            };
             let (_, result) = llm
                 .generate_for_task_with_system_prompt_and_format(
-                    crate::router::TaskType::Proofreading,
+                    task,
                     prompt,
-                    Some(3200),
+                    Some(max_tokens),
                     Some(0.2),
                     Some("continuation_training_chapter_review"),
                     Some(system.to_string()),

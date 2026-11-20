@@ -508,6 +508,120 @@ async fn test_editor_verdict_prose_fallback() {
     }
 }
 
+/// v0.99.7：批量质检直连 JSON 快路径——不经过 tool_loop，单次
+/// complete_json 即可产出裁决。
+#[tokio::test]
+async fn test_editor_direct_json_verdict_without_tool_loop() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "直连裁决书".into(),
+            description: None,
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    let board = crate::agency::board::BlackboardService::new(pool.clone());
+    let draft = board
+        .write(
+            "rv-direct",
+            &story.id,
+            AgentRole::LeadWriter,
+            BoardZone::Draft,
+            "chapter",
+            "第一章",
+            &pass_grade_content("第一章正文：风沙中的拾荒者。"),
+            "首章草稿",
+        )
+        .unwrap();
+    let llm: Arc<dyn LoopLlm> = MockLlm::scripted(vec![
+        r#"{"verdict":"pass","score":4.5,"blocking_issues":[],"suggestions":[],"comments":"合格的首章","dimension_scores":{"style":8,"plot":7,"voice":8,"pacing":7,"hooks":8}}"#,
+    ]);
+    let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+    let verdict = super::coordinator::editor_verdict_direct_json(
+        &llm, &budget, &pool, &draft, "续写", "", None,
+    )
+    .await
+    .expect("直连 JSON 应返回裁决");
+    assert_eq!(verdict.verdict, "pass");
+    assert_eq!(verdict.score, Some(4.5));
+    assert!(verdict.dimension_scores.is_some());
+}
+
+/// v0.99.7：编辑审计完全失败（GateOutcome::Failed）也必须落
+/// editor_gate_records；旧实现提前 return，真机 10 章训练只有 1 行门禁记录。
+#[tokio::test]
+async fn test_failed_gate_persists_editor_gate_record() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "失败门禁书".into(),
+            description: None,
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    let repo = AgencyRepository::new(pool.clone());
+    repo.create_run(&AgencyRun::new("rg-failed", "续写"))
+        .unwrap();
+    let board = crate::agency::board::BlackboardService::new(pool.clone());
+    let draft = board
+        .write(
+            "rg-failed",
+            &story.id,
+            AgentRole::LeadWriter,
+            BoardZone::Draft,
+            "chapter",
+            "第1章",
+            &pass_grade_content("第一章正文：风沙中的拾荒者。"),
+            "首章草稿",
+        )
+        .unwrap();
+    // tool_loop 三次散文熔断 -> 散文回退拿到空串 -> Failed。
+    let llm: Arc<dyn LoopLlm> = MockLlm::scripted(vec![
+        "这不是JSON工具动作。",
+        "依然不是JSON action。",
+        "第三次散文，触发熔断。",
+        "",
+    ]);
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+    let registry = Arc::new(ToolRegistry::agency_default());
+    let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+    let outcome = coordinator
+        .evaluate_gate(
+            &budget,
+            &board,
+            &registry,
+            "rg-failed",
+            &story.id,
+            "续写",
+            &draft,
+            1,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(matches!(outcome, GateOutcome::Failed { .. }));
+    let conn = pool.get().unwrap();
+    let (kind, verdict): (String, Option<String>) = conn
+        .query_row(
+            "SELECT outcome, verdict FROM editor_gate_records \
+             WHERE run_id = 'rg-failed' AND chapter_number = 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .expect("失败门禁必须落 editor_gate_records");
+    assert_eq!(kind, "failed");
+    assert!(verdict.is_none());
+}
+
 /// Fix A：本地模型对 depth assets 返回散文而非 JSON 时，快速路径应兜底
 /// salvage 散文为 world 资产，而非失败回退 legacy（legacy writer tool_loop
 /// 要求 JSON action，对散文模型几乎必然熔断）。单模型序：concept ->

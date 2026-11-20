@@ -1139,7 +1139,9 @@ pub(crate) fn deterministic_chapter_summary(_number: usize, content: &str) -> St
         "对峙", "逼", "拒绝", "发现", "答应", "交换", "动手", "逃", "追", "审", "藏", "夺", "算计",
         "杀", "换", "进", "退", "拦住", "按住", "抓住", "约", "见面", "合作", "警告",
     ];
-    let plain = strip_editor_markup(content);
+    // v0.99.7：缓存原文首行常是「第136章 标题」，兜底摘要不能把它当事实。
+    let plain =
+        crate::utils::text::TextUtils::strip_leading_chapter_heading(&strip_editor_markup(content));
     let chars: Vec<char> = plain.chars().collect();
     if chars.len() <= 400 {
         return plain.trim().chars().take(SUMMARY_CAP).collect::<String>();
@@ -1233,6 +1235,8 @@ pub(crate) fn persist_training_bundle(
         .map(|(_, c)| c.as_str())
         .collect::<Vec<_>>()
         .join("\n");
+    // v0.99.7：逐章事实提前构建——世界观/角色的确定性兜底都要用它。
+    let brief_chapters = build_brief_chapters(chapters, bundle);
 
     // 1) 故事线 logline
     if let Some(logline) = bundle
@@ -1251,8 +1255,16 @@ pub(crate) fn persist_training_bundle(
         }
     }
 
-    // 2) 世界观
-    if let Some(world) = parse_world(bundle.world.as_ref()) {
+    // 2) 世界观（模型缺 world 时用逐章事实做确定性兜底，至少给 writer 一个
+    // 可核对的场景/主线概念；规则表保持为空，不伪造术法体系）
+    let world_parts = parse_world(bundle.world.as_ref())
+        .or_else(|| deterministic_world_from_brief(&brief_chapters));
+    if world_parts.is_some() && bundle.world.as_ref().map(|v| v.is_null()).unwrap_or(true) {
+        summary
+            .warnings
+            .push("世界观模型未返回，已用逐章事实确定性兜底".to_string());
+    }
+    if let Some(world) = world_parts {
         let repo = WorldBuildingRepository::new(pool.clone());
         match repo.get_by_story(story_id) {
             Ok(Some(existing)) => {
@@ -1297,6 +1309,10 @@ pub(crate) fn persist_training_bundle(
             },
             Err(e) => summary.warnings.push(format!("读取世界观失败：{e}")),
         }
+    } else {
+        summary
+            .warnings
+            .push("模型未返回世界观，确定性兜底也不可用".to_string());
     }
 
     // 3) 故事大纲
@@ -1325,7 +1341,19 @@ pub(crate) fn persist_training_bundle(
         .into_iter()
         .map(|c| c.name)
         .collect();
-    for raw in parse_characters(bundle.characters.as_ref()) {
+    let mut raw_characters = parse_characters(bundle.characters.as_ref());
+    if raw_characters.is_empty() {
+        // v0.99.7：聚合模型漏 characters（真机 v0.99.6 角色 0/关系 0），
+        // 用逐章摘要的 cast 确定性兜底——名字必须在前文出现，绝不发明。
+        raw_characters = deterministic_characters_from_cast(&brief_chapters, &prose);
+        if !raw_characters.is_empty() {
+            summary.warnings.push(format!(
+                "角色模型未返回，已用逐章 cast 确定性兜底 {} 人",
+                raw_characters.len()
+            ));
+        }
+    }
+    for raw in raw_characters {
         let name = raw.name.trim();
         if name.is_empty() || roster.iter().any(|n| n == name) {
             continue;
@@ -1413,7 +1441,6 @@ pub(crate) fn persist_training_bundle(
     // 末章结尾打转）。缺的章用原文首尾窗口确定性兜底，不冒充 LLM 摘要。
     // v0.99.1：同一份逐章事实同时进入《前情提要》，writer/planner 全量可见。
     let llm_outline_count = parse_chapter_briefs(bundle.chapter_outlines.as_ref()).len();
-    let brief_chapters = build_brief_chapters(chapters, bundle);
     if llm_outline_count == 0 {
         summary
             .warnings
@@ -1654,6 +1681,73 @@ fn build_brief_chapters(chapters: &[(usize, String)], bundle: &RawBundle) -> Vec
         }
     }
     out.sort_by_key(|b| b.chapter);
+    out
+}
+
+/// v0.99.7：世界观确定性兜底。聚合模型漏 world 时，用逐章事实里的地点/
+/// 主线摘要给出可核对的概念与历史；规则表保持为空（不伪造术法体系）。
+fn deterministic_world_from_brief(chapters: &[BriefChapter]) -> Option<WorldParts> {
+    let first = chapters.iter().find(|b| !b.summary.trim().is_empty())?;
+    let mut locations: Vec<String> = Vec::new();
+    for b in chapters {
+        let loc = b.location.trim();
+        if !loc.is_empty() && !locations.iter().any(|l| l == loc) {
+            locations.push(loc.to_string());
+        }
+        if locations.len() >= 6 {
+            break;
+        }
+    }
+    let brief = first.summary.trim();
+    let mut concept = if locations.is_empty() {
+        brief.chars().take(260).collect::<String>()
+    } else {
+        format!(
+            "前文主要场景：{}。主线：{}",
+            locations.join("、"),
+            brief.chars().take(200).collect::<String>()
+        )
+    };
+    concept = concept.chars().take(400).collect();
+    let last = chapters
+        .iter()
+        .rev()
+        .find(|b| !b.summary.trim().is_empty())
+        .unwrap_or(first);
+    let history = Some(format!(
+        "{} 章事实：{} … {}",
+        chapters.len(),
+        brief.chars().take(110).collect::<String>(),
+        last.summary.trim().chars().take(110).collect::<String>()
+    ));
+    Some(WorldParts {
+        concept,
+        history,
+        rules: Vec::new(),
+        cultures: Vec::new(),
+    })
+}
+
+/// v0.99.7：角色确定性兜底。只登记逐章摘要 cast 里且正文出现过的人名。
+fn deterministic_characters_from_cast(chapters: &[BriefChapter], prose: &str) -> Vec<RawCharacter> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for b in chapters {
+        for name in &b.cast {
+            let name = name.trim();
+            if name.chars().count() < 2 || !prose.contains(name) || !seen.insert(name.to_string()) {
+                continue;
+            }
+            out.push(RawCharacter {
+                name: name.to_string(),
+                background: Some("前文已登场（逐章摘要确定性兜底）".to_string()),
+                ..Default::default()
+            });
+            if out.len() >= MAX_CHARACTERS {
+                return out;
+            }
+        }
+    }
     out
 }
 
@@ -2356,5 +2450,51 @@ mod tests {
         assert_eq!(parsed[0].summary, "赵开来赠送福摩萨夜总会线索。");
         assert_eq!(parsed[0].key_terms.len(), 2);
         assert_eq!(parsed[0].turning_point, "道场交换");
+    }
+
+    #[test]
+    fn deterministic_summary_strips_chapter_heading() {
+        let content = "第136章 太没有礼貌了\n\n　　本地精怪不经夸。昨天还说它懂礼貌，今天就杀上门来了。我披衣下床走到窗台，伸手探香炉，摸到一块圆硬的疙瘩。";
+        let summary = deterministic_chapter_summary(136, content);
+        assert!(
+            !summary.contains("第136章"),
+            "兜底摘要不得把章名标题当事实: {summary}"
+        );
+        assert!(summary.contains("本地精怪"), "正文事实必须保留: {summary}");
+    }
+
+    #[test]
+    fn deterministic_world_falls_back_to_chapter_facts() {
+        let chapters = vec![
+            BriefChapter {
+                chapter: 134,
+                summary: "赵开来与周成在饭馆喝酒，透露有人借定煞阵驱使女鬼。".into(),
+                location: "金城饭馆".into(),
+                ..Default::default()
+            },
+            BriefChapter {
+                chapter: 135,
+                summary: "周成在路边救下大波浪卷女人，回小院遇见妙姐。".into(),
+                location: "路边、小院".into(),
+                ..Default::default()
+            },
+        ];
+        let world = deterministic_world_from_brief(&chapters).expect("兜底世界观应存在");
+        assert!(world.concept.contains("金城饭馆"));
+        assert!(world.concept.contains("定煞阵"));
+        assert!(world.rules.is_empty(), "不得伪造规则表");
+    }
+
+    #[test]
+    fn deterministic_characters_only_include_grounded_cast() {
+        let chapters = vec![BriefChapter {
+            chapter: 135,
+            cast: vec!["张宝山".into(), "我".into(), "不存在的人".into()],
+            ..Default::default()
+        }];
+        let prose = "张宝山在电话那头嘬了口烟。";
+        let chars = deterministic_characters_from_cast(&chapters, prose);
+        assert_eq!(chars.len(), 1);
+        assert_eq!(chars[0].name, "张宝山");
     }
 }

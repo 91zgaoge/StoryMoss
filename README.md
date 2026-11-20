@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.6-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.7-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.7 · 续写训练真机复盘修复（编辑审计/门禁记录/deadline/资产）
+
+- **问题**：v0.99.6 真机 10 章训练总分 0.683（承接 8.89、情节 7.0），但 9/10 章质检降级、10 章只有 1 行门禁记录；编辑审计 tool_loop 连续解析失败，Ds10/deepseek-v4 CoT-only 空正文、Qwren GPU OOM；run deadline 10×240s+120s 在第 17 章撞线；进度日志每章「0 字」；聚合漏世界观/角色。
+- **结果**：训练编辑审计直连 JSON（带参照资产 + CoT JSON 提取，成功跳过 tool_loop）；失败门禁统一落 `editor_gate_records`；批量 deadline 600s/章+600s、上限 4h；`chapter_chars` 显示真实字数；世界观/角色用逐章事实与 grounded cast 确定性兜底；编审第三次短采样 + 换路由。新增 6 条回归测试。
 
 ### v0.99.6 · 批量/训练 trace 终态收尾（日志巡检）
 

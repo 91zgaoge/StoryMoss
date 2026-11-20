@@ -423,6 +423,7 @@ fn spawn_observe_editor(
             None,
             None,
             deadline,
+            false,
         )
         .await;
         match result {

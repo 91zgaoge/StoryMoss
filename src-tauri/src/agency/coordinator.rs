@@ -748,6 +748,9 @@ pub struct AgencyContinueResult {
     pub chapter_number: i32,
     /// 本拍增量，供幕前 appendAiContent（NextChapter 路径为空串）
     pub increment: String,
+    /// v0.99.7：实际装配正文的字符数。批量进度日志不能再用 increment
+    /// （NextChapter 路径恒为空串，真机每章都打「0 字」）。
+    pub chapter_chars: usize,
     pub revised: bool,
     pub verdict: EditorVerdict,
 }
@@ -1075,6 +1078,18 @@ pub(crate) fn map_active_run_conflict(e: AppError) -> AppError {
 
 // ---- 协调器 ----
 
+/// v0.99.7：批量续写 run deadline。旧口径 240s/章 + 120s 在真机 v0.99.6
+/// 10 章训练（本地模型 + 编辑审计重试）第 17 章就撞线，后 4 章被整体
+/// deadline 强制熔断。改为 600s/章 + 600s 收尾，上限 4h；生成模型慢时仍
+/// 有余量，且不会无限挂起。
+pub(crate) fn batch_deadline_seconds(base: u64, chapter_count: usize) -> u64 {
+    const PER_CHAPTER_SECS: u64 = 600;
+    const OVERHEAD_SECS: u64 = 600;
+    const MAX_SECS: u64 = 14_400;
+    base.max(chapter_count.max(1) as u64 * PER_CHAPTER_SECS + OVERHEAD_SECS)
+        .min(MAX_SECS)
+}
+
 pub struct AgencyCoordinator {
     app_handle: Option<AppHandle>,
     pool: DbPool,
@@ -1107,6 +1122,9 @@ pub struct AgencyCoordinator {
     /// v0.99.3：compact 提示词模式（本地小模型）。缩 brief/ledger/progress
     /// 与资产预算。
     compact_prompt: bool,
+    /// v0.99.7：批量质检直连 JSON（训练路径专用）。默认 false，普通批量/
+    /// 导演保持旧 tool_loop 行为，避免改变既有 mock/测试语义。
+    direct_gate_json: bool,
     /// P0-1（v0.66.0）：测试用向量库注入。生产从 Tauri State 取
     /// （见 `retrieval_store`），测试用 `for_test_with_store` 注入。
     #[cfg(test)]
@@ -1131,6 +1149,7 @@ impl AgencyCoordinator {
             assets_seeded: false,
             batch_progress_sink: None,
             compact_prompt: false,
+            direct_gate_json: false,
             #[cfg(test)]
             test_vector_store: None,
             #[cfg(test)]
@@ -1152,6 +1171,7 @@ impl AgencyCoordinator {
             assets_seeded: false,
             batch_progress_sink: None,
             compact_prompt: false,
+            direct_gate_json: false,
             #[cfg(test)]
             test_vector_store: None,
             #[cfg(test)]
@@ -1196,6 +1216,13 @@ impl AgencyCoordinator {
     /// v0.99.3：compact 提示词模式（本地小模型）。
     pub fn with_compact_prompt(mut self, compact: bool) -> Self {
         self.compact_prompt = compact;
+        self
+    }
+
+    /// v0.99.7：批量质检直连 JSON（续写训练专用）。跳过 editor tool_loop；
+    /// 失败仍回退旧 tool_loop/散文路径。
+    pub fn with_direct_gate_json(mut self, direct: bool) -> Self {
+        self.direct_gate_json = direct;
         self
     }
 
@@ -1575,6 +1602,7 @@ impl AgencyCoordinator {
             assets_seeded: self.assets_seeded,
             batch_progress_sink: self.batch_progress_sink.clone(),
             compact_prompt: self.compact_prompt,
+            direct_gate_json: self.direct_gate_json,
             #[cfg(test)]
             test_vector_store: self.test_vector_store.clone(),
             #[cfg(test)]
@@ -1854,9 +1882,7 @@ impl AgencyCoordinator {
         let base = crate::config::AppConfig::load(&app_dir)
             .map(|c| c.smart_execute_total_timeout_secs)
             .unwrap_or(600u64);
-        // 每章预留 240s（写 + gate + 修订），另加 120s 资产/会话收尾。
-        let needed = chapter_count.max(1) as u64 * 240 + 120;
-        let total_timeout = base.max(needed).min(7_200);
+        let total_timeout = batch_deadline_seconds(base, chapter_count);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(total_timeout);
         *self.run_deadline.lock().unwrap_or_else(|p| p.into_inner()) = Some(deadline);
         log::warn!(
@@ -3457,6 +3483,7 @@ impl AgencyCoordinator {
                 None,
                 scene_contract.as_ref(),
                 deadline,
+                false,
             )
             .await;
             // 取消后不再产出裁决/toast：用户已经终止这次生成，噪声反馈只会误导
@@ -3735,6 +3762,7 @@ impl AgencyCoordinator {
                 assets_seeded: false,
                 batch_progress_sink: None,
                 compact_prompt: false,
+                direct_gate_json: false,
                 #[cfg(test)]
                 test_vector_store: None,
                 #[cfg(test)]
@@ -4403,12 +4431,14 @@ impl AgencyCoordinator {
                 Some(chapter_number),
                 scene_contract,
             );
+            let chapter_chars = increment.chars().count();
             return Ok(AgencyContinueResult {
                 run_id: run_id.to_string(),
                 story_id: story_id.to_string(),
                 scene_id: outcome.scene_id,
                 chapter_number: outcome.chapter_number,
                 increment,
+                chapter_chars,
                 revised: false,                    // Append 不跑修订轮
                 verdict: EditorVerdict::pending(), // 后台质检填充，前端不消费
             });
@@ -7636,6 +7666,7 @@ impl AgencyCoordinator {
             scene_id,
             chapter_number,
             increment: String::new(),
+            chapter_chars: content.chars().count(),
             revised: true,
             verdict: EditorVerdict::pending(),
         })
@@ -7810,6 +7841,7 @@ impl AgencyCoordinator {
             scene_id: scene.id,
             chapter_number,
             increment: String::new(),
+            chapter_chars: ingest_text.chars().count(),
             revised: false,
             verdict: EditorVerdict::pending(),
         })
@@ -8454,7 +8486,7 @@ impl AgencyCoordinator {
                             prev.chapter_number,
                             chapters.len() + 1,
                             count,
-                            prev.increment.chars().count(),
+                            prev.chapter_chars,
                         );
                     }
                     chapters.push(prev);
@@ -8545,7 +8577,7 @@ impl AgencyCoordinator {
                     last.chapter_number,
                     chapters.len() + 1,
                     count,
-                    last.increment.chars().count(),
+                    last.chapter_chars,
                 );
             }
             chapters.push(last);
@@ -8743,6 +8775,7 @@ impl AgencyCoordinator {
             deadline: self.current_deadline(),
             emotion_plan,
             scene_contract,
+            direct_gate_json: self.direct_gate_json,
         }
     }
 
@@ -8802,6 +8835,7 @@ impl AgencyCoordinator {
             emotion_plan,
             scene_contract,
             deadline,
+            false,
         )
         .await?;
         // gate 观察埋点（best-effort）：outcome/round/key/issues_count/weighted
@@ -9304,6 +9338,93 @@ async fn resolve_role_prompt_with_pool(pool: &DbPool, prompt_id: &str, premise: 
     })
 }
 
+/// v0.99.7：编辑审计直连 JSON 裁决（批量质检快路径）。
+///
+/// 批量路径已把所有参照资产内嵌在 user prompt 中，编辑器不需要工具循环；
+/// 本地/推理模型在 ReAct action 格式下极易连续解析失败（真机 v0.99.6
+/// 10 章训练 9 章质检降级）。直连 JSON mode + CoT JSON 提取更可靠：
+/// OpenAI 兼容适配器会在 content 为空时从 reasoning_content 提取最终 JSON。
+/// 失败返回 Err，由调用方回退旧 tool_loop / 散文路径。
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn editor_verdict_direct_json(
+    llm: &Arc<dyn LoopLlm>,
+    budget: &Arc<AgencyBudget>,
+    pool: &DbPool,
+    draft: &BoardItem,
+    premise: &str,
+    editor_assets: &str,
+    deadline: Option<std::time::Instant>,
+) -> Result<EditorVerdict, AppError> {
+    let budgeted = BudgetedLlm::new(llm.clone(), budget.clone(), AgentRole::EditorAuditor);
+    let base = resolve_role_prompt_with_pool(pool, "agency_editor_auditor_system", premise).await;
+    let system = format!(
+        "{base}\n\n【v0.99.7 批量质检直连模式】不要调用任何工具，不要输出 markdown \
+         代码块、解释或思维链；立即输出一个合法 JSON 对象。必须包含 verdict（pass 或 \
+         revise）、blocking_issues（数组）、suggestions（数组）、comments（简评）、\
+         score（1-5 整数）、dimension_scores（对象，键 style/plot/voice/pacing/hooks，\
+         值 1-10）。"
+    );
+    let assets = if editor_assets.trim().is_empty() {
+        String::new()
+    } else {
+        format!("【参照资产（用于核对世界观/大纲/连续性）】\n{editor_assets}\n")
+    };
+    let content: String = draft.content.chars().take(8000).collect();
+    let base_user = format!(
+        "{assets}【待审查章节草稿（{key}）】\n{content}\n\n\
+         请直接出具裁决 JSON：{{\"verdict\":\"pass\"或\"revise\",\"blocking_issues\":[],\
+         \"suggestions\":[],\"comments\":\"简评\",\"score\":1到5,\
+         \"dimension_scores\":{{\"style\":1到10,\"plot\":1到10,\"voice\":1到10,\
+         \"pacing\":1到10,\"hooks\":1到10}}}}",
+        key = draft.key,
+    );
+    let mut last = String::new();
+    for attempt in 0..2 {
+        if let Some(d) = deadline {
+            if std::time::Instant::now() >= d {
+                return Err(AppError::from(
+                    "编辑审计直连裁决未开始：run 级 deadline 已到（剩余时间不足）",
+                ));
+            }
+        }
+        let user = if attempt == 0 {
+            base_user.clone()
+        } else {
+            format!(
+                "上一次输出为空或不是合法 JSON。这次严格只输出一个完整、合法的 JSON \
+                 对象，不要任何解释文字或代码围栏；字段必须齐全且闭合所有括号。\n\n{base_user}"
+            )
+        };
+        match budgeted
+            .complete_json(&system, &user, TaskType::Proofreading, 4096)
+            .await
+        {
+            Ok(raw) => {
+                last = raw.clone();
+                if let Some(v) = parse_editor_verdict(&raw) {
+                    return Ok(v);
+                }
+                log::warn!(
+                    "agency gate: editor 直连 JSON 裁决解析失败（第 {} 次）: raw={}",
+                    attempt + 1,
+                    raw.chars().take(160).collect::<String>()
+                );
+            }
+            Err(e) => {
+                last = e.to_string();
+                log::warn!(
+                    "agency gate: editor 直连 JSON 调用失败（第 {} 次）: {e}",
+                    attempt + 1
+                );
+            }
+        }
+    }
+    Err(AppError::from(format!(
+        "editor 直连 JSON 裁决失败: {}",
+        last.chars().take(160).collect::<String>()
+    )))
+}
+
 /// 质量门实现（自由函数版，Gate v2）：editor 裁决（解析失败重试 1 次）→
 /// 三级评分合成（code/rule grader + rubric 化 model 分）→ 加权判定：
 /// revise+blocking 直接 RevisionRequired；规则复检 High+ 硬拦截
@@ -9360,6 +9481,7 @@ pub(crate) async fn evaluate_gate_impl(
     emotion_plan: Option<&crate::emotion_circuit::ChapterEmotionPlan>,
     scene_contract: Option<&crate::agency::narrative_contract::SceneContract>,
     deadline: Option<std::time::Instant>,
+    prefer_direct_json: bool,
 ) -> Result<(GateOutcome, Option<crate::agency::gate::GateScore>), AppError> {
     // 1) editor 裁决（解析失败重试一次）。
     // v0.30.19: 本地模型（Qwen/Gemma）在 ReAct tool_loop 内常不遵从 JSON
@@ -9501,57 +9623,81 @@ pub(crate) async fn evaluate_gate_impl(
         .unwrap_or_default()
     };
     let mut verdict: Option<EditorVerdict> = None;
-    let mut last_raw = String::new();
-    let mut aborted_reason: Option<&'static str> = None;
-    for attempt in 0..2 {
-        let editor_out = run_role_loop(
+    // v0.99.7：批量质检优先直连 JSON（带参照资产、不经工具循环）。成功即
+    // 跳过耗时的 ReAct tool_loop；失败再回退旧路径，保证不丢既有兜底。
+    if prefer_direct_json {
+        match editor_verdict_direct_json(
             llm,
             budget,
             pool,
-            board,
-            registry,
-            AgentRole::EditorAuditor,
-            run_id,
-            story_id,
+            draft,
             premise,
-            &format!(
-                "审查以下章节草稿（{}）并出具裁决 JSON。\n\n\
-                 【参照资产（用于校验合同兑现/连续性/世界观一致性/推进方向）】\n{}\n\
-                 【待审查草稿】\n{}\n\n\
-                 v0.98.7 批量质检：参照资产与草稿已全部内嵌在任务中，**不要调用\
-                 board_read/asset_query 等工具**，逐维审查后直接输出 final JSON 裁决。\
-                 按系统提示词的 rubric 出具裁决，重点校验：草稿是否违背世界观规则与红线、\
-                 是否偏离故事大纲推进方向、是否原地踏步或仅复述设定。",
-                draft.key,
-                editor_assets,
-                draft.content.chars().take(8000).collect::<String>()
-            ),
-            // v0.30.20: v0.30.19 的 salvage + editor_verdict_prose_fallback 已使
-            // deadline 安全--熔断后仍有两次兜底产出裁决。此处传 deadline 让
-            // editor 获得超时保护（剩余 <30s 熔断 -> salvage -> 散文回退）。
+            &editor_assets,
             deadline,
-            None,
         )
         .await
-        .map_err(|e| AppError::from(format!("编辑审计 Agent 阶段失败: {}", e)))?;
-        last_raw = editor_out.output.clone();
-        // v0.30.19 salvage: 即使熔断，末轮原始输出可能已含可解析裁决 JSON
-        // （本地模型常在最后一轮吐出 JSON 但已超 max_turns/连续解析计数）。
-        if let Some(v) = parse_editor_verdict(&editor_out.output) {
-            verdict = Some(v);
-            break;
+        {
+            Ok(v) => verdict = Some(v),
+            Err(e) => log::warn!(
+                "agency gate: editor 直连 JSON 失败（{}），回退 tool_loop",
+                e
+            ),
         }
-        if editor_out.aborted {
-            // 同模型重试 tool_loop 必同败（JSON 不遵从是系统性的），不重试，
-            // 直接进散文回退（见下方 verdict match 的 None 分支）。
-            aborted_reason = Some(circuit_break_reason(&editor_out));
-            log::warn!(
-                "agency gate: editor tool_loop 熔断（{}），salvage 未提取裁决，进入散文回退",
-                aborted_reason.unwrap()
-            );
-            break;
+    }
+    let mut last_raw = String::new();
+    let mut aborted_reason: Option<&'static str> = None;
+    if verdict.is_none() {
+        for attempt in 0..2 {
+            let editor_out = run_role_loop(
+                llm,
+                budget,
+                pool,
+                board,
+                registry,
+                AgentRole::EditorAuditor,
+                run_id,
+                story_id,
+                premise,
+                &format!(
+                    "审查以下章节草稿（{}）并出具裁决 JSON。\n\n\
+                     【参照资产（用于校验合同兑现/连续性/世界观一致性/推进方向）】\n{}\n\
+                     【待审查草稿】\n{}\n\n\
+                     v0.98.7 批量质检：参照资产与草稿已全部内嵌在任务中，**不要调用\
+                     board_read/asset_query 等工具**，逐维审查后直接输出 final JSON 裁决。\
+                     按系统提示词的 rubric 出具裁决，重点校验：草稿是否违背世界观规则与红线、\
+                     是否偏离故事大纲推进方向、是否原地踏步或仅复述设定。",
+                    draft.key,
+                    editor_assets,
+                    draft.content.chars().take(8000).collect::<String>()
+                ),
+                // v0.30.20: v0.30.19 的 salvage + editor_verdict_prose_fallback 已使
+                // deadline 安全--熔断后仍有两次兜底产出裁决。此处传 deadline 让
+                // editor 获得超时保护（剩余 <30s 熔断 -> salvage -> 散文回退）。
+                deadline,
+                None,
+            )
+            .await
+            .map_err(|e| AppError::from(format!("编辑审计 Agent 阶段失败: {}", e)))?;
+            last_raw = editor_out.output.clone();
+            // v0.30.19 salvage: 即使熔断，末轮原始输出可能已含可解析裁决 JSON
+            // （本地模型常在最后一轮吐出 JSON 但已超 max_turns/连续解析计数）。
+            if let Some(v) = parse_editor_verdict(&editor_out.output) {
+                verdict = Some(v);
+                break;
+            }
+            if editor_out.aborted {
+                // 同模型重试 tool_loop 必同败（JSON
+                // 不遵从是系统性的），不重试，
+                // 直接进散文回退（见下方 verdict match 的 None 分支）。
+                aborted_reason = Some(circuit_break_reason(&editor_out));
+                log::warn!(
+                    "agency gate: editor tool_loop 熔断（{}），salvage 未提取裁决，进入散文回退",
+                    aborted_reason.unwrap()
+                );
+                break;
+            }
+            log::warn!("agency gate: 裁决解析失败（第 {} 次）", attempt + 1);
         }
-        log::warn!("agency gate: 裁决解析失败（第 {} 次）", attempt + 1);
     }
     let verdict = match verdict {
         Some(v) => v,
@@ -9570,6 +9716,10 @@ pub(crate) async fn evaluate_gate_impl(
                     };
                     let outcome = GateOutcome::Failed { reason };
                     record_gate_impl(board, run_id, story_id, draft, &outcome, round, None).await?;
+                    // v0.99.7：失败分支同样落 editor_gate_records。旧实现只写
+                    // 黑板审查区后提前 return，真机 10 章训练因此只有 1 行门禁
+                    // 记录（9 章降级不可审计）。
+                    persist_gate_row(pool, run_id, story_id, draft, &outcome, round, None).await;
                     return Ok((outcome, None));
                 }
             }
@@ -9727,61 +9877,83 @@ pub(crate) async fn evaluate_gate_impl(
     // P1-4（v0.68.0）：落一行 gate 裁决记录（判官一致率的数据源；best-effort，
     // 失败只告警）。findings 原样保留含 evidence 原文引用的结构，供
     // `editor_agreement` 做「引用是否在作者改后的成稿里幸存」的确定性判定。
-    {
-        let verdict_ref = match &outcome {
-            GateOutcome::Passed { verdict } => Some(verdict),
-            GateOutcome::RevisionRequired { verdict, .. } => Some(verdict),
-            GateOutcome::Failed { .. } => None,
-        };
-        if let Some(chapter_number) = crate::agency::graders::parse_chapter_number(&draft.key) {
-            let outcome_kind = match &outcome {
-                GateOutcome::Passed { .. } => "pass",
-                GateOutcome::RevisionRequired { .. } => "revise",
-                GateOutcome::Failed { .. } => "failed",
-            }
-            .to_string();
-            let findings = verdict_ref
-                .map(crate::agency::editor_agreement::findings_from_verdict)
-                .unwrap_or_default();
-            let dimension_scores_json = verdict_ref
-                .and_then(|v| v.dimension_scores.as_ref())
-                .and_then(|d| serde_json::to_string(d).ok());
-            let verdict_str = verdict_ref.map(|v| v.verdict.clone());
-            let score = verdict_ref.and_then(|v| v.score);
-            let weighted = gate_score.weighted;
-            let pool = pool.clone();
-            let story_id_owned = story_id.to_string();
-            let run_id_owned = run_id.to_string();
-            // v0.97.0：改为 await——gate 记录是 run QC 的单一权威，必须
-            // 在 evaluate_gate_impl 返回前落库，run 收尾才能回填 result。
-            match tauri::async_runtime::spawn_blocking(move || {
-                crate::agency::editor_agreement::persist_gate_record(
-                    &pool,
-                    &run_id_owned,
-                    &story_id_owned,
-                    chapter_number,
-                    round,
-                    &outcome_kind,
-                    verdict_str.as_deref(),
-                    score,
-                    Some(weighted),
-                    dimension_scores_json,
-                    &findings,
-                )
-            })
-            .await
-            {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => {
-                    log::warn!("[editor_agreement] gate 裁决记录落库失败: {e}")
-                }
-                Err(e) => {
-                    log::warn!("[editor_agreement] gate 裁决记录落库 join 失败: {e}")
-                }
-            }
-        }
-    }
+    // v0.99.7：抽成 persist_gate_row，失败分支也走同一落库路径。
+    persist_gate_row(
+        pool,
+        run_id,
+        story_id,
+        draft,
+        &outcome,
+        round,
+        Some(&gate_score),
+    )
+    .await;
     Ok((outcome, Some(gate_score)))
+}
+
+/// v0.99.7：gate 裁决记录落库（判官一致率数据源，单一权威路径）。
+///
+/// Passed / RevisionRequired / Failed 都落一行；Failed 无 verdict/score/
+/// weighted。best-effort：DB 失败只告警，不影响管线。失败分支也必须落库，
+/// 否则「质检降级 9 章」在 editor_gate_records 中只剩 1 行，无法审计。
+async fn persist_gate_row(
+    pool: &DbPool,
+    run_id: &str,
+    story_id: &str,
+    draft: &BoardItem,
+    outcome: &GateOutcome,
+    round: u32,
+    gate_score: Option<&crate::agency::gate::GateScore>,
+) {
+    let verdict_ref = match outcome {
+        GateOutcome::Passed { verdict } => Some(verdict),
+        GateOutcome::RevisionRequired { verdict, .. } => Some(verdict),
+        GateOutcome::Failed { .. } => None,
+    };
+    let Some(chapter_number) = crate::agency::graders::parse_chapter_number(&draft.key) else {
+        return;
+    };
+    let outcome_kind = match outcome {
+        GateOutcome::Passed { .. } => "pass",
+        GateOutcome::RevisionRequired { .. } => "revise",
+        GateOutcome::Failed { .. } => "failed",
+    }
+    .to_string();
+    let findings = verdict_ref
+        .map(crate::agency::editor_agreement::findings_from_verdict)
+        .unwrap_or_default();
+    let dimension_scores_json = verdict_ref
+        .and_then(|v| v.dimension_scores.as_ref())
+        .and_then(|d| serde_json::to_string(d).ok());
+    let verdict_str = verdict_ref.map(|v| v.verdict.clone());
+    let score = verdict_ref.and_then(|v| v.score);
+    let weighted = gate_score.map(|s| s.weighted);
+    let pool = pool.clone();
+    let story_id_owned = story_id.to_string();
+    let run_id_owned = run_id.to_string();
+    // v0.97.0：await——gate 记录是 run QC 的单一权威，必须在
+    // evaluate_gate_impl 返回前落库，run 收尾才能回填 result。
+    match tauri::async_runtime::spawn_blocking(move || {
+        crate::agency::editor_agreement::persist_gate_record(
+            &pool,
+            &run_id_owned,
+            &story_id_owned,
+            chapter_number,
+            round,
+            &outcome_kind,
+            verdict_str.as_deref(),
+            score,
+            weighted,
+            dimension_scores_json,
+            &findings,
+        )
+    })
+    .await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => log::warn!("[editor_agreement] gate 裁决记录落库失败: {e}"),
+        Err(e) => log::warn!("[editor_agreement] gate 裁决记录落库 join 失败: {e}"),
+    }
 }
 
 /// 门判定落审查区（自由函数版）：item_type="gate"，content=裁决 JSON +
@@ -9850,6 +10022,8 @@ pub struct GateRunner {
     deadline: Option<std::time::Instant>,
     emotion_plan: Option<Arc<crate::emotion_circuit::ChapterEmotionPlan>>,
     scene_contract: Option<Arc<crate::agency::narrative_contract::SceneContract>>,
+    /// v0.99.7：训练批量质检直连 JSON（其它批量保持 tool_loop）。
+    direct_gate_json: bool,
 }
 
 impl GateRunner {
@@ -9875,6 +10049,7 @@ impl GateRunner {
             self.emotion_plan.as_deref(),
             self.scene_contract.as_deref(),
             self.deadline,
+            self.direct_gate_json,
         )
         .await?;
         // gate 观察埋点（best-effort；并行批量路径与 coordinator.evaluate_gate
@@ -12070,6 +12245,17 @@ mod run_trace_tests {
             None,
             "guard drop 必须摘除注册"
         );
+    }
+
+    /// v0.99.7：训练批量 deadline 必须按章扩容；旧 240s/章在真机 v0.99.6
+    /// 10 章训练第 17 章就撞线，后 4 章质检被强制熔断。
+    #[test]
+    fn batch_deadline_scales_per_chapter_and_caps_at_four_hours() {
+        assert_eq!(batch_deadline_seconds(600, 1), 1_200);
+        assert_eq!(batch_deadline_seconds(600, 10), 6_600);
+        assert_eq!(batch_deadline_seconds(600, 20), 12_600);
+        assert_eq!(batch_deadline_seconds(600, 50), 14_400);
+        assert_eq!(batch_deadline_seconds(3_000, 10), 6_600);
     }
 
     /// v0.99.6：批量 run 的 trace 终态必须跟随 agency_runs 终态，

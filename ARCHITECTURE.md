@@ -1,4 +1,6 @@
-# StoryMoss v0.99.6 架构文档
+# StoryMoss v0.99.7 架构文档
+
+> **v0.99.7**：**续写训练质检/门禁/进度/资产收口**——训练 coordinator 新增 `with_direct_gate_json(true)`，批量 `GateRunner` 把 `prefer_direct_json` 传给 `evaluate_gate_impl`：优先 `editor_verdict_direct_json`（参照资产内嵌 + JSON mode + reasoning JSON 提取 + 2 次重试），成功跳过 ReAct tool_loop，失败回退旧路径。`persist_gate_row` 统一 Passed/RevisionRequired/Failed 三类落 `editor_gate_records`（旧失败分支提前 return 导致 9/10 章无记录）。`batch_deadline_seconds` 改为 600s/章 + 600s、上限 4h。`AgencyContinueResult.chapter_chars` 承载实际装配字数，批量进度 sink 不再读恒空的 `increment`。资产聚合缺 world/characters 时，`deterministic_world_from_brief`/`deterministic_characters_from_cast` 用逐章事实与 grounded cast 兜底；确定性摘要裁掉首行章名。编审第三次改 2500 字短采样 + `CreativeWriting` 路由。
 
 > **v0.99.6**：**批量 trace 终态收尾**——v0.96.1 的 `RunTraceGuard::finish` 只接在创世/续写/单角色入口；`run_continue_batch_body`（批量续写/导演分批/续写训练共用）启动 trace 后从未收尾，11-17/18 的 250/530 步训练 trace 在结束 1 天后仍为 `running`。批量路径在 `run_batch_inner` 返回后调用 `batch_trace_terminal_status`（纯函数）→ `guard.finish`，写 completed / failed / cancelled，与 `agency_runs` 终态同源；单测锁定三态。
 

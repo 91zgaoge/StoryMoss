@@ -2,6 +2,20 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.7（2026-11-20）
+
+**续写训练 v0.99.6 真机复盘：编辑审计直连 JSON、失败门禁可审计、训练 deadline 扩容、资产/进度兜底。**
+
+- 真机证据（v0.99.6，10 章训练，报告 `66f1456f…`）：总分 0.683（承接 8.89、情节 7.0），但 **0 通过 / 0 修订 / 9 章质检降级**；`agency_editor` 失败 40 次 / 成功 9 次，日志为 `editor tool_loop 熔断（连续解析失败）` + `散文回退也失败`；Ds10/deepseek-v4 返回空 content（CoT-only），Qwren GPU OOM。10 章只有 1 行 `editor_gate_records`。第 17 章起 `run 级 deadline 触发`（10×240s+120s=2520s）。每章进度日志都写「0 字」，实际正文 1.7–3.1k 字。
+- **编辑审计直连 JSON**：训练路径 `with_direct_gate_json(true)`，新增 `editor_verdict_direct_json`（带参照资产、JSON mode、CoT JSON 提取、2 次重试），成功即跳过 ReAct tool_loop；失败仍回退旧路径。
+- **失败门禁落库**：`persist_gate_row` 统一 Passed/RevisionRequired/Failed 三类落库；失败分支不再提前 return。
+- **训练 deadline 扩容**：`batch_deadline_seconds` 改为 600s/章 + 600s，上限 4h（10 章 6600s），避免后段整体熔断。
+- **进度真实字数**：`AgencyContinueResult.chapter_chars` 记录实际装配字数，批量进度不再用恒空的 `increment`。
+- **资产确定性兜底**：聚合漏 world/characters 时，用逐章事实生成世界观概念/历史、用 grounded cast 生成角色；确定性摘要裁掉首行章名。
+- **编审兜底**：第三次尝试改用 2500 字短采样 + `CreativeWriting` 路由，降低推理模型 CoT-only 概率。
+- **测试**：Rust **2231/17**（+6：deadline、直连裁决、失败门禁落库、摘要裁章名、世界观/角色兜底）；tsc 0；Vitest **725/3**；Playwright **144/5**（全量复跑）；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：安装 v0.99.7 后重跑同一 10 章训练，确认编辑审计 10/10 可用/降级 0、门禁记录 10 行、后 4 章不再撞 deadline、进度日志显示真实字数、世界观/角色非空；编审 unavailable 应为 0。
+
 ## v0.99.6（2026-11-20）
 
 **日志巡检：批量/续写训练 trace 终态收尾（v0.96.1 漏掉的批量路径）。**
