@@ -544,8 +544,8 @@ mod tests {
                 .unwrap_or_default()
         };
         // 新溢出章无合约 → 回退默认命名
-        assert_eq!(title_of(2), "第2章");
-        assert_eq!(title_of(3), "第3章");
+        assert_eq!(title_of(2), "第二章");
+        assert_eq!(title_of(3), "第三章");
         // 三章标题互不相同
         let mut titles: Vec<String> = chapters.iter().filter_map(|c| c.title.clone()).collect();
         titles.sort();
@@ -590,7 +590,7 @@ mod tests {
         assert_eq!(outcomes.len(), 1, "3600 字应切 1 刀");
         assert_eq!(
             outcomes[0].new_chapter_title.as_deref(),
-            Some("第3章"),
+            Some("第三章"),
             "新溢出章 N+1 无合约，标题应回退默认命名"
         );
 
@@ -794,7 +794,7 @@ mod tests {
                 .clone()
                 .unwrap_or_default()
         };
-        assert_eq!(title_of(&ch3_id), "第4章", "派生标题须跟随新章号");
+        assert_eq!(title_of(&ch3_id), "第四章", "派生标题须跟随新章号");
         assert_eq!(title_of(&ch1_id), "第1章");
         assert_eq!(title_of(&ch2_id), "第2章");
     }
@@ -833,7 +833,10 @@ mod tests {
             chapters.len() as i32,
             "旧第2章应顺延到队尾"
         );
-        let expected_tail_title = format!("第{}章", chapters.len());
+        let expected_tail_title = format!(
+            "第{}章",
+            crate::utils::chapter_title::chinese_numeral(chapters.len() as u32)
+        );
         assert_eq!(
             old2.title.as_deref(),
             Some(expected_tail_title.as_str()),

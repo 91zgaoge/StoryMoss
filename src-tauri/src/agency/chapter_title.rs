@@ -420,6 +420,9 @@ pub fn apply_title(
     if title.is_empty() {
         return Ok(false);
     }
+    // v0.99.8：统一写「第二章 铜钱与脚印」；裸标题补章号，已有章号则保留。
+    let title =
+        crate::utils::chapter_title::format_chapter_title(ctx.chapter_number.max(0) as u32, title);
     let mut conn = pool
         .get()
         .map_err(|e| AppError::from(format!("pool: {}", e)))?;
@@ -558,43 +561,9 @@ fn strip_wrapping_quotes(s: &str) -> &str {
 }
 
 /// 仅当「第N章」后紧跟分隔符时剥掉章号前缀；「第三章的雨」这类真实标题
-/// 不剥。
+/// 不剥。v0.99.8：统一由 `utils::chapter_title` 处理阿拉伯/中文/空格。
 fn strip_chapter_prefix(s: &str) -> Option<String> {
-    let mut chars = s.char_indices();
-    let (_, first) = chars.next()?;
-    if first != '第' {
-        return None;
-    }
-    let mut chapter_end = None;
-    for (idx, c) in chars {
-        if c == '章' {
-            chapter_end = Some(idx);
-            break;
-        }
-        if !(c.is_ascii_digit() || "一二三四五六七八九十百千零〇两".contains(c)) {
-            return None;
-        }
-    }
-    let end = chapter_end?;
-    let rest = &s[end + '章'.len_utf8()..];
-    let first = rest.chars().next()?;
-    if !matches!(
-        first,
-        ' ' | '　' | '：' | ':' | '·' | '、' | '-' | '—' | '－' | '）' | ')' | '】' | ']'
-    ) {
-        return None;
-    }
-    Some(
-        rest.trim_start_matches(|c: char| {
-            c.is_whitespace()
-                || matches!(
-                    c,
-                    '：' | ':' | '·' | '、' | '-' | '—' | '－' | '）' | ')' | '】' | ']'
-                )
-        })
-        .trim()
-        .to_string(),
-    )
+    crate::utils::chapter_title::strip_chapter_prefix(s)
 }
 
 fn inline_title_prompt(ctx: &ChapterTitleContext) -> String {
@@ -738,7 +707,7 @@ mod tests {
             .get_by_id(&ctx.chapter_id)
             .unwrap()
             .unwrap();
-        assert_eq!(chapter.title.as_deref(), Some("雨夜叩门"));
+        assert_eq!(chapter.title.as_deref(), Some("第二章 雨夜叩门"));
 
         let scene = SceneRepository::new(pool.clone())
             .get_by_chapter(&ctx.chapter_id)
@@ -746,7 +715,7 @@ mod tests {
             .into_iter()
             .next()
             .unwrap();
-        assert_eq!(scene.title.as_deref(), Some("雨夜叩门"));
+        assert_eq!(scene.title.as_deref(), Some("第二章 雨夜叩门"));
 
         let mut ctx_after = load_by_chapter(&pool, &ctx.chapter_id).unwrap().unwrap();
         ctx_after.story_title = "雨夜归人".to_string();
@@ -755,7 +724,7 @@ mod tests {
             .get_by_id(&ctx.chapter_id)
             .unwrap()
             .unwrap();
-        assert_eq!(chapter.title.as_deref(), Some("雨夜叩门"));
+        assert_eq!(chapter.title.as_deref(), Some("第二章 雨夜叩门"));
         assert!(apply_title(&pool, &ctx_after, "旧名", true).unwrap());
     }
 
@@ -826,12 +795,12 @@ mod tests {
             .auto_name_chapter(&ctx.chapter_id, true)
             .await
             .unwrap();
-        assert_eq!(title.as_deref(), Some("雨夜叩门"));
+        assert_eq!(title.as_deref(), Some("第二章 雨夜叩门"));
         let chapter = ChapterRepository::new(pool)
             .get_by_id(&ctx.chapter_id)
             .unwrap()
             .unwrap();
-        assert_eq!(chapter.title.as_deref(), Some("雨夜叩门"));
+        assert_eq!(chapter.title.as_deref(), Some("第二章 雨夜叩门"));
     }
 
     #[tokio::test]

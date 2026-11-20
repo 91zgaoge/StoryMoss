@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.7-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.8-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.8 · 章节标题统一（中文数字解析 + 第二章 铜钱与脚印）
+
+- **问题**：历史库/训练沙盒同时存在 `第 134 章`、`第12章`、`香炉边的银镯与铜钱` 等混合标题；中文数字无法解析门禁章号，自动取名只写裸标题，展示层混用。
+- **结果**：新增章节标题纯函数与中文数字转换；`parse_chapter_number` 支持阿拉伯/中文/空格/带后缀；训练源章标题从正文首行恢复；自动取名写「第二章 雨夜叩门」；幕前统一展示「第二章 铜钱与脚印」；V164 迁移归一旧库标题。新增 10 条回归测试。
 
 ### v0.99.7 · 续写训练真机复盘修复（编辑审计/门禁记录/deadline/资产）
 

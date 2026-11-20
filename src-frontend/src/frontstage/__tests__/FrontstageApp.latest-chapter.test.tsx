@@ -199,12 +199,12 @@ describe('启动定位最新章节（v0.33.7）', () => {
 
     // 切到第 2 章（先等章节下拉就绪，避免与加载竞态）
     await user.click(await screen.findByLabelText('展开章节列表'));
-    await user.click(await screen.findByRole('option', { name: '第2章' }));
+    await user.click(await screen.findByRole('option', { name: '第二章' }));
     await waitFor(() => expect(captured.content).toContain('第二章正文'));
 
     // 再点回第 3 章：修复前命中「Already attempted lazy-load」直接 return，编辑器停在第 2 章
     await user.click(screen.getByLabelText('展开章节列表'));
-    await user.click(await screen.findByRole('option', { name: '第3章' }));
+    await user.click(await screen.findByRole('option', { name: '第三章' }));
     await waitFor(() => expect(captured.content).toContain('第三章正文'));
 
     // eslint-disable-next-line no-console

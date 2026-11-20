@@ -105,13 +105,13 @@ mod tests {
 
         Migration.apply(&mut conn).unwrap();
 
-        assert_eq!(chapter_title(&conn, "c1"), "第1章");
-        assert_eq!(chapter_title(&conn, "c6"), "第8章");
-        assert_eq!(chapter_title(&conn, "c7"), "第7章");
+        assert_eq!(chapter_title(&conn, "c1"), "第一章");
+        assert_eq!(chapter_title(&conn, "c6"), "第八章");
+        assert_eq!(chapter_title(&conn, "c7"), "第七章");
         assert_eq!(chapter_title(&conn, "cc"), "临江夜雨");
 
         Migration.apply(&mut conn).unwrap();
-        assert_eq!(chapter_title(&conn, "c6"), "第8章");
+        assert_eq!(chapter_title(&conn, "c6"), "第八章");
         assert_eq!(chapter_title(&conn, "cc"), "临江夜雨");
     }
 }

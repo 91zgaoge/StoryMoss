@@ -1454,8 +1454,12 @@ impl ContinuationTrainingExecutor {
         let repo =
             crate::db::repositories::scene_repository::SceneRepository::new(self.pool.clone());
         for (i, (num, content)) in chapters.iter().enumerate() {
+            // v0.99.8：源章节标题统一为「第一百三十四章 魑魅魍魉横行」。
+            // 旧实现只写「第 134 章」，原书标题正文被丢掉。
+            let source_title =
+                crate::utils::chapter_title::format_source_chapter_title(*num as u32, content);
             let scene = repo
-                .create(story_id, (i + 1) as i32, Some(&format!("第 {num} 章")))
+                .create(story_id, (i + 1) as i32, Some(&source_title))
                 .map_err(|e| format!("创建场景失败：{e}"))?;
             repo.update(
                 &scene.id,

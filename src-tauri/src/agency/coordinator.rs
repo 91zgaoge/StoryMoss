@@ -7929,10 +7929,15 @@ impl AgencyCoordinator {
         let Some(title) = title else {
             return Ok(None);
         };
+        // v0.99.8：落库/返回值统一为「第二章 铜钱与脚印」。
+        let display_title = crate::utils::chapter_title::format_chapter_title(
+            ctx.chapter_number.max(0) as u32,
+            &title,
+        );
 
         let apply_pool = self.pool.clone();
         let apply_ctx = ctx.clone();
-        let apply_title = title.clone();
+        let apply_title = display_title.clone();
         let applied = self
             .db(move || naming::apply_title(&apply_pool, &apply_ctx, &apply_title, overwrite))
             .await?;
@@ -7944,17 +7949,17 @@ impl AgencyCoordinator {
             crate::state_sync::StateSync::emit_chapter_updated(
                 app,
                 &ctx.chapter_id,
-                Some(&title),
+                Some(&display_title),
                 &ctx.story_id,
             );
         }
         log::info!(
             "[chapter-title] 第{}章自动取名「{}」（run={}）",
             ctx.chapter_number,
-            title,
+            display_title,
             run_id
         );
-        Ok(Some(title))
+        Ok(Some(display_title))
     }
 
     /// 并行稳态循环：gate(n-1) 与 writer(n) 并发，修订在本章 handle_gate

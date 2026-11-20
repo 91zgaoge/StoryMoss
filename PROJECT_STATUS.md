@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.99.7 项目完成状态
+# StoryMoss (草苔) v0.99.8 项目完成状态
+
+> 最后更新: 2026-11-20（**v0.99.8：章节标题统一**——历史库/训练沙盒同时存在 `第 134 章`、`第12章`、裸标题、中文数字四种形态；新增 `utils::chapter_title`（中文数字转换/前缀解析/标题格式化/源标题提取），`parse_chapter_number` 支持阿拉伯、中文、空格与带后缀，`canonical_chapter_title` 改中文数字，训练源章标题从正文首行恢复，自动取名写「第二章 雨夜叩门」，幕前 `displayChapterTitle` 统一展示「第二章 铜钱与脚印」，V164 迁移归一旧库 chapters/scenes.title。Rust **2238/17**（+7），tsc 0，Vitest **728/3**（+3），Playwright **144/5**（全量复跑），fmt/clippy/guard/prettier 全绿。**未关闭**：安装后重启确认 V164 迁移当前库标题；重跑训练确认沙盒上下文「第一百三十四章 …」、生成章「第十一章 …」。
 
 > 最后更新: 2026-11-20（**v0.99.7：续写训练 v0.99.6 真机复盘修复**——真机 10 章训练总分 0.683（承接 8.89、情节 7.0），但 0 通过/0 修订/9 章质检降级、10 章仅 1 行门禁记录；`agency_editor` 失败 40/成功 9，editor tool_loop 连续解析失败后散文回退也失败，Ds10/deepseek-v4 CoT-only 空正文、Qwren GPU OOM；第 17 章起 run deadline（10×240s+120s）触发。本版训练编辑审计直连 JSON（带参照资产 + CoT JSON 提取，成功跳过 tool_loop）；失败门禁统一落 `editor_gate_records`；批量 deadline 600s/章+600s、上限 4h；`chapter_chars` 进度显示真实字数；世界观/角色用逐章事实 + grounded cast 确定性兜底；编审第三次 2500 字短采样 + `CreativeWriting` 路由。Rust **2231/17**（+6），tsc 0，Vitest **725/3**，Playwright **144/5**（全量复跑），fmt/clippy/guard/prettier 全绿。**未关闭**：安装 v0.99.7 后重跑同一 10 章训练，确认审计 10/10 可用/降级 0、门禁记录 10 行、后 4 章不撞 deadline、进度真实字数、世界观/角色非空、编审 unavailable=0。
 

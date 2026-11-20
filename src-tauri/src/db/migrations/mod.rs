@@ -1168,6 +1168,7 @@ pub mod V160__continuation_training_multi_chapter;
 pub mod V161__continuation_training_chapter_cache;
 pub mod V162__story_briefs;
 pub mod V163__continuation_training_chapter_briefs;
+pub mod V164__normalize_chapter_titles;
 
 /// Returns all Rust-coded migrations (versions 28-103, 115-117) ordered by
 /// version.
@@ -1273,5 +1274,6 @@ pub fn all_rust_migrations() -> Vec<Box<dyn RustMigration>> {
         Box::new(V161__continuation_training_chapter_cache::Migration),
         Box::new(V162__story_briefs::Migration),
         Box::new(V163__continuation_training_chapter_briefs::Migration),
+        Box::new(V164__normalize_chapter_titles::Migration),
     ]
 }

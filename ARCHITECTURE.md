@@ -1,4 +1,6 @@
-# StoryMoss v0.99.7 架构文档
+# StoryMoss v0.99.8 架构文档
+
+> **v0.99.8**：**章节标题统一**——新增 `utils::chapter_title` 纯函数：中文数字转换（1..99,999,999）、`第N章` 前缀解析（阿拉伯/中文/空格/`第12章修订`）、`format_chapter_title`、`source_chapter_title`、`normalize_existing_chapter_title`。`agency::graders::parse_chapter_number`、`db::chapter_split::canonical/is_generic`、训练 `seed_scenes`、自动取名 `apply_title`、幕前 `displayChapterTitle` 全部走同一规则，输出「第二章 铜钱与脚印」。V164 迁移归一旧库 chapters/scenes.title：占位标题优先从正文首行恢复原书标题，裸标题补章号；训练沙盒上下文「第 134 章」保留源章号。
 
 > **v0.99.7**：**续写训练质检/门禁/进度/资产收口**——训练 coordinator 新增 `with_direct_gate_json(true)`，批量 `GateRunner` 把 `prefer_direct_json` 传给 `evaluate_gate_impl`：优先 `editor_verdict_direct_json`（参照资产内嵌 + JSON mode + reasoning JSON 提取 + 2 次重试），成功跳过 ReAct tool_loop，失败回退旧路径。`persist_gate_row` 统一 Passed/RevisionRequired/Failed 三类落 `editor_gate_records`（旧失败分支提前 return 导致 9/10 章无记录）。`batch_deadline_seconds` 改为 600s/章 + 600s、上限 4h。`AgencyContinueResult.chapter_chars` 承载实际装配字数，批量进度 sink 不再读恒空的 `increment`。资产聚合缺 world/characters 时，`deterministic_world_from_brief`/`deterministic_characters_from_cast` 用逐章事实与 grounded cast 兜底；确定性摘要裁掉首行章名。编审第三次改 2500 字短采样 + `CreativeWriting` 路由。
 

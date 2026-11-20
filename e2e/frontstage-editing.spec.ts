@@ -112,14 +112,14 @@ test.describe('Frontstage 编辑器测试', () => {
 
     // 打开章节下拉，点当前章右侧铅笔就地改名
     await page.locator('.frontstage-chapter-name').click();
-    await expect(page.getByRole('option', { name: '测试章节' })).toBeVisible();
-    await page.getByLabel('重命名测试章节').click();
+    await expect(page.getByRole('option', { name: '第一章 测试章节' })).toBeVisible();
+    await page.getByLabel('重命名第一章 测试章节').click();
     const input = page.getByLabel('编辑章节名称');
     await input.fill('雨夜来客');
     await input.press('Enter');
 
     // 列表与正文大标题同步，且下拉保持打开
-    await expect(page.getByRole('option', { name: '雨夜来客' })).toBeVisible();
+    await expect(page.getByRole('option', { name: '第一章 雨夜来客' })).toBeVisible();
     await expect(chapterTitle).toContainText('雨夜来客', { timeout: 10000 });
 
     const calls = await page.evaluate(

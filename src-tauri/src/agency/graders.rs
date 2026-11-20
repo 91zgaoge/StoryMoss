@@ -22,13 +22,10 @@ pub struct RuleGraderReport {
     pub issues: Vec<String>,
 }
 
-/// 从 draft.key（"第N章"）解析章号；中文数字不解析（生产 key 为阿拉伯数字）。
+/// 从 draft.key（"第N章"/"第 12 章"/"第十二章"/"第12章修订"）解析章号。
+/// v0.99.8：中文数字与空格也解析——门禁记录/判官一致率依赖章号。
 pub fn parse_chapter_number(key: &str) -> Option<i32> {
-    let digits: String = key.chars().filter(|c| c.is_ascii_digit()).collect();
-    if digits.is_empty() || !key.starts_with('第') || !key.ends_with('章') {
-        return None;
-    }
-    digits.parse().ok()
+    crate::utils::chapter_title::parse_chapter_number(key).map(|n| n as i32)
 }
 
 /// 同步 code grader：字数 / 自重复率 / 合同禁则区（纯规则，无 DB、无 LLM）。
@@ -339,8 +336,11 @@ mod tests {
     fn test_parse_chapter_number_from_key() {
         assert_eq!(parse_chapter_number("第3章"), Some(3));
         assert_eq!(parse_chapter_number("第12章"), Some(12));
+        assert_eq!(parse_chapter_number("第 134 章"), Some(134));
+        assert_eq!(parse_chapter_number("第十二章"), Some(12));
+        assert_eq!(parse_chapter_number("第二章 铜钱与脚印"), Some(2));
+        assert_eq!(parse_chapter_number("第12章修订"), Some(12));
         assert_eq!(parse_chapter_number("序章"), None);
-        assert_eq!(parse_chapter_number("第一章"), None); // 中文数字不解析（生产 key 为阿拉伯）
     }
 
     #[test]

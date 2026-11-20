@@ -272,25 +272,14 @@ pub fn plan_split(
 }
 
 pub(crate) fn canonical_chapter_title(chapter_number: i32) -> String {
-    format!("第{}章", chapter_number)
+    // v0.99.8：章号统一中文数字（第1章 → 第一章）。
+    crate::utils::chapter_title::format_chapter_title(chapter_number.max(0) as u32, "")
 }
 
-/// 「第N章」「第一章」这类由章号派生的标题。自定义名（「临江夜雨」）不是。
+/// 「第N章」「第 134 章」「第一章」这类由章号派生的标题。自定义名
+/// （「临江夜雨」「第二章 铜钱与脚印」）不是。
 pub(crate) fn is_generic_chapter_title(title: &str) -> bool {
-    let t = title.trim();
-    let mut chars = t.chars();
-    if chars.next() != Some('第') || !t.ends_with('章') {
-        return false;
-    }
-    let mid: String = t
-        .chars()
-        .skip(1)
-        .take(t.chars().count().saturating_sub(2))
-        .collect();
-    !mid.is_empty()
-        && mid
-            .chars()
-            .all(|c| c.is_ascii_digit() || "一二三四五六七八九十百千零〇两".contains(c))
+    crate::utils::chapter_title::is_generic_chapter_title(title)
 }
 
 /// 纯函数：由合约 goal 推导章节标题（可单测）。
@@ -623,8 +612,8 @@ mod tests {
 
     #[test]
     fn title_from_goal_falls_back_when_missing_or_blank() {
-        assert_eq!(title_from_goal(None, 7), "第7章");
-        assert_eq!(title_from_goal(Some("   "), 7), "第7章");
+        assert_eq!(title_from_goal(None, 7), "第七章");
+        assert_eq!(title_from_goal(Some("   "), 7), "第七章");
     }
 
     #[test]
@@ -632,6 +621,7 @@ mod tests {
         assert!(is_generic_chapter_title("第6章"));
         assert!(is_generic_chapter_title("第一章"));
         assert!(is_generic_chapter_title(" 第12章 "));
+        assert!(is_generic_chapter_title("第 134 章"));
         assert!(!is_generic_chapter_title("临江夜雨"));
         assert!(!is_generic_chapter_title("第一章 开端"));
         assert!(!is_generic_chapter_title(""));

@@ -287,8 +287,8 @@ describe('FrontstageHeader', () => {
     });
     expect(onOpenChapterList).toHaveBeenCalledTimes(1);
     // 空标题章节按「第N章」展示
-    expect(screen.getByRole('option', { name: '第2章' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: '临江夜雨' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '第二章' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '第三章 临江夜雨' })).toBeInTheDocument();
     // 当前章节高亮
     expect(screen.getByRole('option', { name: '第一章' })).toHaveAttribute('aria-selected', 'true');
   });
@@ -305,7 +305,7 @@ describe('FrontstageHeader', () => {
     );
 
     await user.click(screen.getByLabelText('展开章节列表'));
-    await user.click(screen.getByRole('option', { name: '临江夜雨' }));
+    await user.click(screen.getByRole('option', { name: '第三章 临江夜雨' }));
 
     expect(onSelectChapter).toHaveBeenCalledTimes(1);
     expect(onSelectChapter).toHaveBeenCalledWith(chaptersProp[2]);
@@ -344,7 +344,7 @@ describe('FrontstageHeader', () => {
     await user.click(screen.getByText('第一章'));
     expect(await screen.findByRole('listbox', { name: '章节列表' })).toBeInTheDocument();
 
-    await user.click(screen.getByLabelText('重命名第2章'));
+    await user.click(screen.getByLabelText('重命名第二章'));
     const input = screen.getByLabelText('编辑章节名称');
     await user.clear(input);
     await user.type(input, '雨夜来客{Enter}');
@@ -373,7 +373,7 @@ describe('FrontstageHeader', () => {
 
     await user.click(screen.getByText('第一章'));
     await screen.findByRole('listbox', { name: '章节列表' });
-    await user.click(screen.getByLabelText('重命名第2章'));
+    await user.click(screen.getByLabelText('重命名第二章'));
     const input = screen.getByLabelText('编辑章节名称');
     await user.type(input, 'x');
     await user.keyboard('{Escape}');

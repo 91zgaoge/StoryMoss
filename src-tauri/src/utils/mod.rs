@@ -1,3 +1,4 @@
+pub mod chapter_title;
 pub mod death_text;
 pub mod file;
 pub mod json;
