@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.99.8 项目完成状态
+# StoryMoss (草苔) v0.99.9 项目完成状态
+
+> 最后更新: 2026-11-21（**v0.99.9：训练报告与编审裁决健壮性**——11-20 真机 10 章训练总分 0.70（承接 9.1、编审 10/10 可用），但仍有 2 章质检降级；日志显示模型返回合法 JSON 却被判解析失败——`EditorVerdict.suggestions` 只接受字符串，模型按 `blocking_issues` 同形返回对象数组。本版让 `suggestions` 接受字符串/对象/单值、`score` 接受数字字符串、`dimension_scores` 忽略 null；诊断维度 `reference_gap` 不再进入短板/跨章阈值句/下一轮空修正；记忆探针输出可读线索描述并过滤跨词边界垃圾专名。Rust **2244/17**（+6），tsc 0，Vitest **728/3**（数量不变），Playwright **144/5**（全量复跑），fmt/clippy/guard/prettier 全绿。**未关闭**：安装后重跑同一 10 章训练，确认质检降级 → 0、下一轮改进不再出现空「原书差距」行。
 
 > 最后更新: 2026-11-20（**v0.99.8：章节标题统一**——历史库/训练沙盒同时存在 `第 134 章`、`第12章`、裸标题、中文数字四种形态；新增 `utils::chapter_title`（中文数字转换/前缀解析/标题格式化/源标题提取），`parse_chapter_number` 支持阿拉伯、中文、空格与带后缀，`canonical_chapter_title` 改中文数字，训练源章标题从正文首行恢复，自动取名写「第二章 雨夜叩门」，幕前 `displayChapterTitle` 统一展示「第二章 铜钱与脚印」，V164 迁移归一旧库 chapters/scenes.title。Rust **2238/17**（+7），tsc 0，Vitest **728/3**（+3），Playwright **144/5**（全量复跑），fmt/clippy/guard/prettier 全绿。**未关闭**：安装后重启确认 V164 迁移当前库标题；重跑训练确认沙盒上下文「第一百三十四章 …」、生成章「第十一章 …」。
 

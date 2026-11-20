@@ -563,14 +563,92 @@ pub struct EditorVerdict {
     pub verdict: String, // pass | revise
     #[serde(default)]
     pub blocking_issues: Vec<serde_json::Value>, // 字符串或 {"issue","evidence"} 对象均可
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_suggestion_list")]
     pub suggestions: Vec<String>,
     #[serde(default)]
     pub comments: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_optional_score")]
     pub score: Option<f64>, // rubric 1-5（P4 rubric 化）
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_dimension_scores")]
     pub dimension_scores: Option<std::collections::HashMap<String, f64>>,
+}
+
+/// v0.99.9：suggestions 宽容解析。
+///
+/// 真机日志（11-20 训练）里编辑审计返回了合法 JSON：
+/// `{"verdict":"pass",...,"suggestions":[{"issue":..,"evidence":..,"impact":..
+/// }]}` 但 `Vec<String>` 遇到对象数组会整份裁决解析失败 → 质量门 Failed →
+/// 质检降级放行。suggestions 与 blocking_issues 同形（模型常把两者写成
+/// 同一套对象），故按字符串/对象/单值统一收敛为字符串列表。
+fn de_suggestion_list<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(match value {
+        None | Some(serde_json::Value::Null) => Vec::new(),
+        Some(serde_json::Value::String(text)) => {
+            if text.trim().is_empty() {
+                Vec::new()
+            } else {
+                vec![text]
+            }
+        }
+        Some(serde_json::Value::Array(items)) => items.iter().filter_map(suggestion_text).collect(),
+        Some(other) => suggestion_text(&other).into_iter().collect(),
+    })
+}
+
+fn suggestion_text(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(text) => (!text.trim().is_empty()).then(|| text.clone()),
+        serde_json::Value::Object(object) => ["issue", "suggestion", "text", "fix", "impact"]
+            .iter()
+            .find_map(|key| object.get(*key).and_then(|v| v.as_str()))
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string),
+        _ => None,
+    }
+}
+
+/// v0.99.9：数值字段宽容解析（数字或数字字符串）。推理模型/本地模型
+/// 常把 score 写成 `"4"`，旧实现会让整份裁决解析失败。
+fn json_f64(value: &serde_json::Value) -> Option<f64> {
+    match value {
+        serde_json::Value::Number(number) => number.as_f64(),
+        serde_json::Value::String(text) => text.trim().parse::<f64>().ok(),
+        _ => None,
+    }
+}
+
+fn de_optional_score<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(value.as_ref().and_then(json_f64))
+}
+
+/// v0.99.9：dimension_scores 宽容解析。只保留可转数的维度，忽略 null/
+/// 非数字值；全空时视同未提供（不因一个坏字段丢弃整份裁决）。
+fn de_dimension_scores<'de, D>(
+    deserializer: D,
+) -> Result<Option<std::collections::HashMap<String, f64>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    let Some(serde_json::Value::Object(map)) = value else {
+        return Ok(None);
+    };
+    let mut out = std::collections::HashMap::new();
+    for (key, value) in map {
+        if let Some(score) = json_f64(&value) {
+            out.insert(key, score);
+        }
+    }
+    Ok((!out.is_empty()).then_some(out))
 }
 
 impl EditorVerdict {

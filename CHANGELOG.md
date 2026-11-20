@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.9（2026-11-21）
+
+**续写训练报告与编审裁决健壮性：对象型 suggestions 不再拖垮质检、诊断维度不再冒充短板、记忆探针误报收敛。**
+
+- 问题（11-20 15:40–17:49 真机 10 章训练报告 `0bbac926`）：总分虽升到 0.70、承接 9.1、编审 10/10 可用，但仍有 2 章质检降级、5 章判修订未完成；日志抓到模型返回了合法 JSON（`verdict: pass`）却被判「直连 JSON 裁决解析失败」——`EditorVerdict.suggestions` 声明为 `Vec<String>`，模型按 `blocking_issues` 同形返回 `[{issue,evidence,impact}]` 对象数组时整份裁决解析失败；报告把诊断维度「原书差距（诊断）2.1」列进短板并生成悬空句「低于阈值：」与空修正「原书差距（诊断）（2.1/10）：」注入下一轮；记忆探针把跨词窗口（你脸上/把钥匙/周成把/老头儿）误报为疑似新专名、线索只回传内部 ID（t1/t2/t3/t4）。
+- `EditorVerdict` 宽容解析：`suggestions` 接受字符串/对象/单值（对象取 issue→suggestion→text→fix→impact 首个非空字段），`score` 接受数字或数字字符串，`dimension_scores` 忽略 null/非数字项；一个坏字段不再丢弃整份裁决。
+- 报告口径：新增 `is_corrective_dimension`，`reference_gap` 只保留在五维均值诊断行，不进入短板/跨章阈值句/下一轮修正指令。
+- 记忆探针：线索未推进改为输出可读描述（12 字）而非内部 ID；疑似新专名过滤含代词/虚词的跨词窗口及「老头/钥匙/护士/病人/包厢/抽屉」等普通名词子串。
+- **测试**：Rust **2244/17**（+6：对象 suggestions、字符串分值/null 维度、诊断维度不进改进、报告不列诊断短板、线索可读标签、跨词垃圾专名过滤）；tsc 0；Vitest **728/3**（数量不变，Rust-only）；Playwright **144/5**（全量复跑）；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：安装 v0.99.9 后重跑同一 10 章训练，确认质检降级 → 0、下一轮改进不再出现空「原书差距」行；编审空 content（推理模型 CoT-only）仍属模型环境，降级保产出策略不变。
+
 ## v0.99.8（2026-11-20）
 
 **章节标题统一：中文数字解析 +「第二章 铜钱与脚印」格式 + 旧库标题迁移。**

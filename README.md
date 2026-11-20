@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.8-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.9-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.9 · 训练报告与编审裁决健壮性（日志巡检）
+
+- **问题**：11-20 真机 10 章训练总分 0.70、承接 9.1、编审 10/10 可用，但仍有 2 章质检降级；日志显示模型返回合法 JSON 却被判解析失败——`suggestions` 被模型写成对象数组而解析器只接受字符串；报告把诊断维度「原书差距」当短板并注入空修正；记忆探针误报跨词垃圾专名、线索只显示内部 ID。
+- **结果**：`EditorVerdict` 宽容解析（对象 suggestions / 字符串分值 / null 维度不再拖垮整份裁决）；诊断维度不再进入短板与下一轮指令；记忆探针输出可读线索描述并过滤跨词边界噪声。新增 6 条回归测试。
 
 ### v0.99.8 · 章节标题统一（中文数字解析 + 第二章 铜钱与脚印）
 

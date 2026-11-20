@@ -1,4 +1,6 @@
-# StoryMoss v0.99.8 架构文档
+# StoryMoss v0.99.9 架构文档
+
+> **v0.99.9**：**编审裁决与训练报告健壮性**——`EditorVerdict` 的三个字段改为宽容反序列化：`suggestions` 接受字符串/对象/单值（对象按 issue→suggestion→text→fix→impact 取首个非空字段），`score` 接受数字或数字字符串，`dimension_scores` 忽略 null/非数字项。此前模型把 `suggestions` 写成 `[{issue,evidence,impact}]` 时 serde 整份裁决失败，直连 JSON 判定解析失败后回退 tool_loop，最终质检降级。训练报告新增 `is_corrective_dimension`：`reference_gap`（原书差距，诊断维度）只保留在五维均值行，不进入短板、确定性跨章阈值句与下一轮修正指令。记忆探针（`memory_probes_line`）线索标签改用 12 字描述而非内部 ID；`suspect_new_terms` 过滤含代词/虚词的跨词窗口并新增普通名词子串停用词，收敛「你脸上/把钥匙/周成把/老头儿」类误报。
 
 > **v0.99.8**：**章节标题统一**——新增 `utils::chapter_title` 纯函数：中文数字转换（1..99,999,999）、`第N章` 前缀解析（阿拉伯/中文/空格/`第12章修订`）、`format_chapter_title`、`source_chapter_title`、`normalize_existing_chapter_title`。`agency::graders::parse_chapter_number`、`db::chapter_split::canonical/is_generic`、训练 `seed_scenes`、自动取名 `apply_title`、幕前 `displayChapterTitle` 全部走同一规则，输出「第二章 铜钱与脚印」。V164 迁移归一旧库 chapters/scenes.title：占位标题优先从正文首行恢复原书标题，裸标题补章号；训练沙盒上下文「第 134 章」保留源章号。
 

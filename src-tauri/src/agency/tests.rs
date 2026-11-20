@@ -1174,6 +1174,39 @@ fn editor_issue_parses_impact_and_fix() {
 }
 
 #[test]
+fn editor_verdict_accepts_object_suggestions() {
+    // v0.99.9 真机回归（11-20 训练）：模型返回合法 JSON，但 suggestions 是
+    // {"issue","evidence","impact"} 对象数组；旧 Vec<String> 令整份裁决解析
+    // 失败 → 质量门 Failed → 质检降级放行。
+    let raw = r#"{"verdict":"pass","blocking_issues":[],"suggestions":[{"issue":"AI 腔/过度描写","evidence":"指节泛白","impact":"情绪外化过度"},{"issue":"比喻偏密","evidence":"像烧过","impact":"读感发腻"}],"comments":"可用","score":4,"dimension_scores":{"style":7,"plot":6,"voice":7,"pacing":6,"hooks":8}}"#;
+    let v: EditorVerdict = parse_lenient(raw).expect("对象数组 suggestions 应可解析");
+    assert_eq!(v.verdict, "pass");
+    assert_eq!(v.suggestions.len(), 2);
+    assert!(v.suggestions[0].contains("AI 腔"));
+    assert_eq!(v.score, Some(4.0));
+    assert_eq!(
+        v.dimension_scores.as_ref().unwrap().get("style"),
+        Some(&7.0)
+    );
+}
+
+#[test]
+fn editor_verdict_tolerates_string_scores_and_null_dimensions() {
+    // 推理/本地模型常见形态：score 写成字符串、维度里混 null 或字符串。
+    // 解析器应保留可转数值、忽略无效项，而不是丢弃整份裁决。
+    let raw = r#"{"verdict":"revise","blocking_issues":["动机缺失"],"suggestions":"补一段动机铺垫","comments":"修","score":"3","dimension_scores":{"style":"6.5","plot":7,"voice":null,"pacing":"n/a"}}"#;
+    let v: EditorVerdict = parse_lenient(raw).expect("字符串分值与 null 维度应可解析");
+    assert_eq!(v.verdict, "revise");
+    assert_eq!(v.score, Some(3.0));
+    assert_eq!(v.suggestions, vec!["补一段动机铺垫".to_string()]);
+    let dims = v.dimension_scores.expect("有效维度应保留");
+    assert_eq!(dims.get("style"), Some(&6.5));
+    assert_eq!(dims.get("plot"), Some(&7.0));
+    assert!(!dims.contains_key("voice"));
+    assert!(!dims.contains_key("pacing"));
+}
+
+#[test]
 fn test_request_registry_lifecycle() {
     let run = "run-registry-test";
     register_request(run, "req-1");

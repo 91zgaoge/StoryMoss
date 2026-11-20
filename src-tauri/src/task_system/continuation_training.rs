@@ -2180,6 +2180,7 @@ impl ContinuationTrainingExecutor {
             .unwrap_or_else(|| {
                 dim_avgs
                     .iter()
+                    .filter(|(dim, _)| is_corrective_dimension(dim))
                     .filter_map(|(dim, avg)| {
                         avg.filter(|v| *v < FEEDBACK_THRESHOLD).map(|v| {
                             format!(
@@ -2464,6 +2465,16 @@ fn dimension_correction(dim: &str) -> &'static str {
     }
 }
 
+/// v0.99.9：该维度是否应进入「低分短板 / 下一轮修正」。
+///
+/// `reference_gap` 衡量沙盒续写与原作者后续真实章的距离，沙盒越独立该值
+/// 越低，属预期诊断而非写作缺陷。把它当短板会在报告里生成
+/// 「原书差距（诊断）（2.1/10）：」（修正语为空）并注入下一轮指令，
+/// 既误导读者也浪费 prompt。判定统一走「有修正语且非诊断维度」。
+fn is_corrective_dimension(dim: &str) -> bool {
+    dim != "reference_gap" && !dimension_correction(dim).is_empty()
+}
+
 /// 报告中的维度提示（简短，用于均值行）。
 fn dimension_hint(dim: &str) -> &'static str {
     match dim {
@@ -2716,6 +2727,9 @@ fn deterministic_cross(
         .join(" → ");
     out.push(format!("逐章总分走势：{trend}"));
     for (dim, avg) in dim_avgs {
+        if !is_corrective_dimension(dim) {
+            continue;
+        }
         if let Some(value) = avg.filter(|v| *v < FEEDBACK_THRESHOLD) {
             out.push(format!(
                 "{}均值 {value:.1}/10，低于阈值：{}",
@@ -2927,6 +2941,24 @@ fn extract_truth_beats(
     out
 }
 
+/// v0.99.9：线索标签用可读描述而非内部 ID。
+///
+/// 真机报告曾出现「线索未推进 8 条（t1/t2/t3/t4）」——探针只回传 id，
+/// 用户与下一轮指令都无法据此判断是哪条线索。
+fn thread_label(thread: &crate::agency::story_brief::BriefThread) -> String {
+    let text = if thread.description.trim().is_empty() {
+        thread.next_expected.trim()
+    } else {
+        thread.description.trim()
+    };
+    let label: String = text.chars().take(12).collect();
+    if label.is_empty() {
+        thread.id.clone()
+    } else {
+        label
+    }
+}
+
 /// v0.99.3：训练报告的记忆探针（确定性，不调用 LLM）。
 /// - 人物留存：brief cast 中的人物在 10 章生成里是否再出现；
 /// - 线索推进：brief thread 的关键词是否在生成里出现；
@@ -2968,7 +3000,7 @@ fn memory_probes_line(
                 || (!desc_key.is_empty() && text.contains(&desc_key))
         });
         if !advanced {
-            threads_unadvanced.push(thread.id.clone());
+            threads_unadvanced.push(thread_label(thread));
         }
     }
     let locations: Vec<String> = brief
@@ -3052,12 +3084,16 @@ fn suspect_new_terms(
     context_prose: &str,
     canon_terms: &[crate::agency::story_brief::BriefTerm],
 ) -> Vec<String> {
-    const STOPWORDS: [&str; 36] = [
+    const STOPWORDS: [&str; 42] = [
         "时候", "已经", "自己", "什么", "一个", "这个", "那个", "里面", "外面", "的话", "就是",
         "可是", "然后", "因为", "所以", "不是", "没有", "他们", "我们", "起来", "出来", "过去",
         "现在", "心里", "脸上", "身上", "手里", "眼睛", "声音", "地方", "东西", "事情", "感觉",
-        "知道", "看着", "听见",
+        "知道", "看着", "听见", "老头", "钥匙", "护士", "病人", "包厢", "抽屉",
     ];
+    // v0.99.9：跨词边界的 3–4 字窗口会把代词/虚词卷进「专名」（真机误报
+    // 你脸上 / 把钥匙 / 周成把）。这些高频虚词几乎不会出现在人名里，命中即
+    // 丢弃；已收录的复合词（脸上/手里…）按子串判定，避免被窗口截断绕过。
+    const FUNCTION_CHARS: &str = "你我您咱俺他她它的地得了着过把被给让这那哪个们吗呢吧啊呀哦嗯";
     let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let chars: Vec<char> = generated.chars().collect();
     for n in 3..=4 {
@@ -3066,10 +3102,13 @@ fn suspect_new_terms(
         }
         for i in 0..=chars.len() - n {
             let term: String = chars[i..i + n].iter().collect();
+            let stopword_hit = STOPWORDS.iter().any(|word| term.contains(word));
+            let function_hit = term.chars().any(|c| FUNCTION_CHARS.contains(c));
             if term
                 .chars()
                 .all(|c| ('\u{4e00}'..='\u{9fff}').contains(&c) || c == '·')
-                && !STOPWORDS.contains(&term.as_str())
+                && !stopword_hit
+                && !function_hit
             {
                 *counts.entry(term).or_insert(0) += 1;
             }
@@ -3108,6 +3147,9 @@ fn derive_improvements(
         );
     }
     for (dim, avg) in dim_avgs {
+        if !is_corrective_dimension(dim) {
+            continue;
+        }
         if let Some(value) = avg.filter(|v| *v < FEEDBACK_THRESHOLD) {
             lines.push(format!(
                 "{}（{value:.1}/10）：{}",
@@ -3842,5 +3884,91 @@ mod tests {
         let line = memory_probes_line(&brief, &generated, "周成与福摩萨相关。");
         assert!(!line.contains("人物留存缺失"), "{line}");
         assert!(!line.contains("线索未推进"), "{line}");
+    }
+
+    #[test]
+    fn memory_probes_label_threads_with_readable_text_not_ids() {
+        // v0.99.9：真机报告曾出现「线索未推进 8 条（t1/t2/t3/t4）」。
+        use crate::agency::story_brief::{BriefThread, StoryBrief};
+        let brief = StoryBrief {
+            threads: vec![BriefThread {
+                id: "t-fomosa".into(),
+                description: "福摩萨夜总会道场".into(),
+                next_expected: "去福摩萨见邵卫江".into(),
+                status: "open".into(),
+            }],
+            ..Default::default()
+        };
+        let generated = vec![(11, "院里的霜落了一地。".to_string())];
+        let line = memory_probes_line(&brief, &generated, "无关上下文。");
+        assert!(line.contains("线索未推进"), "{line}");
+        assert!(line.contains("福摩萨夜总会道场"), "{line}");
+        assert!(!line.contains("t-fomosa"), "不应回传内部 ID: {line}");
+    }
+
+    #[test]
+    fn memory_probes_ignore_cross_word_boundary_junk_terms() {
+        // v0.99.9 真机误报：你脸上 / 把钥匙 / 周成把 / 老头儿。
+        // 跨词窗口卷进代词/虚词的串不是专名；真实新名（赵老鬼）仍应保留。
+        use crate::agency::story_brief::StoryBrief;
+        let brief = StoryBrief::default();
+        let text = "你脸上全是汗，你脸上发白。他把钥匙攥紧，把钥匙又摸了摸。周成把门推开，周成把灯拧亮。老头儿笑了，老头儿摇头。赵老鬼坐在暗处，赵老鬼不说话。";
+        let generated = vec![(11, text.to_string())];
+        let line = memory_probes_line(&brief, &generated, "");
+        assert!(line.contains("赵老鬼"), "{line}");
+        for junk in ["你脸上", "把钥匙", "周成把", "老头儿"] {
+            assert!(
+                !line.contains(junk),
+                "跨词垃圾串不应入探针: {junk} in {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn derive_improvements_skips_diagnostic_reference_gap() {
+        // v0.99.9：reference_gap 是诊断维度，低于阈值也不该注入空修正。
+        let reviews = vec![review_row(3, 3, 7.0, Some(9.0))];
+        let dims: Vec<(&str, Option<f64>)> = vec![
+            ("style", Some(8.0)),
+            ("reference_gap", Some(2.1)),
+            ("continuity", Some(9.0)),
+        ];
+        let text = derive_improvements(&reviews, None, &dims, &std::collections::HashSet::new());
+        assert!(!text.contains("原书差距"), "{text}");
+        assert!(!text.contains("低于阈值"), "{text}");
+    }
+
+    #[test]
+    fn report_never_lists_reference_gap_as_weakness() {
+        // v0.99.9 真机报告：短板出现「原书差距（诊断）（2.1/10）：」且跨章段
+        // 悬空「低于阈值：」。诊断维度只保留在五维均值行。
+        let context = vec![(1, "前文一".to_string())];
+        let truths = vec![(2, "真二".to_string())];
+        let mut review = review_row(2, 2, 8.0, Some(9.0));
+        review.reference_gap = Some(2.0);
+        let (report, _scores, improvement) = ContinuationTrainingExecutor::build_report(
+            "阴脉先生",
+            1,
+            1,
+            &context,
+            &truths,
+            &[review],
+            None,
+            "世界观✓",
+            1,
+            0,
+            0,
+            0,
+            true,
+            &TrainingFeedback::default(),
+            &std::collections::HashSet::new(),
+        );
+        assert!(report.contains("原书差距（诊断）"), "{report}");
+        assert!(
+            !report.contains("原书差距（诊断）（2.0/10）"),
+            "诊断维度不应进短板: {report}"
+        );
+        assert!(!report.contains("低于阈值：\n"), "不应悬空阈值句: {report}");
+        assert!(!improvement.contains("原书差距"), "{improvement}");
     }
 }
