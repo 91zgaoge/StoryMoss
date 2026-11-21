@@ -426,7 +426,11 @@ pub fn apply_title(
     let mut conn = pool
         .get()
         .map_err(|e| AppError::from(format!("pool: {}", e)))?;
-    let tx = conn.transaction()?;
+    // v0.99.10：先 SELECT 再 UPDATE 的 Deferred 事务会在并发写入后升级为
+    // 写锁，WAL 下返回 SQLITE_BUSY_SNAPSHOT（busy_timeout 不生效），真机
+    // 训练落库期间出现「[chapter-title] 自动取名失败 database is locked」。
+    // 用 Immediate 先取写锁，让 busy_timeout=5s 正常等待。
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
 
     let current: Option<Option<String>> = tx
         .query_row(

@@ -2385,9 +2385,12 @@ struct SynthesisReport {
 /// 四项之和等于批量章数——旧报告 3+0+2=5 与 10 章不符，读者无法判断其余
 /// 5 章去向。
 fn render_gate_line(passed: usize, revised: usize, degraded: usize, unrevised: usize) -> String {
-    let mut line = format!(
-        "{passed} 章通过 / {revised} 章修订 / {degraded} 章质检降级（编辑审计未完成，已放行保产出）"
-    );
+    // v0.99.10：降级为 0 时不能仍写「编辑审计未完成，已放行保产出」——
+    // 真机报告出现「0 章质检降级（编辑审计未完成，已放行保产出）」自相矛盾。
+    let mut line = format!("{passed} 章通过 / {revised} 章修订 / {degraded} 章质检降级");
+    if degraded > 0 {
+        line.push_str("（编辑审计未完成，已放行保产出）");
+    }
     if unrevised > 0 {
         line.push_str(&format!(
             " / {unrevised} 章编审判修订但修订未完成（保留首稿装配）"
@@ -3093,7 +3096,11 @@ fn suspect_new_terms(
     // v0.99.9：跨词边界的 3–4 字窗口会把代词/虚词卷进「专名」（真机误报
     // 你脸上 / 把钥匙 / 周成把）。这些高频虚词几乎不会出现在人名里，命中即
     // 丢弃；已收录的复合词（脸上/手里…）按子串判定，避免被窗口截断绕过。
-    const FUNCTION_CHARS: &str = "你我您咱俺他她它的地得了着过把被给让这那哪个们吗呢吧啊呀哦嗯";
+    const FUNCTION_CHARS: &str = "你我您咱俺他她它的地得了着过把被给让这那哪个们吗呢吧啊呀哦嗯\
+                                  是有像就又也都还再很太更最没别声缕";
+    // v0.99.10：方位词收尾的 3 字窗口几乎都是短语（真机误报 条案上），
+    // 人名/专名极少以方位字结尾。
+    const TERMINAL_LOCATIVE_CHARS: &str = "上下里外边前后";
     let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let chars: Vec<char> = generated.chars().collect();
     for n in 3..=4 {
@@ -3104,11 +3111,17 @@ fn suspect_new_terms(
             let term: String = chars[i..i + n].iter().collect();
             let stopword_hit = STOPWORDS.iter().any(|word| term.contains(word));
             let function_hit = term.chars().any(|c| FUNCTION_CHARS.contains(c));
+            let locative_hit = term
+                .chars()
+                .last()
+                .map(|c| TERMINAL_LOCATIVE_CHARS.contains(c))
+                .unwrap_or(false);
             if term
                 .chars()
                 .all(|c| ('\u{4e00}'..='\u{9fff}').contains(&c) || c == '·')
                 && !stopword_hit
                 && !function_hit
+                && !locative_hit
             {
                 *counts.entry(term).or_insert(0) += 1;
             }
@@ -3119,10 +3132,23 @@ fn suspect_new_terms(
         .filter(|(term, count)| {
             *count >= 2
                 && !context_prose.contains(term)
-                && !canon_terms.iter().any(|t| t.term == *term)
+                // v0.99.10：白名单里的长词被 3 字窗口截断（宏达投资→达投资）
+                // 不是新专名；按子串判定，不再只比全等。
+                && !canon_terms.iter().any(|t| t.term == *term || t.term.contains(term.as_str()))
         })
         .collect();
+    // v0.99.10：同一串的相邻窗口（宏达投资→宏达投/达投资、深蓝夹克→深蓝夹/
+    // 蓝夹克）会成组误报；只保留出现次数不少于该窗口的最长串。
     out.sort_by(|a, b| b.1.cmp(&a.1));
+    let all = out.clone();
+    out.retain(|(term, count)| {
+        !all.iter().any(|(other, other_count)| {
+            other != term
+                && *other_count >= *count
+                && other.chars().count() > term.chars().count()
+                && other.contains(term.as_str())
+        })
+    });
     out.into_iter().map(|(term, _)| term).take(12).collect()
 }
 
@@ -3260,6 +3286,15 @@ mod tests {
         assert!(
             !full.contains("编审判修订但修订未完成"),
             "全通过时不加噪音: {full}"
+        );
+        // v0.99.10 真机报告：0 章降级仍写「编辑审计未完成，已放行保产出」。
+        assert!(
+            !full.contains("编辑审计未完成"),
+            "降级为 0 时不得出现降级说明: {full}"
+        );
+        assert!(
+            line.contains("编辑审计未完成"),
+            "确有降级时要保留说明: {line}"
         );
     }
 
@@ -3922,6 +3957,37 @@ mod tests {
                 "跨词垃圾串不应入探针: {junk} in {line}"
             );
         }
+    }
+
+    #[test]
+    fn memory_probes_drop_canon_fragments_and_locative_windows() {
+        // v0.99.10 真机误报：宏达投/达投资（宏达投资的窗口碎片）、深蓝夹/
+        // 蓝夹克（同一串的相邻窗口）、条案上/像是有/缕青烟（方位短语与
+        // 虚词窗口）。白名单长词的碎片与重叠窗口都应丢弃，真实新名保留。
+        use crate::agency::story_brief::{BriefTerm, StoryBrief};
+        let brief = StoryBrief {
+            canon_terms: vec![BriefTerm {
+                term: "宏达投资".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let text = "宏达投资的账本。宏达投资的人来了。深蓝夹克的男人，深蓝夹克很旧。\
+                    条案上落灰，条案上摆着香炉。像是有风，像是有人。缕青烟升起，缕青烟散了。\
+                    赵老鬼坐在暗处，赵老鬼不说话。";
+        let generated = vec![(11, text.to_string())];
+        let line = memory_probes_line(&brief, &generated, "");
+        let section = line.split("疑似新专名：").nth(1).unwrap_or("");
+        let items: Vec<&str> = section.split('/').collect();
+        let has = |needle: &str| items.iter().any(|item| item.trim() == needle);
+        assert!(has("赵老鬼"), "真实新名必须保留: {line}");
+        for junk in ["达投资", "宏达投", "条案上", "像是有", "缕青烟"] {
+            assert!(!has(junk), "窗口碎片不应入探针: {junk} in {line}");
+        }
+        assert!(
+            !has("深蓝夹") && !has("蓝夹克"),
+            "重叠窗口应合并为最长串: {line}"
+        );
     }
 
     #[test]

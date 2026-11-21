@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.9-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.10-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.10 · 训练报告/标题落库/记忆探针收尾（日志巡检）
+
+- **问题**：11-21 两轮真机 10 章训练（v0.99.9）第二轮总分升到 0.86、承接 9.9，但报告出现「0 章质检降级（编辑审计未完成，已放行保产出）」自相矛盾；第一轮第 12/13 章自动取名因 `database is locked` 失败、标题缺失；记忆探针仍把 `宏达投/达投资`（白名单长词窗口碎片）、`条案上/像是有/缕青烟`（方位/虚词窗口）误报为新专名。
+- **结果**：降级说明只在确有降级时出现；章节标题写回改用 Immediate 事务，WAL 下不再因 BUSY_SNAPSHOT 绕过 `busy_timeout`。记忆探针按白名单子串与重叠窗口合并，并过滤方位收尾/虚词窗口。新增 1 条回归测试并扩充质量门文案断言。
 
 ### v0.99.9 · 训练报告与编审裁决健壮性（日志巡检）
 

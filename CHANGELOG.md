@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.10（2026-11-22）
+
+**日志巡检收尾：报告质量门文案自相矛盾、章节标题写回被 WAL 写锁吞掉、记忆探针窗口碎片误报。**
+
+- 证据（11-21 本机 v0.99.9 两轮 10 章训练）：第二轮总分 0.86 / 承接 9.9 / 编审 10/10（9 pass、1 revise、0 不可用），但报告写「0 章质检降级（编辑审计未完成，已放行保产出）」；第一轮 07:01/07:06 两次 `[chapter-title] 自动取名失败 ... [DB_LOCKED] database is locked`，第 12/13 章无标题；记忆探针列出「宏达投/达投资」「深蓝夹/蓝夹克」「条案上/像是有/缕青烟」。
+- `render_gate_line`：降级数为 0 时不再追加「编辑审计未完成，已放行保产出」，只有 `degraded > 0` 才显示。
+- `apply_title`：`conn.transaction()`（Deferred）改为 `TransactionBehavior::Immediate`。Deferred 事务先读后写，WAL 下并发写入后升级写锁会返回 `SQLITE_BUSY_SNAPSHOT`，该错误不走 busy handler（`busy_timeout=5s` 不生效）；Immediate 先取写锁，训练落库期间正常等待。
+- `suspect_new_terms`：白名单长词按子串排除（宏达投资 → 达投资/宏达投）；同一串的重叠窗口只保留最长（深蓝夹克 → 深蓝夹/蓝夹克）；新增方位字收尾（上下里外边前后）与「是/有/像/声/缕」等虚词字符过滤（条案上/像是有/缕青烟）。
+- **测试**：Rust **2245/17**（+1：白名单碎片/重叠窗口/方位窗口；质量门文案断言扩充）；tsc 0；Vitest **728/3**（数量不变，Rust-only）；Playwright **144/5**（全量复跑）；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：安装 v0.99.10 后重跑同一 10 章训练，确认自动取名在训练并发落库时不再 DB_LOCKED；推理模型空 content（2,377 次）、LeadWriter tool_loop 熔断（22 次）、章节大纲 0 字符（11 次）仍属模型环境，降级/兜底策略不变。
+
 ## v0.99.9（2026-11-21）
 
 **续写训练报告与编审裁决健壮性：对象型 suggestions 不再拖垮质检、诊断维度不再冒充短板、记忆探针误报收敛。**

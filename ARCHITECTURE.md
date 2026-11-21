@@ -1,4 +1,6 @@
-# StoryMoss v0.99.9 架构文档
+# StoryMoss v0.99.10 架构文档
+
+> **v0.99.10**：**报告口径与并发写锁收尾**——`render_gate_line` 仅在 `degraded > 0` 时追加「编辑审计未完成，已放行保产出」，修复真机「0 章质检降级（…）」自相矛盾。`agency::chapter_title::apply_title` 的事务从 Deferred 改为 `TransactionBehavior::Immediate`：先 `SELECT title` 再 `UPDATE` 的 Deferred 事务在其它连接提交写入后会以 `SQLITE_BUSY_SNAPSHOT` 升级失败，该错误不调用 busy handler（`PRAGMA busy_timeout=5000` 不生效），真机训练并发落库时章节标题写回被丢弃；Immediate 先取写锁，由 busy_timeout 正常排队。`continuation_training::suspect_new_terms` 增加三类噪声过滤：白名单长词按子串排除（宏达投资 → 宏达投/达投资）、重叠窗口只保留更长串（深蓝夹克 → 深蓝夹/蓝夹克）、方位字收尾（上下里外边前后）与「是/有/像/声/缕」等虚词字符窗口（条案上/像是有/缕青烟）直接丢弃。
 
 > **v0.99.9**：**编审裁决与训练报告健壮性**——`EditorVerdict` 的三个字段改为宽容反序列化：`suggestions` 接受字符串/对象/单值（对象按 issue→suggestion→text→fix→impact 取首个非空字段），`score` 接受数字或数字字符串，`dimension_scores` 忽略 null/非数字项。此前模型把 `suggestions` 写成 `[{issue,evidence,impact}]` 时 serde 整份裁决失败，直连 JSON 判定解析失败后回退 tool_loop，最终质检降级。训练报告新增 `is_corrective_dimension`：`reference_gap`（原书差距，诊断维度）只保留在五维均值行，不进入短板、确定性跨章阈值句与下一轮修正指令。记忆探针（`memory_probes_line`）线索标签改用 12 字描述而非内部 ID；`suspect_new_terms` 过滤含代词/虚词的跨词窗口并新增普通名词子串停用词，收敛「你脸上/把钥匙/周成把/老头儿」类误报。
 
