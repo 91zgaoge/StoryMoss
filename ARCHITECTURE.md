@@ -1,4 +1,6 @@
-# StoryMoss v0.99.12 架构文档
+# StoryMoss v0.99.13 架构文档
+
+> **v0.99.13**：**幕前 CAS 基线 scene 绑定 + 更新检查多源裁决**——`useScenePersistence` 的 CAS 基线由裸正文改为 `SceneBaseline{sceneId, content}`：`persistSceneContent` 在保存入口同步捕获本 scene 基线（旧实现在 `await prev` 之后才读共享 ref，切章已把 ref 换成新章 DB 正文，上一章在途保存拿新章指纹校验旧 scene → 后端判 `scene_conflict`、前端误报「另一窗口更新」并停止重试，真机 10/10 次冲突均在切章后 10–50ms）；跨 scene 保存不发送 `expected_content_hash`（null），成功回写只在本 scene 仍被跟踪时进行，避免在途保存覆盖新章基线；视觉空稿（`<p></p>`/`<p><br></p>`/`<p>&nbsp;</p>`）跳过写库（后端 v0.93.16 忽略正文但仍返回命中 1 行，旧实现会把基线写成空稿导致之后永久冲突）。`updater::decide_update_check` 取代 `conclude_update_checks`：至少一个源明确返回「无更新」即判已是最新并附 `CheckUpdateResult.warning`（可选、缺省不序列化，前端只记 warn 日志），所有源都失败才整体报错；`install_update` 无可用更新时返回 `No update available`。
 
 > **v0.99.12**：**续写训练闭环收尾**——`logging::cleanup_old_logs` 修正保留条件反转（旧代码把 `mtime < cutoff` 当作「未过期」继续保留，启动时反而删掉当日 tracing）；`agency::story_brief` 新增 `protagonist` 字段、`detect_protagonist_name`（只认 `我叫X/我姓X/以X身份/X这个身份/X自报/自称X`，不足以判定时不标注）与 `canonicalize_protagonist`（把「我/主角/主人公/本人/阴脉先生」并入权威姓名、合并人物态、cast 去重）；训练 roster 按识别结果标注主角而非假定角色表第一项。`agency::coordinator::handle_gate` 的修订完成判定改为「拿到与首稿不同、≥300 字、非工具 JSON 的新稿」；训练批量（`direct_gate_json`）跳过 ReAct tool_loop，以 `build_direct_revision_task`（完整正文+逐条问题）直出修订稿并写回本章 key，再走第二轮 gate，熔断/失败才保留首稿。`continuation_training::suspect_new_terms` 采用长串优先的重叠窗口收敛，并过滤称谓后缀与器物收尾字。红线新增主角身份/配角互动/禁用「不是…而是…」排比与比喻堆叠。
 

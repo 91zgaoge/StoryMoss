@@ -56,6 +56,20 @@ export function isEmptyEditorHtml(html: string): boolean {
   );
 }
 
+/**
+ * v0.99.13：CAS 正文基线必须与 scene 绑定。
+ *
+ * 旧实现只存一段正文：切章时 selectChapter 会把基线换成新章的 DB 正文，
+ * 而上一章在途/排队的保存会在 `await` 之后才读基线，于是拿新章的指纹去
+ * 校验旧 scene → 后端判 scene_conflict → 前端误报「另一窗口已更新」并丢弃
+ * 上一章最后几次编辑（真机 10 次冲突全部发生在切章后 10–50ms，冲突对象
+ * 都是上一章 scene）。带上 sceneId 后，跨 scene 的保存不再可能用错指纹。
+ */
+export interface SceneBaseline {
+  sceneId: string;
+  content: string | null;
+}
+
 export interface UseScenePersistenceParams {
   /** 编辑器引用——flushSceneSave 直接读取编辑器实际 HTML，而非 latestContentRef */
   editorRef: RefObject<RichTextEditorRef>;
@@ -64,7 +78,7 @@ export interface UseScenePersistenceParams {
   /** 组件内 onChapterUpdated / ensureUntitledStory 也读写的「刚保存」时间戳 */
   justSavedRef: MutableRefObject<number>;
   /** v0.96.0：当前 scene 加载/成功保存后的正文基线，用于 CAS 指纹。 */
-  sceneBaselineContentRef: MutableRefObject<string | null>;
+  sceneBaselineContentRef: MutableRefObject<SceneBaseline | null>;
   /** store 保存状态写入（组件内包装 setSaveStatus） */
   setIsSaved: (saved: boolean) => void;
 }
@@ -136,20 +150,32 @@ export default function useScenePersistence({
   const persistSceneContent = useCallback(
     async (sceneId: string, content: string, retryCount = 0): Promise<void> => {
       if (!sceneId || !content) return;
+      // v0.99.13: 视觉空文档一律不写库。后端 v0.93.16 起会把 `<p></p>` 这类
+      // 空稿视为 None 并保留原正文，但 update_scene 仍返回命中 1 行；前端若
+      // 照常把「基线」更新成空稿，下一次真实保存的 CAS 指纹就与 DB 永远不
+      // 匹配（切章瞬间编辑器会短暂处于空文档，真机 7 字符空稿保存即由此而
+      // 来）。跳过既不改 DB 也不改基线，语义与后端一致。
+      if (isEmptyEditorHtml(content)) {
+        logToBackend('frontstage:persist_skip_empty', 'persist skipped: visually empty content', {
+          sceneId,
+          contentLen: content.length,
+          retryCount,
+        });
+        return;
+      }
       // v0.59.2: 载入期空写保护（见 loadGuardRef 注释）
       const guard = loadGuardRef.current;
       if (guard.armed && guard.sceneId === sceneId) {
-        if (isEmptyEditorHtml(content)) {
-          logToBackend(
-            'frontstage:persist_skip_empty_after_load',
-            'persist skipped: empty editor doc right after scene load',
-            { sceneId, contentLen: content.length }
-          );
-          return;
-        }
         // 用户已经在写：解除保护，后续清空照常落库
         guard.armed = false;
       }
+      // v0.99.13: 在入口同步捕获本 scene 的 CAS 基线，不能等到 `await prev`
+      // 之后再读共享 ref——切章会在这段等待里把 ref 换成新章正文。
+      const entryBaseline = sceneBaselineContentRef.current;
+      const expectedContentHash =
+        entryBaseline && entryBaseline.sceneId === sceneId && entryBaseline.content
+          ? sceneContentHash(entryBaseline.content)
+          : null;
       const prev = saveChainRef.current;
       let release!: () => void;
       saveChainRef.current = new Promise<void>(r => {
@@ -159,13 +185,12 @@ export default function useScenePersistence({
       try {
         // v0.30.50: 读取影响行数——此前丢弃返回值，scene 不存在时后端
         // 静默 0 行更新，UI 显示"已保存"但正文从未落库，重启即丢失。
-        const baseline = sceneBaselineContentRef.current;
         const response = await loggedInvoke<UpdateSceneResponse>(
           'update_scene',
           buildUpdateSceneIpcArgs({
             sceneId,
             content,
-            expectedContentHash: baseline ? sceneContentHash(baseline) : null,
+            expectedContentHash,
           })
         );
         const updated = typeof response === 'number' ? response : (response.updated ?? 0);
@@ -173,8 +198,12 @@ export default function useScenePersistence({
           throw new Error(`update_scene 影响 0 行（scene ${sceneId.slice(0, 8)} 不存在）`);
         }
         // 成功保存后刷新正文基线；下一次保存以刚写入的内容作为 CAS 期望，
-        // 否则会把自己的上一次写入判成冲突。
-        sceneBaselineContentRef.current = content;
+        // 否则会把自己的上一次写入判成冲突。v0.99.13：只有 ref 仍跟踪同一
+        // scene（或尚未跟踪）时才写入，切章后的在途保存不得覆盖新章基线。
+        const tracked = sceneBaselineContentRef.current;
+        if (!tracked || tracked.sceneId === sceneId) {
+          sceneBaselineContentRef.current = { sceneId, content };
+        }
         setIsSaved(true);
         justSavedRef.current = Date.now();
         // v0.33.x: 失败后的成功写一次恢复日志并清除可见错误态

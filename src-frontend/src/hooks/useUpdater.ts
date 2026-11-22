@@ -23,6 +23,8 @@ export interface CheckUpdateResult {
   current_version: string;
   latest_version: string | null;
   update_info: UpdateInfo | null;
+  /** v0.99.13：部分更新源不可用、其余源已判定「无更新」时的诊断信息。 */
+  warning?: string | null;
 }
 
 export interface UpdateDownloadProgress {
@@ -140,6 +142,12 @@ export function useUpdater(autoCheck: boolean = true): UseUpdaterReturn {
       setHasUpdate(result.has_update);
       setLatestVersion(result.latest_version);
       setUpdateInfo(result.update_info);
+
+      // v0.99.13：部分源不可用但其余源已给出确定结果——不是错误，不弹错，
+      // 只留一条可检索的诊断日志（真机 GitHub 被阻断时曾每次启动报错）。
+      if (result.warning) {
+        updaterLogger.warn('[Updater] Partial check warning', { warning: result.warning });
+      }
 
       if (result.has_update) {
         updaterLogger.debug(`[Updater] New version available: ${result.latest_version}`);

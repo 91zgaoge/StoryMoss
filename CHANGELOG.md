@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.13（2026-11-23）
+
+**日志巡检：切章不再误报「另一窗口已更新」并丢掉上一章末次编辑；官网已是最新时不再把 GitHub 网络故障升级成「更新失败」。**
+
+- 证据（v0.99.10 / macOS 日志包 `db37e769`，11-17～11-22）：①27 条 ERROR 中 10 条是 `update_scene` 的 `VALIDATION_FAILED scene_conflict`，10/10 发生在切章后 10–50ms，冲突对象始终是**上一章** scene；②`check_update` 12 次 + `install_update` 3 次「无法通过 GitHub 或 storymoss.top 完成更新」，本机实测 GitHub 源不可达（请求返回空），官网 `latest.json` 正常且明确返回「无更新」；③另有 1,403 次空正文冷却跳过（含 137 次「原 1 → after 0」），核对代码确认 keepalive/pre-call 探针不写冷却计数，空正文全部来自真实调用，v0.99.11 的「撞额度 ×4 重试 + 全冷却恢复」已覆盖；本地 Qwren 连接拒绝 267 次、GPU OOM 54 次、Ds10 首字节超时 30 次属用户环境，只记录不修。
+- CAS 基线：`useScenePersistence` 的基线由「一段裸正文」改为 `SceneBaseline{sceneId, content}`，`persistSceneContent` 在**入口同步捕获**本 scene 基线（旧实现等 `await prev` 之后才读共享 ref，切章已把 ref 换成新章正文）；跨 scene 保存不发送指纹（null），成功回写只在本 scene 仍被跟踪时进行，避免在途保存覆盖新章基线。`FrontstageApp` 三处基线写入（selectChapter / 懒加载 scene / 建未命名故事）同步带 sceneId。
+- 视觉空稿：`<p></p>`/`<p><br></p>`/`<p>&nbsp;</p>` 一律不写库并记 `frontstage:persist_skip_empty`。后端 v0.93.16 会忽略正文但仍返回命中 1 行，旧实现会把前端基线更新成空稿，之后每次保存的 CAS 指纹都与 DB 不匹配（切章瞬间编辑器短暂空文档正是来源）。
+- 更新检查：新增 `decide_update_check`——至少一个源明确返回「无更新」时判已是最新并附 `warning` 诊断（`CheckUpdateResult.warning` 可选、缺省不序列化；前端只记 `[Updater] Partial check warning`，不弹错）；所有源都失败才维持整体报错；`install_update` 在无可用更新时返回准确的「No update available」。
+- **测试**：Rust **2265/17**（+2 净增：多源裁决 3 + warning 序列化契约 1，替换 2 条旧契约测试）；tsc 0；Vitest **732/3**（+4：切章在途保存沿用旧基线、同 scene 仍带指纹、视觉空稿不写库不改基线、跨 scene 不发指纹）；Playwright **144/5**（全量复跑）；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：安装 v0.99.13 后连续切章写作，确认日志不再出现 `scene_conflict`、上一章末次编辑不再丢失；官网无更新时「检查更新」不再报错。
+
 ## v0.99.12（2026-11-22）
 
 **续写训练真机复盘：重启不再删掉当日日志、主角只按原文自称识别、修订改为直出兜底、记忆探针不再报器物碎片。**

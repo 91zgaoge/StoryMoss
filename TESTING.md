@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.99.12)
+# 🧪 StoryMoss 自动化测试环境 (v0.99.13)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.99.13 变更说明
+
+- Rust **2265 passed / 17 ignored**（+2 净增）：更新检查多源裁决 3（无失败=已最新、有源成功+另一源失败=已最新+warning、全失败=报错）+ `CheckUpdateResult.warning` 序列化契约 1；替换 2 条旧契约测试（旧语义「任一源失败即报错」）。
+- Vitest **732 passed / 3 skipped**（+4）：切章后旧 scene 在途保存沿用调用时刻基线且不覆盖新章基线、同一 scene 仍携带 DB 指纹、视觉空稿不写库不改基线、基线属于其它 scene 时不发送指纹。
+- tsc 0；Playwright **144 passed / 5 skipped**（全量复跑）；`cargo +nightly-2026-10-05 fmt`、`cargo clippy`（0 error）、`python3 scripts/architecture_guard.py`、`npx prettier --check` 全绿。
+- 验收：①幕前连续切章写作（每次切章前有未保存改动），日志不再出现 `frontstage:persist_conflict` / `update_scene failed ... scene_conflict`，被切走的章节末次编辑已落库；②同一场景在另一窗口改写后，本窗口保存仍会被拒绝（CAS 未被放松）；③清空全章正文后不再出现基线被写成 `<p></p>` 的永久冲突；④在已是最新版本时点「检查更新」不再报错，日志只有 `[Updater] Partial check warning`；⑤两个源都不可达时仍报错并列出两源详情。
 
 ### v0.99.12 变更说明
 

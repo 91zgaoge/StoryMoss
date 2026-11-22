@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.12-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.13-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.13 · 切章保存不再误丢稿 / 更新检查不再假报错（日志巡检）
+
+- **问题**：v0.99.10 日志包（11-17～11-22）里 27 条 ERROR 集中在两处。第一，10 次「正文已被另一窗口更新，拒绝用旧快照覆盖」的保存冲突，全部发生在切章后 10–50ms，冲突对象都是**上一章**——上一章在途保存被换成新章的 CAS 基线，后端正确拒绝、前端却误报「另一窗口已更新」并停止重试，切章前最后几次编辑因此丢失。第二，12 次「检查更新失败」+3 次「安装更新失败」：本机 GitHub 源不可达、官网已明确返回「无更新」，但旧裁决把「任一源失败」整体升级成更新失败，用户每次启动都看到报错。
+- **结果**：CAS 基线改为「按 scene 绑定 + 保存入口同步捕获」，跨 scene 不发送指纹、在途保存不再覆盖新章基线；视觉空稿（`<p></p>` 等）直接跳过写入，避免把前端基线写成空稿后永久冲突。更新检查改为「有源成功给出确定结果即采用」，另一源失败只附 `warning` 诊断日志；所有源都失败才报错。新增 8 条回归测试（Rust 4 / 前端 4）。
 
 ### v0.99.12 · 续写训练真机复盘（日志保留 / 主角识别 / 修订直出 / 探针收敛）
 

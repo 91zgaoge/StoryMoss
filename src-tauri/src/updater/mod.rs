@@ -76,6 +76,11 @@ pub struct CheckUpdateResult {
     pub current_version: String,
     pub latest_version: Option<String>,
     pub update_info: Option<UpdateInfo>,
+    /// v0.99.13：已有更新源成功返回「无更新」、但另一源检查失败时的警告。
+    /// 不再把这种情况升级成整体失败（真机：GitHub 被网络阻断 + 官网明确无
+    /// 更新，每次启动都报「无法完成更新」，15 条 ERROR 全属此类）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 /// 下载进度事件
@@ -179,36 +184,53 @@ fn absorb_update_check<T>(
 }
 
 /// 多源检查的最终裁决（纯函数，便于测试）：
-/// 所有源都明确返回无更新时才 Ok(None)；任一源失败则整体报错（不能把
-/// “某个源检查失败”误报成“没有更新”）。
-fn conclude_update_checks<T>(found: Option<T>, failures: Vec<String>) -> Result<Option<T>, String> {
-    if found.is_some() {
-        return Ok(found);
-    }
+/// - 没有任何源报错 → Ok(无更新)；
+/// - 至少一个源成功返回「无更新」，其余源失败 → Ok(无更新 + warning)。
+///   更新源彼此是同版本产物（官网镜像由发版流水线同步），任一源能给出
+///   确定的「当前已是最新」就足以回答用户；把另一个源的网络故障升级成
+///   「更新失败」只会制造假故障（真机 GitHub 被阻断时每次启动都报错）；
+/// - 所有源都失败 → Err（确实无法判断，不能误报「没有更新」）。
+fn decide_update_check<T>(
+    saw_up_to_date: bool,
+    failures: Vec<String>,
+) -> Result<(Option<T>, Option<String>), String> {
     if failures.is_empty() {
-        Ok(None)
-    } else {
-        Err(format_updater_error(failures.join("；")))
+        return Ok((None, None));
     }
+    if saw_up_to_date {
+        let warning = format!(
+            "以下更新源检查失败，已按其余源的结果判定为已是最新: {}",
+            failures.join("；")
+        );
+        log::warn!("[Updater] {}", warning);
+        return Ok((None, Some(warning)));
+    }
+    Err(format_updater_error(failures.join("；")))
 }
 
-async fn find_update(app_handle: &AppHandle) -> Result<Option<SourcedUpdate>, String> {
+async fn find_update(
+    app_handle: &AppHandle,
+) -> Result<(Option<SourcedUpdate>, Option<String>), String> {
     let mut failures = Vec::new();
+    let mut saw_up_to_date = false;
 
     for source in UPDATE_SOURCES {
         let outcome = check_source(app_handle, source).await;
+        if let Ok(None) = &outcome {
+            saw_up_to_date = true;
+        }
         if let Some(update) = absorb_update_check(source, outcome, &mut failures) {
             log::info!(
                 "[Updater] Using {}: update {}",
                 source.label(),
                 update.update.version
             );
-            return Ok(Some(update));
+            return Ok((Some(update), None));
         }
         // Ok(None) 不再提前 return：继续检查后续源。
     }
 
-    conclude_update_checks(None, failures)
+    decide_update_check(saw_up_to_date, failures)
 }
 
 async fn download_update(app_handle: &AppHandle, update: &Update) -> Result<Vec<u8>, UpdaterError> {
@@ -308,7 +330,7 @@ pub async fn check_update(app_handle: AppHandle) -> Result<CheckUpdateResult, St
     let current_version = app_handle.package_info().version.to_string();
 
     match find_update(&app_handle).await {
-        Ok(Some(found)) => {
+        Ok((Some(found), _)) => {
             let update = found.update;
             log::info!(
                 "[Updater] Update available: {} -> {}",
@@ -326,9 +348,10 @@ pub async fn check_update(app_handle: AppHandle) -> Result<CheckUpdateResult, St
                     pub_date: update.date.map(|d| d.to_string()).unwrap_or_default(),
                     signature: update.signature,
                 }),
+                warning: None,
             })
         }
-        Ok(None) => {
+        Ok((None, warning)) => {
             log::info!(
                 "[Updater] No updates available, current version: {}",
                 current_version
@@ -338,6 +361,7 @@ pub async fn check_update(app_handle: AppHandle) -> Result<CheckUpdateResult, St
                 current_version,
                 latest_version: None,
                 update_info: None,
+                warning,
             })
         }
         Err(e) => {
@@ -350,9 +374,11 @@ pub async fn check_update(app_handle: AppHandle) -> Result<CheckUpdateResult, St
 /// 下载并安装更新（带进度事件）
 #[tauri::command]
 pub async fn install_update(app_handle: AppHandle) -> Result<(), String> {
-    let found = find_update(&app_handle)
-        .await?
-        .ok_or_else(|| "No update available".to_string())?;
+    let (found, warning) = find_update(&app_handle).await?;
+    if let Some(warning) = warning {
+        log::warn!("[Updater] install_update: {}", warning);
+    }
+    let found = found.ok_or_else(|| "No update available".to_string())?;
 
     log::info!(
         "[Updater] Downloading update: {} from {}",
@@ -438,42 +464,50 @@ mod tests {
         assert!(found.is_none());
         assert!(failures.is_empty());
 
-        // Website 命中更新：最终应采用它。
+        // Website 命中更新：最终应采用它（该分支在 find_update 内提前返回）。
         found = absorb_update_check(UpdateSource::Website, Ok(Some("0.95.0")), &mut failures);
-        assert_eq!(
-            conclude_update_checks(found, failures).unwrap(),
-            Some("0.95.0")
-        );
+        assert_eq!(found, Some("0.95.0"));
     }
 
     #[test]
-    fn no_update_only_when_all_sources_report_none() {
-        let mut failures = Vec::new();
-        let mut found = None;
-        for source in UPDATE_SOURCES {
-            found = absorb_update_check(source, Ok::<Option<&str>, String>(None), &mut failures);
-        }
-        assert!(failures.is_empty());
-        assert_eq!(conclude_update_checks(found, failures).unwrap(), None);
-    }
-
-    #[test]
-    fn source_failure_without_update_is_an_error_not_none() {
-        let mut failures = Vec::new();
-        let mut found = absorb_update_check(
-            UpdateSource::GitHub,
-            Ok::<Option<&str>, String>(None),
-            &mut failures,
-        );
-        found = absorb_update_check(
-            UpdateSource::Website,
-            Err("connection reset".into()),
-            &mut failures,
-        );
+    fn no_failures_means_up_to_date() {
+        let (found, warning) =
+            decide_update_check::<&str>(true, Vec::new()).expect("无失败应判已是最新");
         assert!(found.is_none());
-        let error = conclude_update_checks(found, failures).unwrap_err();
+        assert!(warning.is_none());
+    }
+
+    /// v0.99.13：真机 GitHub 被网络阻断、官网明确无更新。旧裁决把这种
+    /// 情况升级成整体失败（每次启动一条 ERROR）；现在应判「已是最新」并
+    /// 只带一条 warning 供诊断。
+    #[test]
+    fn one_source_up_to_date_plus_other_failure_is_up_to_date_with_warning() {
+        let (found, warning) = decide_update_check::<&str>(
+            true,
+            vec!["GitHub Releases: error sending request".into()],
+        )
+        .expect("至少一个源给出确定结果时不应报错");
+        assert!(found.is_none());
+        let warning = warning.expect("应带 warning 说明失败的源");
+        assert!(warning.contains("已是最新"));
+        assert!(warning.contains("error sending request"));
+    }
+
+    /// 所有源都失败时仍必须报错：此时无法判断是否有更新，不能误报「没有更新」。
+    #[test]
+    fn all_sources_failed_is_an_error() {
+        let error = decide_update_check::<&str>(
+            false,
+            vec![
+                "GitHub Releases: connection reset".into(),
+                "storymoss.top: timeout".into(),
+            ],
+        )
+        .unwrap_err();
         assert!(error.contains("connection reset"));
+        assert!(error.contains("timeout"));
         assert!(error.contains("GitHub"));
+        assert!(error.contains("storymoss.top"));
     }
 
     #[test]
@@ -491,5 +525,26 @@ mod tests {
         assert!(msg.contains("latest.json"));
         assert!(msg.contains("storymoss.top"));
         assert!(msg.contains("GitHub"));
+    }
+
+    /// IPC 契约：warning 缺省时不出现在 JSON 里，前端字段保持可选。
+    #[test]
+    fn check_result_omits_absent_warning() {
+        let up_to_date = CheckUpdateResult {
+            has_update: false,
+            current_version: "0.99.13".to_string(),
+            latest_version: None,
+            update_info: None,
+            warning: None,
+        };
+        let json = serde_json::to_string(&up_to_date).unwrap();
+        assert!(!json.contains("warning"), "缺省 warning 不应序列化: {json}");
+
+        let partial = CheckUpdateResult {
+            warning: Some("GitHub 源失败".to_string()),
+            ..up_to_date
+        };
+        let json = serde_json::to_string(&partial).unwrap();
+        assert!(json.contains("GitHub 源失败"));
     }
 }

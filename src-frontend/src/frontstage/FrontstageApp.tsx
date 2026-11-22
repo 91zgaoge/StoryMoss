@@ -35,7 +35,7 @@ import {
 } from '@/utils/textCleanup';
 import { scheduleAutoSave, cancelAutoSave } from './autoSave';
 import { buildUpdateSceneIpcArgs } from './updateSceneIpc';
-import useScenePersistence from './hooks/useScenePersistence';
+import useScenePersistence, { type SceneBaseline } from './hooks/useScenePersistence';
 import { autoRevise } from '@/services/api/writing';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import AgentInterruptionModal from './components/AgentInterruptionModal';
@@ -301,7 +301,9 @@ const FrontstageApp: React.FC = () => {
   // v0.96.0: 当前 scene 的正文基线。每次加载章节/成功保存后刷新；
   // persistSceneContent 对基线算指纹作为 CAS 期望值，防止幕前旧快照覆盖
   // 幕后新稿；标题等元数据变化不参与冲突判定。
-  const sceneBaselineContentRef = useRef<string | null>(null);
+  // v0.99.13: 基线必须带 sceneId——切章时旧 scene 的在途保存若沿用新章
+  // 基线，会被后端判成冲突并丢掉上一章最后几次编辑。
+  const sceneBaselineContentRef = useRef<SceneBaseline | null>(null);
   // v0.23.92: 用 ref 持有 appendAiContent，避免 listener 回调因 textual order 产生 TDZ
   const appendAiContentRef = useRef<
     (rawText: string, source: 'tab' | 'auto' | 'ContentUpdate' | 'AppendContent') => void
@@ -3072,7 +3074,10 @@ const FrontstageApp: React.FC = () => {
         scenesForResolve?.find(s => s.chapter_id === chapter.id);
       sceneBaselineContentRef.current = skipContent
         ? null
-        : (baselineScene?.content ?? chapter.content ?? null);
+        : {
+            sceneId: linkedSceneId || chapter.id,
+            content: baselineScene?.content ?? chapter.content ?? null,
+          };
       const sceneIdSource = chapter.scene_id
         ? 'chapter.scene_id'
         : sceneFromList
@@ -3116,7 +3121,10 @@ const FrontstageApp: React.FC = () => {
                 });
                 setCurrentScene(fullScene);
                 if (!skipContent) {
-                  sceneBaselineContentRef.current = fullScene.content ?? null;
+                  sceneBaselineContentRef.current = {
+                    sceneId: fullScene.id,
+                    content: fullScene.content ?? null,
+                  };
                 }
               }
             } catch (e) {
@@ -3619,7 +3627,7 @@ const FrontstageApp: React.FC = () => {
                 content: latestHtml,
               })
             );
-            sceneBaselineContentRef.current = latestHtml;
+            sceneBaselineContentRef.current = { sceneId: scene.id, content: latestHtml };
           } catch (e) {
             frontstageLogger.warn('[ensureUntitledStory] flush latest content failed', {
               error: e,
