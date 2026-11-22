@@ -298,6 +298,11 @@ pub struct GenerateRequest {
     /// v0.54.0: 原生 function calling。None 时请求体不带 tools 字段。
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tools: Option<Vec<ToolSpec>>,
+    /// v0.99.11: 推理模型思考强度（OpenAI 兼容 `reasoning_effort`）。
+    /// None 时不发送该字段——未声明 reasoning 能力的本地/第三方端点可能
+    /// 直接拒绝未知参数。映射见 `LlmService::default_reasoning_effort`。
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

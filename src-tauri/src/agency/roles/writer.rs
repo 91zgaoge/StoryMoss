@@ -1,4 +1,4 @@
-use super::RoleSpec;
+use super::{RoleSpec, CREATIVE_MAX_OUTPUT_TOKENS};
 use crate::{agency::models::AgentRole, router::TaskType};
 
 /// 高频 Writer Agent 映射为 agency role。
@@ -14,7 +14,7 @@ pub fn spec() -> RoleSpec {
         prompt_id: "agency_writer_system",
         task_type: TaskType::CreativeWriting,
         max_turns: 10,
-        max_output_tokens: 8192,
+        max_output_tokens: CREATIVE_MAX_OUTPUT_TOKENS,
         context_budget_chars: 24_000,
     }
 }

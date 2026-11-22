@@ -4,7 +4,7 @@
 //! 模型进行轻量 ping。
 //! v0.23.60: 重构为三轮探测架构——
 //!   1. 启动全量探测（30s 超时，顺序）
-//!   2. 快速保活（每 10s，5s 超时）→ 保持 HealthRegistry 新鲜
+//!   2. 快速保活（每 10s，30s 超时）→ 保持 HealthRegistry 新鲜
 //!   3. 重试退避（指数退避 60→120→240→…→3600s）→ 不浪费资源在死模型上
 
 use std::{
@@ -31,7 +31,11 @@ pub type HealthProbeModeFlag = Arc<AtomicBool>;
 /// 快速保活探测间隔
 const KEEPALIVE_INTERVAL_SECS: u64 = 10;
 /// 快速保活超时
-const KEEPALIVE_TIMEOUT_SECS: u64 = 5;
+///
+/// v0.99.11: 5s → 30s。大本地模型（180B MoE）单次首字可 20–60s，串行闸门
+/// 后面排队的探测 5s 必然超时，把「busy」误判成「down」。放宽后仍以 10s
+/// 间隔轮询，超时不再制造 85 条/天的假故障。
+const KEEPALIVE_TIMEOUT_SECS: u64 = 30;
 /// 网关信任缓存的保鲜期（<此值跳过内联探测）
 pub const HEALTH_FRESHNESS_THRESHOLD_SECS: i64 = 15;
 /// 重试退避初始间隔（秒）
@@ -58,13 +62,15 @@ pub fn spawn_health_probe_scheduler(
             bench_executor.run_initial_benchmark().await;
         });
 
-        // v0.23.60: 快速保活——每 10s 探测所有健康/降级模型（5s 超时），
+        // v0.23.60: 快速保活——每 10s 探测所有健康/降级模型（30s 超时），
         // 保持 HealthRegistry 新鲜，让网关路径跳过内联探测。
         let mut keepalive_interval = interval(Duration::from_secs(KEEPALIVE_INTERVAL_SECS));
+        keepalive_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
         // v0.23.60: 退避重试——死模型不再每 60s 浪费一次探测，
         // 而是指数退避直到 1h 上限。
         let mut retry_interval = interval(Duration::from_secs(RETRY_BASE_INTERVAL_SECS));
+        retry_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut retry_backoffs: HashMap<String, u64> = HashMap::new(); // model_id → 退避秒数
 
         loop {
@@ -110,7 +116,7 @@ async fn run_full_probe(executor: &GatewayExecutor) {
     }
 }
 
-/// v0.23.60: 快速保活探测——仅探测健康/降级模型，5s 超时。
+/// v0.23.60: 快速保活探测——仅探测健康/降级模型，30s 超时。
 ///
 /// 保持 HealthRegistry 的 `last_checked_at` 在 10s 以内，
 /// 网关 generate() 读缓存时 <15s 即可跳过内联探测。
@@ -140,7 +146,7 @@ async fn run_keepalive_probe(executor: &GatewayExecutor) {
             snapshot.status,
             super::types::HealthStatus::Healthy | super::types::HealthStatus::Degraded
         ) {
-            // 5s 超时的轻量探测
+            // 30s 超时的轻量探测
             let start = Instant::now();
             match tokio::time::timeout(
                 Duration::from_secs(KEEPALIVE_TIMEOUT_SECS),

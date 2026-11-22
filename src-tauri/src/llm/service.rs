@@ -116,7 +116,7 @@ use super::{
     openai::OpenAiAdapter,
 };
 use crate::{
-    config::settings::{AppConfig, LlmProfile, LlmProvider},
+    config::settings::{AppConfig, LlmProfile, LlmProvider, ModelCapability},
     diagnostics::{DiagnosticStore, LastLlmPrompt},
     error::AppError,
     events::{emit_generation_status, GenerationPhase},
@@ -126,6 +126,27 @@ use crate::{
         Complexity, Priority, RoutingRequest, TaskType, UnifiedModelRegistry, UnifiedModelRouter,
     },
 };
+
+/// v0.99.11: 推理模型的思考强度（OpenAI 兼容 `reasoning_effort`）。
+///
+/// 优先级：profile 显式值 > JSON 结构化任务默认 `low` > 不发送。
+/// 只有声明 `Reasoning` 能力的模型才自动注入——本地/第三方 OpenAI 兼容端点
+/// 可能拒绝未知参数（Qwren127 只声明 chat/json_mode，不能带）。
+fn default_reasoning_effort(profile: &LlmProfile, structured: bool) -> Option<String> {
+    if let Some(effort) = profile
+        .reasoning_effort
+        .as_ref()
+        .filter(|e| !e.trim().is_empty())
+    {
+        return Some(effort.clone());
+    }
+    if structured && profile.capabilities.contains(&ModelCapability::Reasoning) {
+        // 真机 DeepSeek-V4.1-Flash：默认 effort=high，JSON/抽取任务 CoT
+        // 常把输出额度吃满；结构化任务降为 low。
+        return Some("low".to_string());
+    }
+    None
+}
 
 /// Prompt/Response 缓存键
 #[derive(Debug, Clone)]
@@ -1091,25 +1112,24 @@ impl<R: Runtime> LlmService<R> {
         result
     }
 
-    /// v0.23.59: 轻量预探测——5s 超时验证模型连接是否正常。
+    /// v0.23.59: 轻量预探测——验证模型连接是否正常。
     ///
-    /// 与网关候选循环内的探测逻辑一致：极短 prompt + 4 token 上限 +
-    /// temperature 0 + max_retries 0 + 5s 超时。供 `generate_with_fastest`
-    /// 在直接调用前验证最快模型确实可用。
+    /// v0.99.11: 5s/4 tokens → 30s/64 tokens。推理模型对大模型冷预填充 +
+    /// 思维链首字常超过 5s，4 tokens 也会被 CoT 吃满判成空正文。
     async fn probe_profile_quick(&self, profile_id: &str, _profile_name: &str) -> bool {
         let probe_request_id = format!("pre-call-probe-fastest-{}", profile_id);
         let probe_service = self.clone();
         let profile_id = profile_id.to_string();
-        let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        let result = tokio::time::timeout(std::time::Duration::from_secs(30), async {
             let (_, res) = probe_service
                 .generate_with_profile_and_request_id(
                     &profile_id,
                     "Respond with exactly the word OK.".to_string(),
-                    Some(4),
+                    Some(64),
                     Some(0.0),
                     Some("pre-call-probe"),
                     Some(probe_request_id),
-                    Some(5),
+                    Some(30),
                     Some(0),
                 )
                 .await;
@@ -1687,6 +1707,7 @@ impl<R: Runtime> LlmService<R> {
             }
         };
 
+        let reasoning_effort = default_reasoning_effort(&profile, response_format.is_some());
         let req = GenerateRequest {
             prompt,
             max_tokens,
@@ -1698,6 +1719,7 @@ impl<R: Runtime> LlmService<R> {
             system_prompt,
             trace_id: trace_id.clone(),
             tools,
+            reasoning_effort,
         };
 
         let label = context_label.unwrap_or("");
@@ -2542,6 +2564,7 @@ impl<R: Runtime> LlmService<R> {
             system_prompt: None,
             trace_id: None,
             tools: None,
+            reasoning_effort: default_reasoning_effort(&profile, false),
         };
 
         // 流式首 chunk 超时：本地模型冷启动可能需要更久，按 profile
@@ -2994,6 +3017,75 @@ mod tests {
         assert!(!is_silent_background_label("smart_execute"));
     }
 
+    fn reasoning_profile(capabilities: Vec<ModelCapability>) -> LlmProfile {
+        LlmProfile {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            description: None,
+            provider: LlmProvider::OpenAI,
+            model_source: crate::config::settings::ModelSource::Local,
+            model: "deepseek-flash".to_string(),
+            api_key: "key".to_string(),
+            api_base: None,
+            is_local_model: false,
+            max_tokens: 100,
+            temperature: 0.7,
+            top_p: None,
+            frequency_penalty: None,
+            presence_penalty: None,
+            timeout_seconds: 300,
+            is_default: false,
+            capabilities,
+            enabled: true,
+            kind: crate::config::settings::ModelKind::Chat,
+            max_context_length: 8192,
+            quality_tier: crate::config::settings::QualityTier::Medium,
+            speed_tier: crate::config::settings::SpeedTier::Normal,
+            cost_per_1k_input: None,
+            cost_per_1k_output: None,
+            tags: vec![],
+            supports_system_prompt: true,
+            supports_streaming: true,
+            knowledge_cutoff: None,
+            reasoning_effort: None,
+            system_prompt_override: None,
+        }
+    }
+
+    #[test]
+    fn structured_reasoning_task_defaults_to_low_effort() {
+        let profile = reasoning_profile(vec![ModelCapability::Reasoning]);
+        assert_eq!(
+            default_reasoning_effort(&profile, true).as_deref(),
+            Some("low")
+        );
+        // 创作/非结构化保持 API 默认（high），不擅自降智
+        assert_eq!(default_reasoning_effort(&profile, false), None);
+    }
+
+    #[test]
+    fn explicit_reasoning_effort_wins_over_task_default() {
+        let mut profile = reasoning_profile(vec![ModelCapability::Reasoning]);
+        profile.reasoning_effort = Some("high".to_string());
+        assert_eq!(
+            default_reasoning_effort(&profile, true).as_deref(),
+            Some("high")
+        );
+        assert_eq!(
+            default_reasoning_effort(&profile, false).as_deref(),
+            Some("high")
+        );
+    }
+
+    #[test]
+    fn non_reasoning_profile_never_gets_reasoning_effort() {
+        // Qwren127 这类本地 OpenAI 兼容端点未声明 reasoning；带未知参数
+        // reasoning_effort 可能被直接 400。
+        let profile = reasoning_profile(vec![ModelCapability::Chat]);
+        assert_eq!(default_reasoning_effort(&profile, true), None);
+        assert_eq!(default_reasoning_effort(&profile, false), None);
+    }
+
     #[test]
     fn large_prompt_limits_leave_short_prompts_untouched() {
         let limits = large_prompt_limits(9_999, 120, 60);
@@ -3186,6 +3278,7 @@ mod tests {
             system_prompt: None,
             trace_id: None,
             tools: None,
+            reasoning_effort: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         let deserialized: GenerateRequest = serde_json::from_str(&json).unwrap();

@@ -245,6 +245,7 @@ impl ProbeLlm {
             system_prompt: Some(system.to_string()),
             trace_id: None,
             tools: None,
+            reasoning_effort: None,
         };
         match adapter.generate(request).await {
             Ok(resp) => {

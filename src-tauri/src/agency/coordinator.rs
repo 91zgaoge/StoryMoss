@@ -2730,7 +2730,7 @@ impl AgencyCoordinator {
                 &assembled.system,
                 &assembled.user,
                 TaskType::CreativeWriting,
-                8192,
+                crate::agency::roles::CREATIVE_MAX_OUTPUT_TOKENS,
             )
             .await?;
         let text = text.trim().to_string();
@@ -2964,7 +2964,7 @@ impl AgencyCoordinator {
                 &assembled.system,
                 &assembled.user,
                 TaskType::CreativeWriting,
-                8192,
+                crate::agency::roles::CREATIVE_MAX_OUTPUT_TOKENS,
             )
             .await?;
         let text = text.trim().to_string();
@@ -6505,7 +6505,12 @@ impl AgencyCoordinator {
         let system = assembled.system;
         let user = assembled.user;
         let text = match llm
-            .complete(&system, &user, TaskType::CreativeWriting, 8192)
+            .complete(
+                &system,
+                &user,
+                TaskType::CreativeWriting,
+                crate::agency::roles::CREATIVE_MAX_OUTPUT_TOKENS,
+            )
             .await
         {
             Ok(t) => t.trim().to_string(),
@@ -6541,7 +6546,12 @@ impl AgencyCoordinator {
             );
             let retry_system = format!("{system} 禁止重复同一段落或意象循环，不得首尾回环。");
             if let Ok(retry) = llm
-                .complete(&retry_system, &user, TaskType::CreativeWriting, 8192)
+                .complete(
+                    &retry_system,
+                    &user,
+                    TaskType::CreativeWriting,
+                    crate::agency::roles::CREATIVE_MAX_OUTPUT_TOKENS,
+                )
                 .await
             {
                 let retry = crate::agents::orchestrator::sanitize_novel_output(retry.trim());
@@ -6572,7 +6582,12 @@ impl AgencyCoordinator {
             );
             let retry_user = continue_short_retry_user(&user);
             if let Ok(retry) = llm
-                .complete(&system, &retry_user, TaskType::CreativeWriting, 8192)
+                .complete(
+                    &system,
+                    &retry_user,
+                    TaskType::CreativeWriting,
+                    crate::agency::roles::CREATIVE_MAX_OUTPUT_TOKENS,
+                )
                 .await
             {
                 let retry = crate::agents::orchestrator::sanitize_novel_output(retry.trim());
@@ -6598,7 +6613,12 @@ impl AgencyCoordinator {
                         role,
                     );
                     match fallback_llm
-                        .complete(&system, &user, TaskType::CreativeWriting, 8192)
+                        .complete(
+                            &system,
+                            &user,
+                            TaskType::CreativeWriting,
+                            crate::agency::roles::CREATIVE_MAX_OUTPUT_TOKENS,
+                        )
                         .await
                     {
                         Ok(t) => {
@@ -6675,7 +6695,7 @@ impl AgencyCoordinator {
                     &system,
                     &format!("{user}{gap_block}"),
                     TaskType::CreativeWriting,
-                    8192,
+                    crate::agency::roles::CREATIVE_MAX_OUTPUT_TOKENS,
                 )
                 .await
             {
@@ -9192,7 +9212,7 @@ impl AgencyCoordinator {
                 "你是主创。按修订要求直接输出完整正文全文，不要输出任何解释或工具调用。",
                 &task,
                 TaskType::CreativeWriting,
-                8192,
+                crate::agency::roles::CREATIVE_MAX_OUTPUT_TOKENS,
             )
             .await?;
         let text = text.trim().to_string();

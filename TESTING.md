@@ -1,8 +1,15 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.99.10)
+# 🧪 StoryMoss 自动化测试环境 (v0.99.11)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.99.11 变更说明
+
+- Rust **2253 passed / 17 ignored**（+8）：撞额度空正文的重试判定/放大值封顶 2、finish_reason + reasoning tokens 解析 1、reasoning_effort 三态映射 3、全部候选冷却时恢复兜底 1、创作角色输出上限断言 1。
+- 创作散文输出上限：`LeadWriter`/`Writer` 与首章、散文回退、修订直出、节拍重试统一 8192 → 32768（`CREATIVE_MAX_OUTPUT_TOKENS`），不再每章先撞额度再重试。
+- tsc 0；Vitest **728 passed / 3 skipped**（数量不变，Rust-only）；Playwright **144 passed / 5 skipped**（全量 141 通过 + 3 个 1024×768 视口用例在 Rust 单测并行抢 CPU 时 5s 超时，空闲后单独复跑 `backstage-viewport-acceptance.spec.ts` 75/75 通过）；`cargo +nightly-2026-10-05 fmt`、`cargo clippy`（0 error）、`python3 scripts/architecture_guard.py`、`npm run format:check`（src-frontend）全绿。
+- 验收：①本地 mlx-serve 15-token 请求 200、12.6k prompt 正常返回、并发 2 有 batching 收益；②真实 10 章训练中 `agency_writer` 不再出现 `empty content`，JSON 任务请求体带 `reasoning_effort=low`；③单候选冷却后下一次请求仍会尝试而不是直接报「所有候选模型都因连续空正文进入冷却」。
 
 ### v0.99.10 变更说明
 

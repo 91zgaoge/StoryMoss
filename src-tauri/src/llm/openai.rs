@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    sync::atomic::{AtomicI64, Ordering},
+    time::Duration,
+};
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -44,11 +47,14 @@ struct OpenAiRequest {
     response_format: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<serde_json::Value>>,
+    /// v0.99.11: 推理模型思考强度。None 时不序列化，避免本地端点拒绝未知参数。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<String>,
 }
 
 /// 出站消息：content 既可以是字符串，也可以是 OpenAI 多模态内容数组
 /// （text + image_url）。响应消息仍用 `Message`（content 为字符串）。
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct OutboundMessage {
     role: String,
     content: serde_json::Value,
@@ -90,6 +96,9 @@ struct OpenAiStreamRequest {
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     response_format: Option<serde_json::Value>,
+    /// v0.99.11: 推理模型思考强度（与同步路径一致）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -119,11 +128,26 @@ fn sanitize_top_p(top_p: Option<f32>) -> Option<f32> {
 #[derive(Debug, Deserialize)]
 struct Usage {
     total_tokens: i32,
+    /// v0.99.11: 仅供空正文诊断；老网关可能不返回，保持 Option。
+    #[serde(default)]
+    completion_tokens: Option<i32>,
+    #[serde(default)]
+    completion_tokens_details: Option<CompletionTokensDetails>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct CompletionTokensDetails {
+    #[serde(default)]
+    reasoning_tokens: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]
 struct Choice {
     message: Message,
+    /// v0.99.11: `length` 表示撞 max_tokens（推理模型常见：CoT 吃满额度）。
+    /// 老网关缺省时按 `None` 处理。
+    #[serde(default)]
+    finish_reason: Option<String>,
 }
 
 /// v0.30.45: 推理模型（DeepSeek 等）的 reasoning_content 是**思维链**（CoT），
@@ -135,6 +159,55 @@ struct Choice {
 /// v0.98.3：结构化任务（请求带 JSON mode）例外——CoT 末尾常含完整 JSON
 /// 答案（真机：资产重建 content 空、reasoning_content 7770 字）。仅在这种
 /// 场景下提取最后一个 JSON 对象；创作类请求仍严格不转发 CoT。
+/// v0.99.11: 空正文告警节流（毫秒时间戳）。
+///
+/// 健康探测每 10s 打一次模型，推理模型对「Respond with exactly the word OK」
+/// 也可能返回空 content（CoT-only）。旧行为每次探测都写一条 WARN，真机一天
+/// 2,377 条把真正的生成失败埋掉。这里按全局 60s 节流：首条 WARN 保留证据，
+/// 其余降级 debug。
+static LAST_EMPTY_CONTENT_WARN_MS: AtomicI64 = AtomicI64::new(0);
+
+fn should_log_empty_content_warning() -> bool {
+    let now = chrono::Utc::now().timestamp_millis();
+    let last = LAST_EMPTY_CONTENT_WARN_MS.load(Ordering::Relaxed);
+    if now.saturating_sub(last) < 60_000 {
+        return false;
+    }
+    LAST_EMPTY_CONTENT_WARN_MS.store(now, Ordering::Relaxed);
+    true
+}
+
+/// v0.99.11: 空正文是否因撞 max_tokens（推理模型 CoT 吃满额度）。
+///
+/// 只有「finish_reason=length + 确实有 reasoning + 没有任何正文/工具调用」
+/// 才值得放大额度重试一次；模型真的拒绝回答（stop 且空）不重试，避免把
+/// 一次空响应放大成两次成本。
+fn should_retry_truncated_empty(
+    content_is_empty: bool,
+    has_tool_calls: bool,
+    finish_reason: Option<&str>,
+    reasoning_chars: usize,
+    max_tokens: i32,
+    cap: i32,
+) -> bool {
+    content_is_empty
+        && !has_tool_calls
+        && reasoning_chars > 0
+        && finish_reason == Some("length")
+        && max_tokens < cap
+}
+
+/// v0.99.11: 撞额度后重试的放大值（×4，封顶 32k）。
+/// writer 真机请求 8192，推理模型 CoT 常在 8k–20k；一次放大到 32768 足以
+/// 覆盖，又不会把普通模型单次成本抬到失控。
+const TRUNCATION_RETRY_CAP: i32 = 32_768;
+
+fn next_truncation_retry_budget(max_tokens: i32) -> i32 {
+    max_tokens
+        .saturating_mul(4)
+        .clamp(1_024, TRUNCATION_RETRY_CAP)
+}
+
 fn resolve_content(content: &str, reasoning_content: &Option<String>) -> String {
     resolve_content_with_options(content, reasoning_content, false)
 }
@@ -176,12 +249,19 @@ fn resolve_content_with_options(
                         return rc.trim().to_string();
                     }
                 }
-                log::warn!(
+                let msg = format!(
                     "[OpenAI] content 为空但 reasoning_content 有 {} 字符（思维链/CoT）。\
                      不回退到 reasoning_content--它是模型的推理过程而非正文。\
                      调用方应处理空 content（重试或报错）。",
                     rc.chars().count()
                 );
+                // v0.99.11: 健康探测每 10s 一次，同一现象刷屏会埋掉真正的
+                // 生成失败；60s 内只保留首条 WARN。
+                if should_log_empty_content_warning() {
+                    log::warn!("{}", msg);
+                } else {
+                    log::debug!("{}", msg);
+                }
             }
         }
     }
@@ -227,6 +307,12 @@ struct ParsedCompletion {
     model: String,
     total_tokens: i32,
     tool_calls: Vec<ToolCall>,
+    /// v0.99.11: 供「撞额度重试」判定；老网关缺省为 None。
+    finish_reason: Option<String>,
+    /// v0.99.11: CoT 字符数（空正文时判断是否真的在思考）。
+    reasoning_chars: usize,
+    /// v0.99.11: 仅诊断日志用（老网关缺省 0）。
+    completion_tokens: i32,
 }
 
 /// 解析 OpenAI 兼容网关 `/chat/completions` 的响应体。
@@ -270,6 +356,12 @@ fn parse_chat_completion_bytes_with_options(
         model: resp.model,
         total_tokens: resp.usage.total_tokens,
         tool_calls,
+        finish_reason: first.and_then(|c| c.finish_reason.clone()),
+        reasoning_chars: first
+            .and_then(|c| c.message.reasoning_content.as_ref())
+            .map(|rc| rc.chars().count())
+            .unwrap_or(0),
+        completion_tokens: resp.usage.completion_tokens.unwrap_or(0),
     })
 }
 
@@ -411,83 +503,118 @@ impl OpenAiAdapter {
         use super::adapter::{read_body_with_generation_timeout_ex, send_with_response_timeout};
 
         let json_mode = request.response_format.is_some();
-        let openai_req = OpenAiRequest {
-            model: self.model.clone(),
-            messages: self.build_messages(
-                request.prompt,
-                request.system_prompt.as_deref(),
-                &images,
-            ),
-            max_tokens: request.max_tokens.unwrap_or(self.default_max_tokens),
-            temperature: request.temperature.unwrap_or(self.default_temperature),
-            top_p: sanitize_top_p(request.top_p),
-            frequency_penalty: request.frequency_penalty,
-            presence_penalty: request.presence_penalty,
-            response_format: request.response_format.as_ref().map(|f| f.openai_value()),
-            tools: request
-                .tools
-                .as_ref()
-                .filter(|s| !s.is_empty())
-                .map(|s| openai_tools_payload(s)),
-        };
-
+        let messages = self.build_messages(
+            request.prompt.clone(),
+            request.system_prompt.as_deref(),
+            &images,
+        );
+        let mut max_tokens = request.max_tokens.unwrap_or(self.default_max_tokens);
+        let mut truncation_retried = false;
         let primary_url = format!("{}/chat/completions", self.api_base);
         let fallback_url = format!("{}/v1/chat/completions", self.api_base);
 
-        let mut response = send_with_response_timeout(
-            self.client
-                .post(&primary_url)
-                .header("Authorization", format!("Bearer {}", self.api_key))
-                .header("Content-Type", "application/json")
-                .json(&openai_req),
-            self.first_chunk_timeout,
-        )
-        .await?;
+        loop {
+            let openai_req = OpenAiRequest {
+                model: self.model.clone(),
+                messages: messages.clone(),
+                max_tokens,
+                temperature: request.temperature.unwrap_or(self.default_temperature),
+                top_p: sanitize_top_p(request.top_p),
+                frequency_penalty: request.frequency_penalty,
+                presence_penalty: request.presence_penalty,
+                response_format: request.response_format.as_ref().map(|f| f.openai_value()),
+                tools: request
+                    .tools
+                    .as_ref()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| openai_tools_payload(s)),
+                reasoning_effort: request.reasoning_effort.clone(),
+            };
 
-        // Ollama 等本地服务的 OpenAI 兼容 API 使用 /v1/chat/completions
-        if response.status() == reqwest::StatusCode::NOT_FOUND {
-            response = send_with_response_timeout(
+            let mut response = send_with_response_timeout(
                 self.client
-                    .post(&fallback_url)
+                    .post(&primary_url)
                     .header("Authorization", format!("Bearer {}", self.api_key))
                     .header("Content-Type", "application/json")
                     .json(&openai_req),
                 self.first_chunk_timeout,
             )
             .await?;
+
+            // Ollama 等本地服务的 OpenAI 兼容 API 使用 /v1/chat/completions
+            if response.status() == reqwest::StatusCode::NOT_FOUND {
+                response = send_with_response_timeout(
+                    self.client
+                        .post(&fallback_url)
+                        .header("Authorization", format!("Bearer {}", self.api_key))
+                        .header("Content-Type", "application/json")
+                        .json(&openai_req),
+                    self.first_chunk_timeout,
+                )
+                .await?;
+            }
+
+            if !response.status().is_success() {
+                let error_text = response.text().await?;
+                return Err(format!("OpenAI API error: {}", error_text).into());
+            }
+
+            // v0.11.8: 流式读取响应体，每收到 chunk 刷新一次生成超时计时器。
+            let bytes = read_body_with_generation_timeout_ex(
+                response,
+                self.generation_timeout,
+                self.first_chunk_timeout,
+            )
+            .await?;
+
+            // 将同步 JSON 反序列化隔离到 blocking 线程池，避免大响应阻塞 async
+            // runtime。
+            let parsed = tokio::task::spawn_blocking(move || {
+                parse_chat_completion_bytes_with_options(&bytes, json_mode)
+            })
+            .await
+            .map_err(|e| format!("deserialization task panicked: {}", e))?
+            .map_err(|e| format!("OpenAI response parse error: {}", e))?;
+
+            // v0.99.11: 推理模型把 max_tokens 全烧在 CoT 上（真机 writer
+            // 8192 申请、content 为空、finish_reason=length）。放大额度重试
+            // 一次，避免空正文一路冒泡成「主创熔断」。
+            if !truncation_retried
+                && should_retry_truncated_empty(
+                    parsed.content.trim().is_empty(),
+                    !parsed.tool_calls.is_empty(),
+                    parsed.finish_reason.as_deref(),
+                    parsed.reasoning_chars,
+                    max_tokens,
+                    TRUNCATION_RETRY_CAP,
+                )
+            {
+                let next = next_truncation_retry_budget(max_tokens);
+                if next > max_tokens {
+                    log::warn!(
+                        "[OpenAI] 空正文撞额度：finish_reason=length，reasoning={} 字符，\
+                         completion_tokens={}，max_tokens={} → 放大到 {} 重试一次",
+                        parsed.reasoning_chars,
+                        parsed.completion_tokens,
+                        max_tokens,
+                        next
+                    );
+                    max_tokens = next;
+                    truncation_retried = true;
+                    continue;
+                }
+            }
+
+            let cost = self.calculate_cost(&parsed.model, parsed.total_tokens);
+
+            return Ok(GenerateResponse {
+                content: parsed.content,
+                model: parsed.model,
+                tokens_used: parsed.total_tokens,
+                cost,
+                tool_calls: parsed.tool_calls,
+            });
         }
-
-        if !response.status().is_success() {
-            let error_text = response.text().await?;
-            return Err(format!("OpenAI API error: {}", error_text).into());
-        }
-
-        // v0.11.8: 流式读取响应体，每收到 chunk 刷新一次生成超时计时器。
-        let bytes = read_body_with_generation_timeout_ex(
-            response,
-            self.generation_timeout,
-            self.first_chunk_timeout,
-        )
-        .await?;
-
-        // 将同步 JSON 反序列化隔离到 blocking 线程池，避免大响应阻塞 async
-        // runtime。
-        let parsed = tokio::task::spawn_blocking(move || {
-            parse_chat_completion_bytes_with_options(&bytes, json_mode)
-        })
-        .await
-        .map_err(|e| format!("deserialization task panicked: {}", e))?
-        .map_err(|e| format!("OpenAI response parse error: {}", e))?;
-
-        let cost = self.calculate_cost(&parsed.model, parsed.total_tokens);
-
-        Ok(GenerateResponse {
-            content: parsed.content,
-            model: parsed.model,
-            tokens_used: parsed.total_tokens,
-            cost,
-            tool_calls: parsed.tool_calls,
-        })
     }
 }
 
@@ -525,6 +652,7 @@ impl LlmAdapter for OpenAiAdapter {
             presence_penalty: request.presence_penalty,
             stream: true,
             response_format: request.response_format.as_ref().map(|f| f.openai_value()),
+            reasoning_effort: request.reasoning_effort,
         };
 
         let mut response = match super::adapter::send_with_response_timeout(
@@ -614,9 +742,10 @@ impl LlmAdapter for OpenAiAdapter {
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_sse_line, content_delta_from_sse_payload, parse_chat_completion_bytes,
-        parse_chat_completion_bytes_with_options, resolve_content, resolve_content_with_options,
-        sanitize_top_p, OpenAiAdapter, OutboundMessage, SseLine,
+        classify_sse_line, content_delta_from_sse_payload, next_truncation_retry_budget,
+        parse_chat_completion_bytes, parse_chat_completion_bytes_with_options, resolve_content,
+        resolve_content_with_options, sanitize_top_p, should_retry_truncated_empty, OpenAiAdapter,
+        OutboundMessage, SseLine, TRUNCATION_RETRY_CAP,
     };
 
     #[test]
@@ -977,8 +1106,91 @@ mod tests {
             presence_penalty: None,
             response_format: None,
             tools: None,
+            reasoning_effort: None,
         };
         let json = serde_json::to_value(&req).unwrap();
         assert!(json.get("tools").is_none());
+        assert!(json.get("reasoning_effort").is_none());
+    }
+
+    // ===== v0.99.11: 撞额度空正文的重试判定 =====
+
+    #[test]
+    fn should_retry_truncated_empty_requires_length_and_reasoning() {
+        // 典型推理模型：CoT 吃满额度、content 为空、finish_reason=length
+        assert!(should_retry_truncated_empty(
+            true,
+            false,
+            Some("length"),
+            1200,
+            8192,
+            TRUNCATION_RETRY_CAP
+        ));
+        // stop 且空：模型真的没给正文，重试只会再烧一次
+        assert!(!should_retry_truncated_empty(
+            true,
+            false,
+            Some("stop"),
+            1200,
+            8192,
+            TRUNCATION_RETRY_CAP
+        ));
+        // 没有 reasoning：不是 CoT 吃额度
+        assert!(!should_retry_truncated_empty(
+            true,
+            false,
+            Some("length"),
+            0,
+            8192,
+            TRUNCATION_RETRY_CAP
+        ));
+        // 已有正文：正常输出
+        assert!(!should_retry_truncated_empty(
+            false,
+            false,
+            Some("length"),
+            1200,
+            8192,
+            TRUNCATION_RETRY_CAP
+        ));
+        // 只有 tool_calls：合法工具回合
+        assert!(!should_retry_truncated_empty(
+            true,
+            true,
+            Some("length"),
+            1200,
+            8192,
+            TRUNCATION_RETRY_CAP
+        ));
+        // 已在封顶：不再放大
+        assert!(!should_retry_truncated_empty(
+            true,
+            false,
+            Some("length"),
+            1200,
+            TRUNCATION_RETRY_CAP,
+            TRUNCATION_RETRY_CAP
+        ));
+    }
+
+    #[test]
+    fn next_truncation_retry_budget_quadruples_and_caps() {
+        assert_eq!(next_truncation_retry_budget(8192), 32_768);
+        assert_eq!(next_truncation_retry_budget(4096), 16_384);
+        assert_eq!(next_truncation_retry_budget(20_000), 32_768);
+        assert_eq!(next_truncation_retry_budget(64), 1_024);
+    }
+
+    #[test]
+    fn parse_chat_completion_exposes_finish_reason_and_reasoning_tokens() {
+        let body = r#"{"model":"m","usage":{"total_tokens":105,"completion_tokens":100,
+            "completion_tokens_details":{"reasoning_tokens":90}},
+            "choices":[{"finish_reason":"length","message":{"role":"assistant",
+            "content":"","reasoning_content":"我在想这一章怎么接"}}]}"#;
+        let parsed = parse_chat_completion_bytes(body.as_bytes()).unwrap();
+        assert_eq!(parsed.finish_reason.as_deref(), Some("length"));
+        assert_eq!(parsed.reasoning_chars, "我在想这一章怎么接".chars().count());
+        assert_eq!(parsed.completion_tokens, 100);
+        assert!(parsed.content.is_empty());
     }
 }

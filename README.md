@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.10-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.11-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.11 · 模型调度止血（撞额度重试 + reasoning_effort + 冷却兜底）
+
+- **问题**：本机 11-22 实机对账确认三处调度缺陷：writer 只申请 8192 输出，推理模型 CoT 吃满后 `content` 为空（`finish_reason=length`），连续 8 次空正文最终被当成主创熔断；`LlmProfile.reasoning_effort` 字段存在但从未发送给 API，JSON/抽取任务一直按默认 high 思考；`candidate_count=1` 时一次空正文就把唯一候选冷却 10 分钟，后续请求直接报「所有候选模型都因连续空正文进入冷却」。
+- **结果**：适配器解析 `finish_reason` 与 `reasoning_tokens`，空正文撞 `length` 时把 `max_tokens` ×4（封顶 32768）重试一次；打通 `reasoning_effort`（profile 显式值优先，JSON/结构化任务默认 low，未声明 reasoning 的端点不发送）；全部候选冷却时恢复候选兜底而非硬失败；keepalive 与 pre-call 探测 5s/4 tokens → 30s/64 tokens，空正文告警 60s 节流。新增 7 条回归测试。
 
 ### v0.99.10 · 训练报告/标题落库/记忆探针收尾（日志巡检）
 

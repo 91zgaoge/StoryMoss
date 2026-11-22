@@ -135,6 +135,28 @@ where
     before - candidates.len()
 }
 
+/// v0.99.11: 冷却过滤 + 全冷却兜底。
+///
+/// `candidate_count=1` 是常见配置；旧逻辑把唯一候选剔除后直接报
+/// 「所有候选模型都因连续空正文进入冷却」，一次撞额度的空正文就锁死
+/// 10 分钟。全部被剔除时恢复原候选做尽力而为尝试，返回
+/// `(剔除数, 是否恢复)`。
+fn filter_cooled_candidates_or_restore<F>(
+    candidates: &mut Vec<crate::router::RankedCandidate>,
+    is_cooled: F,
+) -> (usize, bool)
+where
+    F: Fn(&str) -> bool,
+{
+    let original = candidates.clone();
+    let dropped = drop_empty_content_demoted(candidates, is_cooled);
+    if candidates.is_empty() && !original.is_empty() {
+        *candidates = original;
+        return (dropped, true);
+    }
+    (dropped, false)
+}
+
 /// 网关执行器
 pub struct GatewayExecutor<R: Runtime = Wry> {
     app_handle: AppHandle<R>,
@@ -1242,9 +1264,12 @@ impl<R: Runtime> GatewayExecutor<R> {
         self.apply_active_model_front(&request, &mut decision);
 
         let candidates_before_filter = decision.candidates.len();
-        let dropped = drop_empty_content_demoted(&mut decision.candidates, |id| {
-            self.empty_content_demoted(id)
-        });
+        // v0.99.11: 冷却过滤可能把唯一候选（candidate_count=1 的常见配置）
+        // 全部剔除；旧行为直接失败并把应用锁死 10 分钟。全冷却时恢复候选兜底。
+        let (dropped, restored_all) =
+            filter_cooled_candidates_or_restore(&mut decision.candidates, |id| {
+                self.empty_content_demoted(id)
+            });
         if dropped > 0 {
             log::warn!(
                 "[Gateway] 跳过 {} 个因连续空正文处于冷却期的候选（原 {} 个）",
@@ -1261,7 +1286,7 @@ impl<R: Runtime> GatewayExecutor<R> {
                     "request_id": request.request_id,
                     "dropped": dropped,
                     "before": candidates_before_filter,
-                    "after": decision.candidates.len(),
+                    "after": if restored_all { candidates_before_filter } else { decision.candidates.len() },
                 })),
             );
         }
@@ -1271,14 +1296,28 @@ impl<R: Runtime> GatewayExecutor<R> {
             decision.candidates.len()
         );
 
+        if restored_all {
+            log::warn!(
+                "[Gateway] 所有 {} 个候选都在空正文冷却期，恢复候选做兜底尝试（不再直接失败）",
+                decision.candidates.len()
+            );
+            self.workflow_log(
+                "gateway.generate.candidate_restore_cooled",
+                format!(
+                    "全部 {} 个候选处于空正文冷却，恢复候选兜底",
+                    decision.candidates.len()
+                ),
+                Some(serde_json::json!({
+                    "request_id": request.request_id,
+                    "restored": decision.candidates.len(),
+                })),
+            );
+        }
+
         if decision.candidates.is_empty() {
-            let message = if candidates_before_filter > 0 {
-                "所有候选模型都因连续空正文进入冷却（10 分钟）；请更换模型或修复端点后重试"
-                    .to_string()
-            } else {
-                "没有可用的模型候选".to_string()
-            };
-            return Err(AppError::Internal { message });
+            return Err(AppError::Internal {
+                message: "没有可用的模型候选".to_string(),
+            });
         }
 
         let mut last_error: Option<AppError> = None;
@@ -1373,7 +1412,8 @@ impl<R: Runtime> GatewayExecutor<R> {
                 continue;
             }
 
-            // v0.23.47: 调用模型前必须实时检测连接是否正常（5s 超时）。
+            // v0.23.47: 调用模型前必须实时检测连接是否正常
+            // （v0.99.11: 30s 超时/64 tokens，避免大推理模型忙时误判）。
             // v0.23.60: 若后台 keepalive
             // 已保持健康数据新鲜（<15s），跳过内联探测，
             // 直接信任缓存。keepalive 每 10s 刷新一次，保证正常运行时 0ms
@@ -1389,22 +1429,25 @@ impl<R: Runtime> GatewayExecutor<R> {
                 let probe_request_id = format!("pre-call-probe-{}", &candidate.model_id);
                 let probe_profile = profile.clone();
                 let probe_service = self.llm_service.clone();
-                let probe_result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-                    let (_, result) = probe_service
-                        .generate_with_profile_and_request_id(
-                            &probe_profile.id,
-                            "Respond with exactly the word OK.".to_string(),
-                            Some(4),
-                            Some(0.0),
-                            Some("pre-call-probe"),
-                            Some(probe_request_id),
-                            Some(5),
-                            Some(0),
-                        )
-                        .await;
-                    result
-                })
-                .await;
+                // v0.99.11: 5s/4 tokens 对大推理模型必然误判（预填充 + CoT
+                // 首字常 20–60s）。与 keepalive 对齐到 30s/64 tokens。
+                let probe_result =
+                    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+                        let (_, result) = probe_service
+                            .generate_with_profile_and_request_id(
+                                &probe_profile.id,
+                                "Respond with exactly the word OK.".to_string(),
+                                Some(64),
+                                Some(0.0),
+                                Some("pre-call-probe"),
+                                Some(probe_request_id),
+                                Some(30),
+                                Some(0),
+                            )
+                            .await;
+                        result
+                    })
+                    .await;
                 match probe_result {
                     Ok(Ok(_resp)) => {
                         log::debug!("[Gateway] 候选 [{}] 实时探测通过", idx + 1);
@@ -1685,7 +1728,10 @@ impl<R: Runtime> GatewayExecutor<R> {
 
         let request = GenerateRequest {
             prompt: probe_prompt,
-            max_tokens: Some(4),
+            // v0.99.11: 4 → 64。推理模型对「Respond with exactly the word OK」
+            // 也会先产出思维链；4 tokens 会让 content 必然为空。探测只关心
+            // 端点是否可达，给足最小思考余量即可（DeepSeek 2 tokens 就答 OK）。
+            max_tokens: Some(64),
             temperature: Some(0.0),
             ..Default::default()
         };
@@ -1904,6 +1950,40 @@ mod tests {
         let dropped = drop_empty_content_demoted(&mut all_empty, |_| true);
         assert_eq!(dropped, 1);
         assert!(all_empty.is_empty());
+    }
+
+    #[test]
+    fn all_cooled_candidates_are_restored_instead_of_hard_failure() {
+        let candidate = |id: &str| crate::router::RankedCandidate {
+            model_id: id.into(),
+            model_name: id.into(),
+            score: 90.0,
+            reason: "test".into(),
+        };
+
+        // 唯一候选被冷却：恢复原候选，不再让整条链路判死
+        let mut only = vec![candidate("only")];
+        let (dropped, restored) = filter_cooled_candidates_or_restore(&mut only, |_| true);
+        assert_eq!(dropped, 1);
+        assert!(restored);
+        assert_eq!(only.len(), 1);
+        assert_eq!(only[0].model_id, "only");
+
+        // 有健康候选时照常剔除冷却项
+        let mut mixed = vec![candidate("cold"), candidate("warm")];
+        let (dropped, restored) =
+            filter_cooled_candidates_or_restore(&mut mixed, |id| id == "cold");
+        assert_eq!(dropped, 1);
+        assert!(!restored);
+        assert_eq!(mixed.len(), 1);
+        assert_eq!(mixed[0].model_id, "warm");
+
+        // 原本就没有候选：保持为空，由调用方报「没有可用的模型候选」
+        let mut empty: Vec<crate::router::RankedCandidate> = vec![];
+        let (dropped, restored) = filter_cooled_candidates_or_restore(&mut empty, |_| true);
+        assert_eq!(dropped, 0);
+        assert!(!restored);
+        assert!(empty.is_empty());
     }
 
     #[test]

@@ -18,6 +18,14 @@ pub struct RoleSpec {
     pub context_budget_chars: usize,
 }
 
+/// v0.99.11: 创作角色的输出上限。
+///
+/// 推理模型（DeepSeek-V4.1-Flash 等）的 CoT 与正文共享 `max_tokens`；真机
+/// writer 申请 8192 时 CoT 吃满、`finish_reason=length`、`content` 为空。
+/// 放宽到 32k 只是上限——模型写完即 `stop`，不会因此多产出；适配器的
+/// 撞额度重试仍是兜底。
+pub const CREATIVE_MAX_OUTPUT_TOKENS: i32 = 32_768;
+
 pub fn spec_for(role: AgentRole) -> RoleSpec {
     match role {
         AgentRole::LeadWriter => RoleSpec {
@@ -25,7 +33,7 @@ pub fn spec_for(role: AgentRole) -> RoleSpec {
             prompt_id: "agency_lead_writer_system",
             task_type: TaskType::CreativeWriting,
             max_turns: 10,
-            max_output_tokens: 8192,
+            max_output_tokens: CREATIVE_MAX_OUTPUT_TOKENS,
             context_budget_chars: 24_000,
         },
         AgentRole::Producer => RoleSpec {
@@ -82,6 +90,22 @@ mod tests {
             spec_for(AgentRole::EditorAuditor).task_type,
             TaskType::Proofreading
         );
+    }
+
+    #[test]
+    fn creative_roles_leave_room_for_reasoning_cot() {
+        // v0.99.11: 推理模型的 CoT 与正文共享 max_tokens；8192 在真机被
+        // 思维链吃满后 content 为空。创作角色必须留足 32k 上限。
+        for role in [AgentRole::LeadWriter, AgentRole::Writer] {
+            let spec = spec_for(role);
+            assert_eq!(spec.max_output_tokens, CREATIVE_MAX_OUTPUT_TOKENS);
+            assert!(
+                spec.max_output_tokens >= 32_768,
+                "{:?} 输出上限 {} 不足以容纳推理模型 CoT + 正文",
+                role,
+                spec.max_output_tokens
+            );
+        }
     }
 
     #[test]

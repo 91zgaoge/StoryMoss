@@ -1,4 +1,6 @@
-# StoryMoss v0.99.10 架构文档
+# StoryMoss v0.99.11 架构文档
+
+> **v0.99.11**：**模型调度止血**——`llm::openai` 现在解析 `finish_reason`/`usage.completion_tokens`/`completion_tokens_details.reasoning_tokens`；当响应 `content` 为空、无 tool_calls、`finish_reason=length` 且 reasoning 非空时，把 `max_tokens` ×4（封顶 32768）重试一次，解决 writer 申请 8192 被 CoT 吃满后返回空正文。`agency/roles` 的 `LeadWriter`/`Writer` 输出上限同步提升到 `CREATIVE_MAX_OUTPUT_TOKENS=32768`（只是上限），首章、散文回退、修订直出与节拍重试的创作调用同用该常量，避免每章先撞额度再重试。`GenerateRequest` 新增 `reasoning_effort` 并序列化到 OpenAI 同步/流式请求体；`LlmService::default_reasoning_effort` 的优先级为 profile 显式值 > JSON/结构化任务对 `Reasoning` 能力模型默认 `low` > 不发送（未声明 reasoning 的本地端点不接收未知参数）。网关新增 `filter_cooled_candidates_or_restore`：全部候选处于空正文冷却期时恢复原候选兜底，不再直接返回「所有候选模型都因连续空正文进入冷却」。`model_gateway` 的 keepalive 超时 5s→30s（`MissedTickBehavior::Delay` 防堆积）、pre-call 探测 5s/4 tokens→30s/64 tokens；空正文 WARN 60s 全局节流，避免 10 秒一次的探测刷屏埋掉真实生成失败。
 
 > **v0.99.10**：**报告口径与并发写锁收尾**——`render_gate_line` 仅在 `degraded > 0` 时追加「编辑审计未完成，已放行保产出」，修复真机「0 章质检降级（…）」自相矛盾。`agency::chapter_title::apply_title` 的事务从 Deferred 改为 `TransactionBehavior::Immediate`：先 `SELECT title` 再 `UPDATE` 的 Deferred 事务在其它连接提交写入后会以 `SQLITE_BUSY_SNAPSHOT` 升级失败，该错误不调用 busy handler（`PRAGMA busy_timeout=5000` 不生效），真机训练并发落库时章节标题写回被丢弃；Immediate 先取写锁，由 busy_timeout 正常排队。`continuation_training::suspect_new_terms` 增加三类噪声过滤：白名单长词按子串排除（宏达投资 → 宏达投/达投资）、重叠窗口只保留更长串（深蓝夹克 → 深蓝夹/蓝夹克）、方位字收尾（上下里外边前后）与「是/有/像/声/缕」等虚词字符窗口（条案上/像是有/缕青烟）直接丢弃。
 

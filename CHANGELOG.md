@@ -2,6 +2,20 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.11（2026-11-22）
+
+**模型调度止血：推理模型撞额度不再返回空正文、`reasoning_effort` 真正生效、冷却不再锁死唯一候选、健康探测不再把慢模型判死。**
+
+- 证据（本机 11-22 08:30–09:40 实机对账）：`agency_writer` 08:38–08:44 连续 8 次空正文，每次耗时 41–58s；writer 角色只申请 `max_output_tokens=8192`，推理模型 CoT 吃满后 `finish_reason=length`、`content` 为空，最终被判「主创熔断」。`LlmProfile.reasoning_effort` 字段存在但全仓从未读取，JSON/抽取任务一直按 DeepSeek 默认 `high` 思考。`candidate_count=1` 时一次空正文就把唯一候选冷却 10 分钟，后续请求直接报「所有候选模型都因连续空正文进入冷却」（真机 78 次）。
+- 适配器：解析 `finish_reason`、`usage.completion_tokens` 与 `reasoning_tokens`；当 `content` 为空、无 tool_calls、`finish_reason=length` 且确有 reasoning 时，把 `max_tokens` ×4（封顶 32768）重试一次；`stop` 空响应不重试，避免把一次空输出放大成两次成本。
+- 创作散文输出上限：`LeadWriter`/`Writer` 的 `max_output_tokens` 与所有创作散文调用（首章、散文回退、修订直出、节拍重试）统一 8192 → **32768**（`CREATIVE_MAX_OUTPUT_TOKENS`；只是上限，模型写完即 `stop`，不会因此多产出），避免每章先撞额度再触发重试；适配器重试继续兜底其他角色。
+- `reasoning_effort` 打通：`GenerateRequest` 新增字段并序列化到 OpenAI 同步/流式请求；profile 显式值优先，JSON/结构化任务对声明 `Reasoning` 能力的模型默认 `low`，未声明 reasoning 的本地/第三方端点不发送（避免未知参数 400）。
+- 冷却兜底：新增 `filter_cooled_candidates_or_restore`，全部候选处于空正文冷却时恢复原候选做尽力尝试，不再直接失败并锁死 10 分钟；有健康候选时仍照常剔除冷却项。
+- 健康探测：keepalive 超时 5s → 30s 并改用 `MissedTickBehavior::Delay`；pre-call 探测 5s/4 tokens → 30s/64 tokens（推理模型对 4 tokens 探针也会 CoT-only）；空正文 WARN 增加 60s 全局节流（真机 2,377 条里绝大多数是 10 秒一次的探测刷屏）。
+- 本机运维（不入库，见 `docs/analysis/LOCAL-MODEL-PLAN-2026-11-22.md` §10）：mlx-serve 换 `mixed-4-8bit`、`--ctx-size 65536`、`--os-reserve-gib 8`、`--prefix-cache-mem 4GB`、`MLX_SERVE_MOE_BATCHED_DECODE=1`。实测 15-token 请求 200；12,618-token prompt 预填充 6.9s；并发 2 总耗时 3.56s vs 串行 4.45s；空闲内存 8.2 GB → 23.6 GB。
+- **测试**：Rust **2253/17**（+8：撞额度重试判定/放大值封顶、finish_reason+reasoning tokens 解析、reasoning_effort 三态映射、全冷却恢复兜底、创作角色输出上限断言）；tsc 0；Vitest **728/3**（数量不变，Rust-only）；Playwright **144/5**（全量 141 通过 + 3 个 1024×768 视口用例在 Rust 单测并行抢 CPU 时等「暂无评分数据」超时，空闲后单独复跑该 spec **75/75** 通过）；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：安装 v0.99.11 后重跑同一 10 章训练，确认 `agency_writer` 空正文归零、`reasoning_effort=low` 出现在 JSON 任务请求体；`app_config.Qwren127` 仍写旧模型名与 11234（实测 mlx-serve 不校验 `model` 字段，旧名仍可服务），建议方便时改为 `mixed-4-8bit` + 直连 11235 并重启，以绕过单并发代理并对齐 65536 上下文；删除重复 iQ 目录（+93 GB）与 2-bit pack 仍按文档有条件执行。
+
 ## v0.99.10（2026-11-22）
 
 **日志巡检收尾：报告质量门文案自相矛盾、章节标题写回被 WAL 写锁吞掉、记忆探针窗口碎片误报。**
