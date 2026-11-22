@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.99.11)
+# 🧪 StoryMoss 自动化测试环境 (v0.99.12)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.99.12 变更说明
+
+- Rust **2263 passed / 17 ignored**（+10）：日志保留真实 mtime 回归 1、主角自称识别 1、主角误检回归 1、alias cast 合并 1、探针器物/称谓/重叠碎片 1、修订候选可用性 1、直出修订 prompt 1、LeadWriter 章节写入上限判定 1、LeadWriter 空轮提前结束 1。
+- tsc 0；Vitest **728 passed / 3 skipped**（数量不变，Rust-only）；Playwright **144 passed / 5 skipped**（全量复跑）；`cargo +nightly-2026-10-05 fmt`、`cargo clippy`（0 error）、`python3 scripts/architecture_guard.py`、`npm run format:check`（src-frontend）全绿。
+- 验收：①重启 dev 应用后 `logs/storymoss.2026-11-22` 保留旧内容并继续追加（旧实现会删掉当日文件）；②训练报告「长程记忆」行显示识别出的主角；③训练批量修订日志出现「训练直连模式，修订跳过 tool_loop」，门禁记录出现第二轮 r2；④报告记忆探针不再出现器物/称谓碎片；⑤writer 单章最多 2 次草稿写入（日志「章节写入达到上限」）；⑥训练修订后的 round-2 门禁记录为 r2 且跟随直连 JSON（不再走 75–92s tool_loop）；⑦首稿裁决 pass、修订稿变 revise 时报告/装配保留首稿（日志「回退首稿装配」）。
 
 ### v0.99.11 变更说明
 

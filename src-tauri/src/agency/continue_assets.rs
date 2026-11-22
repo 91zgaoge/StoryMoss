@@ -1920,6 +1920,7 @@ mod tests {
             start_chapter: 134,
             end_chapter: 143,
             context_chapters: 10,
+            protagonist: "周成".into(),
             arc_summary: "周成从立足金城走到武警医院截护士。".into(),
             chapters: (134..=143)
                 .map(|n| BriefChapter {

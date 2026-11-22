@@ -304,6 +304,20 @@ pub fn truncate_raw(raw: &str) -> String {
     }
 }
 
+/// v0.99.12：是否是 LeadWriter 对**草稿区章节正文**的一次实质性写入。
+/// 只有 zone=draft + item_type=chapter + content ≥1200 字才算「成稿一次」，
+/// 提案/资产/大纲写入不计入上限。
+fn is_chapter_draft_write(name: &str, args: &serde_json::Value) -> bool {
+    name == "board_write"
+        && args.get("zone").and_then(|v| v.as_str()) == Some("draft")
+        && args.get("item_type").and_then(|v| v.as_str()) == Some("chapter")
+        && args
+            .get("content")
+            .and_then(|v| v.as_str())
+            .map(|content| content.chars().count() >= 1200)
+            .unwrap_or(false)
+}
+
 pub struct ToolLoop {
     llm: Arc<dyn LoopLlm>,
     registry: Arc<ToolRegistry>,
@@ -360,6 +374,17 @@ impl ToolLoop {
         let mut tail = String::new();
         let mut turns: Vec<LoopTurn> = Vec::new();
         let mut parse_failures = 0usize;
+        // v0.99.12：LeadWriter 章节写入上限。真机批量 writer 一个 tool_loop
+        // 连续 board_write 9 次（同一章 9 份 2.7–4.2k 字稿），单章耗时 7 分钟、
+        // 输出 token 成倍消耗；模型并不会因为「写完立即 final」而收束。
+        // 允许「初稿 + 一次自修订」两稿，第二稿成功写入即采用并结束循环；
+        // 门禁与直出修订仍会在其后做定向修订。
+        const MAX_LEAD_WRITER_CHAPTER_WRITES: usize = 2;
+        // 10 轮全是 board_read/asset_query、正文一稿未写（真机 writer 12
+        // 熔断）时，第 4 个空轮就交给 prose 兜底，别把 10 轮全耗在读取上。
+        const MAX_LEAD_WRITER_EMPTY_TURNS: usize = 4;
+        let mut lead_writer_chapter_writes = 0usize;
+        let mut lead_writer_empty_turns = 0usize;
 
         for turn_idx in 0..self.max_turns {
             if let Some(cancel) = &self.cancel {
@@ -443,9 +468,11 @@ impl ToolLoop {
                 }
                 Ok((LoopAction::Tool { name, args }, hint)) => {
                     parse_failures = 0;
+                    let mut executed_ok = false;
                     let mut observation = match self.registry.get_for_role(role, &name) {
                         Some(tool) => match tool.execute(ctx, args.clone()).await {
                             Ok(out) => {
+                                executed_ok = true;
                                 // observation 摘要化：防止超长工具结果爆上下文
                                 if out.chars().count() > 4000 {
                                     out.chars().take(4000).collect::<String>() + "\n... (已截断)"
@@ -461,6 +488,23 @@ impl ToolLoop {
                     if let Some(hint) = hint {
                         observation.push_str(hint);
                     }
+                    let chapter_write = role == AgentRole::LeadWriter
+                        && executed_ok
+                        && is_chapter_draft_write(&name, &args);
+                    if role == AgentRole::LeadWriter {
+                        if chapter_write {
+                            lead_writer_empty_turns = 0;
+                        } else {
+                            lead_writer_empty_turns += 1;
+                            if lead_writer_empty_turns == 2 {
+                                observation.push_str(
+                                    "\n【强制收束】资产与在途上文已注入，下一轮必须直接 \
+                                     board_write 写入完整正文（item_type=chapter），\
+                                     不要再 board_read/asset_query。",
+                                );
+                            }
+                        }
+                    }
                     tail.push_str(&format!(
                         "\n\n你的上一步：{}\n观察结果：{}",
                         raw, observation
@@ -468,9 +512,53 @@ impl ToolLoop {
                     // 保留真实 args（P4 trace 回放需要），不再置 Null
                     turns.push(LoopTurn {
                         raw_response: truncate_raw(&raw),
-                        action: Some(LoopAction::Tool { name, args }),
+                        action: Some(LoopAction::Tool {
+                            name: name.clone(),
+                            args: args.clone(),
+                        }),
                         observation: Some(observation),
                     });
+                    // v0.99.12：LeadWriter 章节写入上限（见循环头注释）。
+                    if chapter_write {
+                        lead_writer_chapter_writes += 1;
+                        if lead_writer_chapter_writes >= MAX_LEAD_WRITER_CHAPTER_WRITES {
+                            let content = args
+                                .get("content")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or_default()
+                                .to_string();
+                            log::warn!(
+                                "agency tool_loop: LeadWriter 第 {} 次章节写入达到上限，\
+                                 采用最新稿并结束循环（避免单章 9 稿轮询）",
+                                lead_writer_chapter_writes
+                            );
+                            return Ok(LoopResult {
+                                output: content,
+                                turns,
+                                aborted: false,
+                                abort_reason: None,
+                            });
+                        }
+                    }
+                    // 连续空轮（只读取不写章）达到上限：提前结束，让
+                    // coordinator 用黑板稿/散文兜底，而不是把 10
+                    // 轮全耗在读取上。
+                    if role == AgentRole::LeadWriter
+                        && lead_writer_empty_turns >= MAX_LEAD_WRITER_EMPTY_TURNS
+                    {
+                        log::warn!(
+                            "agency tool_loop: LeadWriter 连续 {} 轮未写入章节稿，\
+                             提前结束（已有章节稿 {} 次）并交给兜底",
+                            lead_writer_empty_turns,
+                            lead_writer_chapter_writes
+                        );
+                        return Ok(LoopResult {
+                            output: String::new(),
+                            turns,
+                            aborted: true,
+                            abort_reason: Some(LoopAbortReason::MaxTurns),
+                        });
+                    }
                 }
                 Err(e) => {
                     parse_failures += 1;
@@ -1073,5 +1161,40 @@ mod tests {
             .unwrap();
         assert!(!result.aborted);
         assert_eq!(result.abort_reason, None);
+    }
+
+    #[test]
+    fn chapter_draft_write_detection_limits_leadwriter_rewrites() {
+        // v0.99.12：只有 zone=draft + item_type=chapter + ≥1200 字才算
+        // 「一次成稿」；提案/资产/大纲写入不占用两稿上限。
+        let long = "正文".repeat(700);
+        let args = serde_json::json!({"zone":"draft","item_type":"chapter","content":long});
+        assert!(is_chapter_draft_write("board_write", &args));
+        let short = serde_json::json!({"zone":"draft","item_type":"chapter","content":"短稿"});
+        assert!(!is_chapter_draft_write("board_write", &short));
+        let proposal = serde_json::json!({"zone":"draft","item_type":"chapter","status":"proposed","content":"正文".repeat(700)});
+        assert!(is_chapter_draft_write("board_write", &proposal));
+        let asset =
+            serde_json::json!({"zone":"asset","item_type":"world","content":"正文".repeat(700)});
+        assert!(!is_chapter_draft_write("board_write", &asset));
+        assert!(!is_chapter_draft_write("board_read", &args));
+    }
+
+    #[tokio::test]
+    async fn lead_writer_aborts_after_four_read_only_turns() {
+        // v0.99.12：LeadWriter 连续 4 轮只读（story_info/board_read）不写章稿
+        // 时提前结束，交给 coordinator 的黑板稿/散文兜底；不能把 10
+        // 轮全耗在读取。
+        let (ctx, registry) = setup();
+        let actions = vec![r#"{"type":"tool","name":"story_info","args":{}}"#; 6];
+        let llm = MockLlm::scripted(actions);
+        let lp = ToolLoop::new(llm, registry).with_max_turns(10);
+        let result = lp
+            .run(AgentRole::LeadWriter, &ctx, "system", "task")
+            .await
+            .unwrap();
+        assert!(result.aborted);
+        assert_eq!(result.turns.len(), 4);
+        assert!(result.output.is_empty());
     }
 }

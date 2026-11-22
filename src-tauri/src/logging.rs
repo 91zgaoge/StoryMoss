@@ -274,13 +274,19 @@ fn cleanup_old_logs(log_dir: &Path) {
                     continue;
                 }
 
-                // 检查修改时间
-                if let Ok(modified) = metadata.modified() {
-                    if let Ok(duration) = modified.duration_since(UNIX_EPOCH) {
-                        if duration.as_secs() < cutoff {
-                            continue; // 未过期
-                        }
-                    }
+                // 检查修改时间：v0.99.12 修正条件反转——旧实现把
+                // `modified < cutoff` 当成「未过期」继续保留，结果每次
+                // 启动都把**刚写入的当日日志**删掉、反而留下 7 天前的旧文件。
+                // 真机表现：重启后 `storymoss.YYYY-MM-DD` 从新进程第一行
+                // 开始，训练窗口的 tracing 全部丢失。
+                let expired = metadata
+                    .modified()
+                    .ok()
+                    .and_then(|m| m.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs() < cutoff)
+                    .unwrap_or(false);
+                if !expired {
+                    continue;
                 }
 
                 let _ = fs::remove_file(&path);
@@ -379,5 +385,49 @@ mod tests {
         assert!(report.contains("split boom"), "report: {}", report);
         assert!(report.contains("logging.rs"), "report: {}", report);
         assert!(report.contains("Backtrace"), "report: {}", report);
+    }
+
+    /// v0.99.12：保留策略必须保留「刚写入」的日志、只删过期日志。
+    /// 旧实现条件反转，每次启动都会删掉当日 tracing（真机训练窗口日志
+    /// 在重启后整段消失），因此这里用真实 mtime 锁住语义。
+    #[test]
+    fn cleanup_keeps_recent_logs_and_removes_expired() {
+        let dir =
+            std::env::temp_dir().join(format!("storymoss-log-cleanup-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("temp log dir");
+
+        let recent = dir.join("storymoss.2026-11-22");
+        let old = dir.join("storymoss.2026-11-01");
+        let unrelated = dir.join("creative_workflow.log");
+        for path in [&recent, &old, &unrelated] {
+            fs::write(path, "line\n").expect("write log");
+        }
+        let now = SystemTime::now();
+        let expired = now - std::time::Duration::from_secs(8 * 24 * 60 * 60);
+        fs::File::options()
+            .write(true)
+            .open(&old)
+            .and_then(|f| f.set_modified(expired))
+            .expect("set old mtime");
+        fs::File::options()
+            .write(true)
+            .open(&unrelated)
+            .and_then(|f| f.set_modified(expired))
+            .expect("set unrelated mtime");
+
+        cleanup_old_logs(&dir);
+
+        assert!(recent.exists(), "刚写入的当日日志不得被删除");
+        assert!(!old.exists(), "超过保留期的 storymoss 日志应删除");
+        assert!(unrelated.exists(), "非 storymoss 前缀文件不参与清理");
+
+        let large = dir.join("storymoss.large");
+        fs::File::create(&large)
+            .and_then(|f| f.set_len(LOG_FILE_MAX_SIZE + 1))
+            .expect("create large log");
+        cleanup_old_logs(&dir);
+        assert!(!large.exists(), "超过单文件上限的日志应删除");
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

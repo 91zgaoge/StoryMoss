@@ -3074,13 +3074,18 @@ async fn test_batch_revision_sends_bus_proposal() {
     let pool = create_test_pool().unwrap();
     let story_id = seed_story_with_assets(&pool);
     let mock = RoutingMock::new(0);
+    // v0.99.12：修订轮必须写回与首稿不同的新稿；mock 无法预知
+    // board_revise 的动态 item_id，改用同 key board_write。board_revise
+    // 语义由 Task 2 与跨章用例覆盖，本用例只断言 bus 消息与放行。
+    let revise_line = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"修订"}}}}"#,
+        "修订稿：补足动机与承接。".repeat(40)
+    );
     mock.push("writer", vec![
         r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第1章","content":"初稿。","summary":"一"}}"#,
         r#"{"type":"final","content":"完成"}"#,
-        // 修订轮：mock 无法预知 board_revise 所需的动态 item_id，
-        // 用 final 直接返回（draft 未变，第二轮 gate pass 放行）；
-        // board_revise 语义已由 Task 2 测试覆盖，本用例只断言 bus 消息与放行。
-        r#"{"type":"final","content":"已知晓修订意见"}"#,
+        revise_line.as_str(),
+        r#"{"type":"final","content":"修订完成"}"#,
     ]);
     mock.push("editor", vec![
         r#"{"type":"final","content":"{\"verdict\":\"revise\",\"blocking_issues\":[\"动机弱\"],\"suggestions\":[],\"comments\":\"修\"}"}"#,
@@ -3139,9 +3144,14 @@ impl LoopLlm for ReviseAwareMock {
                     |r| Ok((r.get(0)?, r.get(1)?)),
                 )
                 .map_err(|e| AppError::from(format!("draft lookup: {}", e)))?;
+            // v0.99.12：修订稿必须与首稿不同且 ≥300 字，否则不算完成。
+            // 每段带序号，避免 cleanup_prose_for_revision 把重复段落去重。
+            let revised: String = (0..24)
+                .map(|i| format!("第一章修订稿第{i}段：阿苔的动机已补足，行动线清晰。"))
+                .collect();
             return Ok(format!(
-                r#"{{"type":"tool","name":"board_revise","args":{{"item_id":"{}","expected_version":{},"content":"第一章修订稿：阿苔的动机已补足。","summary":"一修"}}}}"#,
-                id, version
+                r#"{{"type":"tool","name":"board_revise","args":{{"item_id":"{}","expected_version":{},"content":"{}","summary":"一修"}}}}"#,
+                id, version, revised
             ));
         }
         self.inner.complete(system, u, t, m).await
@@ -3194,10 +3204,15 @@ async fn test_batch_revision_no_cross_chapter_mixup() {
     assert_eq!(scenes.len(), 2);
     let s1 = scenes.iter().find(|s| s.sequence_number == 1).unwrap();
     let s2 = scenes.iter().find(|s| s.sequence_number == 2).unwrap();
-    assert_eq!(
-        s1.content.as_deref(),
-        Some("第一章修订稿：阿苔的动机已补足。"),
-        "第 1 章 Scene 应装配修订后正文，不得串第 2 章草稿"
+    let s1_content = s1.content.as_deref().unwrap_or_default();
+    assert!(
+        s1_content.starts_with("第一章修订稿第0段"),
+        "第 1 章 Scene 应装配修订后正文，不得串第 2 章草稿: {s1_content}"
+    );
+    assert!(
+        s1_content.chars().count() >= 300,
+        "修订稿应为完整正文: {}",
+        s1_content.chars().count()
     );
     assert_eq!(
         s2.content.as_deref().map(str::trim_end),
@@ -3662,11 +3677,16 @@ async fn test_gate_record_keys_have_round_suffix() {
     let pool = create_test_pool().unwrap();
     let story_id = seed_story_with_assets(&pool);
     let mock = RoutingMock::new(0);
+    // v0.99.12：修订轮必须真的写入「与首稿不同」的新稿，才算修订完成。
+    let revise_line = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"修订"}}}}"#,
+        "修订稿正文：补足主角动机与承接。".repeat(30)
+    );
     mock.push("writer", vec![
         r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第1章","content":"初稿。","summary":"一"}}"#,
         r#"{"type":"final","content":"完成"}"#,
-        // 修订轮：直接 final（draft 未变，第二轮 gate pass 放行）
-        r#"{"type":"final","content":"已知晓修订意见"}"#,
+        revise_line.as_str(),
+        r#"{"type":"final","content":"修订完成"}"#,
     ]);
     mock.push("editor", vec![
         r#"{"type":"final","content":"{\"verdict\":\"revise\",\"blocking_issues\":[\"动机弱\"],\"suggestions\":[],\"comments\":\"修\"}"}"#,
@@ -4449,12 +4469,17 @@ async fn test_gate_v2_low_weighted_triggers_revision() {
         r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"一"}}}}"#,
         "正文".repeat(500) // word_count ≥800 避免 code 档字数扣分干扰断言
     );
+    let revise_line = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"修订"}}}}"#,
+        "修订正文：按低分项补足文笔与推进。".repeat(40)
+    );
     mock.push(
         "writer",
         vec![
             write_line.as_str(),
             r#"{"type":"final","content":"完成"}"#,
-            // 修订轮
+            // 修订轮：必须写入与首稿不同的新稿（v0.99.12 修订完成判定）
+            revise_line.as_str(),
             r#"{"type":"final","content":"已修订"}"#,
         ],
     );
@@ -5523,7 +5548,12 @@ async fn test_reported_lead_writer_maxturns_salvages_draft() {
         r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第2章","content":"{}","summary":"补缺角"}}}}"#,
         prose
     );
-    let lines: Vec<String> = (0..10).map(|_| board_write.clone()).collect();
+    // v0.99.12：writer 单章只允许 2 次草稿写入；先写一稿，随后用只读轮
+    // 触发「连续 4 空轮提前结束」，验证仍能从黑板取回草稿（原测试用
+    // 10 次 board_write 跑满 MaxTurns）。
+    let read_only = r#"{"type":"tool","name":"story_info","args":{}}"#;
+    let mut lines = vec![board_write];
+    lines.extend((0..10).map(|_| read_only.to_string()));
     let llm = MockLlm::scripted(lines.iter().map(|s| s.as_str()).collect::<Vec<_>>());
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     let reporter = crate::agency::reporter::TaskReporter::new(
@@ -5547,7 +5577,7 @@ async fn test_reported_lead_writer_maxturns_salvages_draft() {
         .await
         .expect("报告版角色任务不应因熔断返回 Err");
     assert!(!result.aborted, "熔断后应从黑板取回草稿并标记成功");
-    assert!(result.turns.len() >= 10, "应确实跑到最大轮数");
+    assert!(result.turns.len() >= 4, "应跑满「连续空轮」上限后提前收束");
     assert!(
         result.output.contains("第2章") && result.output.contains("已从黑板草稿区取回"),
         "salvage 摘要应带草稿 key 与来源，实际: {}",
@@ -6217,6 +6247,7 @@ fn render_parts_injects_full_backstory_and_all_prior_chapter_summaries() {
             start_chapter: 134,
             end_chapter: 134,
             context_chapters: 1,
+            protagonist: "周成".into(),
             arc_summary: "前文总脉络".into(),
             chapters: vec![BriefChapter {
                 chapter: 134,
@@ -6288,6 +6319,7 @@ async fn planner_prompt_includes_story_brief_and_prior_tail() {
         start_chapter: 134,
         end_chapter: 134,
         context_chapters: 1,
+        protagonist: "周成".into(),
         arc_summary: "前文总脉络".into(),
         chapters: vec![BriefChapter {
             chapter: 134,
@@ -6332,4 +6364,69 @@ async fn planner_prompt_includes_story_brief_and_prior_tail() {
         prompt.contains("上一章最后一句：我按住药车。"),
         "planner 缺上一章结尾锚点: {prompt}"
     );
+}
+
+#[test]
+fn revision_candidate_requires_changed_prose_not_tool_json() {
+    // v0.99.12：真机 7/10 章「编审判修订但修订未完成」。修订候选必须与
+    // 首稿不同、达到最短篇幅，且不能是 board_write 的工具参数回显。
+    let base = "我按住药车，追问小护士。";
+    assert!(!revision_candidate_usable(base, base));
+    assert!(!revision_candidate_usable("太短了", base));
+    let long_same = format!("{base}{}", "重复原稿。".repeat(200));
+    assert!(revision_candidate_usable(&long_same, base));
+    let json = format!(
+        "{{\"action\":\"board_write\",\"content\":\"{}\"}}",
+        "正文".repeat(400)
+    );
+    assert!(!revision_candidate_usable(&json, base));
+}
+
+#[test]
+fn direct_revision_task_includes_full_draft_and_issues() {
+    // 旧兜底只给 item_id/version，直出模式看不到正文必然失败；这里锁住
+    // 「完整正文 + 逐条问题 + 禁止工具调用」三件套。
+    let draft = format!("第11章开头。{}", "走廊尽头有人按住药车。".repeat(60));
+    let issues = vec![
+        "主角被称作张先生".to_string(),
+        "跳过审问护士节点".to_string(),
+    ];
+    let task = build_direct_revision_task(&draft, &issues, None, None);
+    assert!(task.contains("待修订正文"), "{task}");
+    assert!(task.contains("走廊尽头有人按住药车"), "缺完整正文: {task}");
+    assert!(task.contains("主角被称作张先生"), "{task}");
+    assert!(task.contains("跳过审问护士节点"), "{task}");
+    assert!(task.contains("不要工具调用"), "{task}");
+    assert!(task.contains("直接输出完整修订后的正文全文"), "{task}");
+}
+
+#[test]
+fn revision_reverts_only_when_first_pass_turns_revise() {
+    // v0.99.12：真机第 11 章首稿 r1 pass/0.7269，直出修订后 r2 revise/
+    // 0.6269；只应在 pass→revise 时回退首稿。pass→pass、revise→revise
+    // 仍采用修订稿。
+    let verdict = |kind: &str| crate::agency::coordinator::EditorVerdict {
+        verdict: kind.to_string(),
+        blocking_issues: vec![],
+        suggestions: vec![],
+        comments: String::new(),
+        score: None,
+        dimension_scores: None,
+    };
+    assert!(revision_worsened_verdict(
+        &verdict("pass"),
+        &verdict("revise")
+    ));
+    assert!(!revision_worsened_verdict(
+        &verdict("pass"),
+        &verdict("pass")
+    ));
+    assert!(!revision_worsened_verdict(
+        &verdict("revise"),
+        &verdict("revise")
+    ));
+    assert!(!revision_worsened_verdict(
+        &verdict("revise"),
+        &verdict("pass")
+    ));
 }

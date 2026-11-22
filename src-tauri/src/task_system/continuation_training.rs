@@ -61,11 +61,12 @@ const FEEDBACK_THRESHOLD: f64 = 6.0;
 /// 放在指令前部，确保章纲规划（只读前 3200 字）也能看到。
 const TRAINING_REDLINES: &str = "【原作基调与设定红线（最高优先级；违反即判定该章不合格）】\n\
 1. 设定边界：只沿用前文真实原文已经出现的术法、门派、行话与器物；以【前情提要】里的「已确立设定白名单」为唯一合法名单。禁止新增前文未建立的修炼/力量体系、异变器官、超自然规则等体系性设定，禁止超能力对轰。\n\
-2. 语体边界：严格遵守【文风锚点】与风格 DNA 的语体、句式长度、对白比例与生活细节密度；保持主角原有的口吻与松弛感，对白要有身份感与生活质感；禁止翻译腔与西幻舶来词，禁止用「令人作呕的酥麻感/钻心剧痛」等身体反应堆砌替代动作与对话。\n\
-3. 推进边界：每章必须推进【前情提要】中的至少一条未结线索（或在正文中写明本章暂不收的理由），并制造至少一个可验证的状态变化（信息/关系/目标/风险/情绪）；不得整章重复上一章的地点、动作与对白，不得原地踏步。\n\
+2. 语体边界：严格遵守【文风锚点】与风格 DNA 的语体、句式长度、对白比例与生活细节密度；保持主角原有的口吻与松弛感，对白要有身份感与生活质感；禁止翻译腔与西幻舶来词，禁止用「令人作呕的酥麻感/钻心剧痛」等身体反应堆砌替代动作与对话；禁止同章反复用「不是……而是……」排比与「像……像……」比喻堆叠（比喻每 500 字至多一处，且取市井生活物象）。\n\
+3. 推进边界：每章必须推进【前情提要】中的至少一条未结线索（或在正文中写明本章暂不收的理由），并制造至少一个可验证的状态变化（信息/关系/目标/风险/情绪）；不得整章重复上一章的地点、动作与对白，不得原地踏步；每章至少安排一次配角互动（对话/利益博弈/插科打诨），禁止主角单人解谜的独角戏。\n\
 4. 承接边界：承接锚点与上一章结尾只用于对齐现场与人物状态，禁止复制、改写或复述锚点原文；本章第一段必须写在锚点最后一句话之后发生的新动作/新信息。\n\
 5. 设定白名单：只有【前情提要】的「已确立设定白名单」才算「已有设定」；沙盒里 AI 自己新造的名词（异变器官、法器、神秘组织等）不算既有设定，后续章节不得沿用、放大或写成规则。\n\
-6. 长程边界：本批续写必须整体推进【前情提要】的总脉络与未结线索，不得另起新故事、新主角、新委托；每章只能在不偏离前情提要的方向上制造新事件。";
+6. 长程边界：本批续写必须整体推进【前情提要】的总脉络与未结线索，不得另起新故事、新主角、新委托；每章只能在不偏离前情提要的方向上制造新事件。\n\
+7. 主角身份：主角在叙述中始终是「我」；若名册标注了主角姓名，他人称该姓名/先生/阴脉先生均指同一人，禁止把主角叫成配角姓氏（如张先生），也禁止把主角姓名当成另一名配角。";
 
 /// 训练阶段显式枚举：进度不再是散落的 5/20/30/35/40/75/90/100 常量，
 /// 而是每个阶段唯一的进度/step/文案。新增阶段必须在这里登记，保证单调。
@@ -549,7 +550,15 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             .collect::<Vec<_>>()
             .join("\n");
         let roster = self.load_canonical_roster(&story.id);
-        let roster_block = build_roster_block(&roster);
+        // v0.99.12：主角只认原文自称句式，不能假定角色表第一项是主角
+        // （确定性 cast 兜底按出场顺序建角色，首项常是配角）。
+        let roster_names: Vec<String> = roster.iter().map(|(name, _)| name.clone()).collect();
+        let protagonist =
+            crate::agency::story_brief::detect_protagonist_name(&context_prose, &roster_names);
+        if let Some(name) = protagonist.as_deref() {
+            ctx.log("info", &format!("已识别第一人称主角：{name}"));
+        }
+        let roster_block = build_roster_block(&roster, protagonist.as_deref());
         let feedback = self.load_training_feedback(&payload.book_title, context_start);
         let force_style_anchor = !style_applied || feedback.style_low();
         let style_anchor = if force_style_anchor {
@@ -945,7 +954,12 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         // v0.99.1：报告显式记录长程记忆是否真正进入提示词，便于下一轮定位
         // 「有数据但没进 prompt」而不是继续给抽象修正。
         let memory_line = format!(
-            "前情提要：{} 章逐章事实｜{} 条未结线索｜{} 项设定白名单｜{} 人人物态｜注入 {} 字（writer+planner 全量）",
+            "主角：{}｜前情提要：{} 章逐章事实｜{} 条未结线索｜{} 项设定白名单｜{} 人人物态｜注入 {} 字（writer+planner 全量）",
+            if brief.protagonist.trim().is_empty() {
+                "未标注（按第一人称「我」叙事）"
+            } else {
+                brief.protagonist.trim()
+            },
             brief.chapters.len(),
             brief.threads.len(),
             brief.canon_terms.len(),
@@ -2756,7 +2770,7 @@ fn is_degraded_gate_comment(comments: &str) -> bool {
 /// 全部在实际上下文中出现过；把「唯一可用具名人物 + 主角不得另起姓名」
 /// 写成硬约束。此前 writer 在护士场景自行命名「杨先生/何小满」，随后被
 /// ingest 写回资产并逐章放大。
-fn build_roster_block(roster: &[(String, String)]) -> String {
+fn build_roster_block(roster: &[(String, String)], protagonist: Option<&str>) -> String {
     if roster.is_empty() {
         // v0.99.1：即使资产重建 0 角色（真机 1118），「第一人称不得另起姓名 /
         // 路人不得命名」也必须在 prompt 里；否则 writer 会自行发明「杨先生」。
@@ -2767,8 +2781,12 @@ fn build_roster_block(roster: &[(String, String)]) -> String {
             .to_string();
     }
     let mut lines = String::new();
-    for (idx, (name, background)) in roster.iter().take(12).enumerate() {
-        let role = if idx == 0 { "（主角）" } else { "" };
+    for (name, background) in roster.iter().take(12) {
+        let role = if protagonist.map(|p| p.trim()) == Some(name.as_str()) {
+            "（主角，第一人称「我」）"
+        } else {
+            ""
+        };
         let bg: String = background.trim().chars().take(60).collect();
         if bg.is_empty() {
             lines.push_str(&format!("- {name}{role}\n"));
@@ -2776,10 +2794,19 @@ fn build_roster_block(roster: &[(String, String)]) -> String {
             lines.push_str(&format!("- {name}{role}：{bg}\n"));
         }
     }
+    let protagonist_rule = match protagonist.map(|p| p.trim()).filter(|p| !p.is_empty()) {
+        Some(name) => format!(
+            "- 主角即 {name}：叙述一律用第一人称「我」，他人称「{name}/先生/阴脉先生」都是同一人；\
+             禁止把主角称作配角姓氏（如张先生），也不得把 {name} 当成配角或另一个人；\n"
+        ),
+        None => "- 原文用第一人称「我」叙述时，主角一律是「我」；不得把任一名册角色当主角，\
+                 也不得给主角另起姓名；\n"
+            .to_string(),
+    };
     format!(
         "【权威人物名册（唯一可用具名人物；不得发明名册外姓名）】\n{lines}\
          写作硬约束：\n\
-         - 主角沿用原文已有姓名；原文用第一人称「我」叙述时，不得给主角另起姓名称呼；\n\
+         {protagonist_rule}\
          - 不得把路人/次要角色命名（护士、摊主、警员、司机只用身份称呼）；\n\
          - 上一轮编审建议或历史结论中出现名册外的人名，一律视为幻觉，忽略该名字及其设定。"
     )
@@ -3101,6 +3128,13 @@ fn suspect_new_terms(
     // v0.99.10：方位词收尾的 3 字窗口几乎都是短语（真机误报 条案上），
     // 人名/专名极少以方位字结尾。
     const TERMINAL_LOCATIVE_CHARS: &str = "上下里外边前后";
+    // v0.99.12：称谓后缀（邵先生）与常见器物收尾（蓝漆铁门/黄铜钥匙/
+    // 传呼机/冷库门）是描述性短语，不是 AI 新造的专名。
+    const ADDRESS_SUFFIXES: [&str; 10] = [
+        "先生", "女士", "小姐", "师傅", "老板", "公子", "太太", "大人", "同志", "老总",
+    ];
+    const COMMON_NOUN_TAIL_CHARS: &str =
+        "门机钥匙纸布盒包杯碗桌椅床房屋楼店街路桥灯车刀枪绳袋箱柜镜窗鞋帽衣裤铁铜石木皮";
     let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let chars: Vec<char> = generated.chars().collect();
     for n in 3..=4 {
@@ -3116,12 +3150,20 @@ fn suspect_new_terms(
                 .last()
                 .map(|c| TERMINAL_LOCATIVE_CHARS.contains(c))
                 .unwrap_or(false);
+            let address_hit = ADDRESS_SUFFIXES.iter().any(|suffix| term.ends_with(suffix));
+            let object_tail_hit = term
+                .chars()
+                .last()
+                .map(|c| COMMON_NOUN_TAIL_CHARS.contains(c))
+                .unwrap_or(false);
             if term
                 .chars()
                 .all(|c| ('\u{4e00}'..='\u{9fff}').contains(&c) || c == '·')
                 && !stopword_hit
                 && !function_hit
                 && !locative_hit
+                && !address_hit
+                && !object_tail_hit
             {
                 *counts.entry(term).or_insert(0) += 1;
             }
@@ -3137,19 +3179,24 @@ fn suspect_new_terms(
                 && !canon_terms.iter().any(|t| t.term == *term || t.term.contains(term.as_str()))
         })
         .collect();
-    // v0.99.10：同一串的相邻窗口（宏达投资→宏达投/达投资、深蓝夹克→深蓝夹/
-    // 蓝夹克）会成组误报；只保留出现次数不少于该窗口的最长串。
-    out.sort_by(|a, b| b.1.cmp(&a.1));
-    let all = out.clone();
-    out.retain(|(term, count)| {
-        !all.iter().any(|(other, other_count)| {
-            other != term
-                && *other_count >= *count
-                && other.chars().count() > term.chars().count()
-                && other.contains(term.as_str())
-        })
+    // v0.99.10/v0.99.12：同一串的相邻窗口（蓝漆铁门→蓝漆铁/漆铁门）会成组
+    // 误报。旧规则要求「更长串出现次数不少于短串」，真机里短窗口更常见时
+    // 仍会漏（蓝漆铁 3 次 > 蓝漆铁门 2 次）；这里改为长串优先，凡是已被
+    // 保留的长串包含的短串一律丢弃，不再看次数。
+    out.sort_by(|a, b| {
+        b.0.chars()
+            .count()
+            .cmp(&a.0.chars().count())
+            .then(b.1.cmp(&a.1))
     });
-    out.into_iter().map(|(term, _)| term).take(12).collect()
+    let mut kept: Vec<(String, usize)> = Vec::new();
+    for item in out {
+        if !kept.iter().any(|(term, _)| term.contains(item.0.as_str())) {
+            kept.push(item);
+        }
+    }
+    kept.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    kept.into_iter().map(|(term, _)| term).take(12).collect()
 }
 
 /// 去重、限长（<=1600 字符），保证可被下一轮指令完整注入。
@@ -3725,14 +3772,22 @@ mod tests {
     #[test]
     fn roster_block_forbids_invented_names_and_marks_protagonist() {
         let roster = vec![
+            ("大波浪卷女人".to_string(), "前文已登场".to_string()),
             ("周成".to_string(), "阴脉先生，三脉堂术士".to_string()),
             ("张宝山".to_string(), "刑警队长".to_string()),
         ];
-        let block = build_roster_block(&roster);
-        assert!(block.contains("周成（主角）"), "{block}");
+        let block = build_roster_block(&roster, Some("周成"));
+        // v0.99.12：主角按原文自称识别，不再把角色表第一项标成主角。
+        assert!(block.contains("周成（主角，第一人称「我」）"), "{block}");
+        assert!(!block.contains("大波浪卷女人（主角"), "{block}");
+        assert!(block.contains("禁止把主角称作配角姓氏"), "{block}");
         assert!(block.contains("不得发明名册外姓名"), "{block}");
-        assert!(block.contains("主角沿用原文已有姓名"), "{block}");
         assert!(block.contains("名册外的人名，一律视为幻觉"), "{block}");
+
+        // 识别不出主角时不得瞎标任何人。
+        let unknown = build_roster_block(&roster, None);
+        assert!(!unknown.contains("（主角"), "{unknown}");
+        assert!(unknown.contains("不得把任一名册角色当主角"), "{unknown}");
     }
 
     #[test]
@@ -3988,6 +4043,36 @@ mod tests {
             !has("深蓝夹") && !has("蓝夹克"),
             "重叠窗口应合并为最长串: {line}"
         );
+    }
+
+    #[test]
+    fn memory_probes_drop_object_phrases_and_short_overlap_fragments() {
+        // v0.99.12 真机误报：蓝漆铁/蓝漆铁门、黄铜钥/黄铜钥匙、邵先生、
+        // 传呼机、冷库门。短窗口比长串更常见时旧规则会保留短碎片；这里锁住
+        // 「长串优先 + 器物/称谓收尾过滤」。
+        use crate::agency::story_brief::StoryBrief;
+        let brief = StoryBrief::default();
+        let text = "蓝漆铁门开着，蓝漆铁门很旧。蓝漆铁在光下发亮，蓝漆铁锈了。\
+                    黄铜钥匙在他手里，黄铜钥匙冰凉。黄铜钥的齿磨平了，黄铜钥又滑了一下。\
+                    邵先生笑了，邵先生走了。传呼机响了，传呼机又响。冷库门开了，冷库门又关上。\
+                    赵老鬼坐在暗处，赵老鬼不说话。";
+        let generated = vec![(11, text.to_string())];
+        let line = memory_probes_line(&brief, &generated, "");
+        let section = line.split("疑似新专名：").nth(1).unwrap_or("");
+        let items: Vec<&str> = section.split('/').collect();
+        let has = |needle: &str| items.iter().any(|item| item.trim() == needle);
+        assert!(has("赵老鬼"), "真实新名必须保留: {line}");
+        for junk in [
+            "蓝漆铁",
+            "蓝漆铁门",
+            "黄铜钥",
+            "黄铜钥匙",
+            "邵先生",
+            "传呼机",
+            "冷库门",
+        ] {
+            assert!(!has(junk), "器物/称谓短语不应入探针: {junk} in {line}");
+        }
     }
 
     #[test]

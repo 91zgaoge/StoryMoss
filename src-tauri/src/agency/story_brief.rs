@@ -46,6 +46,11 @@ pub struct StoryBrief {
     pub end_chapter: i32,
     #[serde(default)]
     pub context_chapters: usize,
+    /// v0.99.12：第一人称主角的权威姓名（如「周成」）。资产重建的 cast 可能
+    /// 同时出现「我/主角」与真实姓名，若不合并，writer 与编审会把同一人当
+    /// 成两个角色（真机：编审把主角被称「周成」判成「换成配角」）。
+    #[serde(default)]
+    pub protagonist: String,
     #[serde(default)]
     pub arc_summary: String,
     #[serde(default)]
@@ -121,7 +126,122 @@ pub struct BriefTerm {
     pub note: String,
 }
 
+/// 资产摘要里用来指代第一人称主角的占位名（不是真实姓名）。
+pub const PROTAGONIST_ALIASES: [&str; 6] = ["我", "主角", "主人公", "主角我", "本人", "阴脉先生"];
+
+pub fn is_protagonist_alias(name: &str) -> bool {
+    let name = name.trim();
+    PROTAGONIST_ALIASES.iter().any(|alias| *alias == name)
+}
+
+/// v0.99.12：从原文里确定第一人称主角的姓名。
+///
+/// 不能依赖「角色表第一项」——确定性 cast 兜底按出场顺序创建角色（真机
+/// 12:38 训练第一项是「大波浪卷女人」），旧 roster 会把配角标成主角。
+/// 这里只认原文的显式自称/身份句式（我叫X / 我姓X / 以X身份 / X这个身份 /
+/// X自报 / 自称X），无把握时返回 None，宁可不标注也不标错。不做「姓名附近
+/// 有『我/身份』」的宽窗口计分——配角高频出现时会反超真正主角。
+pub fn detect_protagonist_name(context: &str, candidates: &[String]) -> Option<String> {
+    let mut best: Option<(String, usize)> = None;
+    let mut tie = false;
+    for name in candidates {
+        let name = name.trim();
+        if name.chars().count() < 2 || is_protagonist_alias(name) {
+            continue;
+        }
+        let mut score = 0usize;
+        for needle in [
+            format!("我叫{name}"),
+            format!("我名{name}"),
+            format!("我姓{name}"),
+            format!("我是{name}"),
+            format!("{name}这个身份"),
+            format!("以{name}身份"),
+            format!("用{name}的身份"),
+            format!("{name}自报"),
+            format!("自称{name}"),
+        ] {
+            if context.contains(&needle) {
+                score += 4;
+            }
+        }
+        // v0.99.12：只认显式自称/身份句式，不做「姓名附近有『我』」的宽
+        // 窗口计分。真机上下文里配角黄玄然出现 30 次、附近大量「我/身份」
+        // 字样，窗口计分会反超真正主角周成，把配角标成主角。
+        if score == 0 {
+            continue;
+        }
+        match &best {
+            Some((_, best_score)) if score < *best_score => {}
+            Some((_, best_score)) if score == *best_score => tie = true,
+            _ => {
+                best = Some((name.to_string(), score));
+                tie = false;
+            }
+        }
+    }
+    if tie {
+        return None;
+    }
+    // 至少要命中一条自称/身份句式（+4）；只靠「与『我』同段」的弱信号
+    // 不标注，宁可不标也不把配角当主角。
+    best.filter(|(_, score)| *score >= 4).map(|(name, _)| name)
+}
+
 impl StoryBrief {
+    /// 把「我/主角/主人公」等占位名合并到权威主角姓名，并去重 cast。
+    /// 编审会据此判断「周成」不是配角；writer 也不会再把主角与占位名当成
+    /// 两个人。
+    pub fn canonicalize_protagonist(&mut self, protagonist: &str) {
+        let name = protagonist.trim();
+        if name.is_empty() || is_protagonist_alias(name) {
+            return;
+        }
+        self.protagonist = name.to_string();
+        for chapter in &mut self.chapters {
+            let mut merged: Vec<String> = Vec::new();
+            for cast in chapter.cast.drain(..) {
+                let cast = cast.trim();
+                if cast.is_empty() {
+                    continue;
+                }
+                let mapped = if is_protagonist_alias(cast) {
+                    name
+                } else {
+                    cast
+                };
+                if !merged.iter().any(|existing| existing == mapped) {
+                    merged.push(mapped.to_string());
+                }
+            }
+            chapter.cast = merged;
+        }
+        let mut states: Vec<BriefCastState> = Vec::new();
+        let mut protagonist_idx: Option<usize> = None;
+        for state in self.cast_states.drain(..) {
+            let state_name = state.name.trim();
+            let is_alias = is_protagonist_alias(state_name);
+            let is_protagonist = state_name == name;
+            if is_alias || is_protagonist {
+                if let Some(idx) = protagonist_idx {
+                    merge_cast_state(&mut states[idx], state);
+                } else {
+                    let mut state = state;
+                    state.name = name.to_string();
+                    states.push(state);
+                    protagonist_idx = Some(states.len() - 1);
+                }
+            } else {
+                states.push(state);
+            }
+        }
+        if let Some(idx) = protagonist_idx {
+            let protagonist_state = states.remove(idx);
+            states.insert(0, protagonist_state);
+        }
+        self.cast_states = states;
+    }
+
     pub fn is_empty(&self) -> bool {
         self.chapters.is_empty()
             && self.threads.is_empty()
@@ -152,6 +272,12 @@ impl StoryBrief {
         let mut out = format!(
             "【前情提要（原书第 {start}–{end} 章，共 {n} 章；本批固定，必须通读后再写）】\n"
         );
+        if !self.protagonist.trim().is_empty() {
+            out.push_str(&format!(
+                "主角：{}（第一人称一律用「我」；他人称其姓名时即为同一人，禁止当配角）\n",
+                take_chars(self.protagonist.trim(), 40)
+            ));
+        }
         if !self.arc_summary.trim().is_empty() {
             out.push_str(&format!(
                 "总脉络：{}\n",
@@ -244,6 +370,12 @@ impl StoryBrief {
                 .unwrap_or(self.end_chapter),
             self.context_chapters.max(self.chapters.len())
         );
+        if !self.protagonist.trim().is_empty() {
+            out.push_str(&format!(
+                "主角：{}（第一人称一律用「我」；他人称其姓名时即为同一人，禁止当配角）\n",
+                take_chars(self.protagonist.trim(), 40)
+            ));
+        }
         if !self.arc_summary.trim().is_empty() {
             out.push_str(&format!(
                 "总脉络：{}\n",
@@ -433,6 +565,7 @@ pub fn brief_from_summaries(
         start_chapter,
         end_chapter,
         context_chapters,
+        protagonist: String::new(),
         arc_summary,
         chapters: summaries,
         threads,
@@ -440,6 +573,25 @@ pub fn brief_from_summaries(
         canon_terms,
         source: "deterministic".to_string(),
         updated_at: Local::now().to_rfc3339(),
+    }
+}
+
+/// 合并同一主角的两份人物态：保留更长/更具体的角色、目标与已知信息。
+fn merge_cast_state(into: &mut BriefCastState, other: BriefCastState) {
+    if into.role.trim().is_empty() || other.role.chars().count() > into.role.chars().count() {
+        into.role = other.role;
+    }
+    if into.location.trim().is_empty() {
+        into.location = other.location;
+    }
+    if into.goal.trim().is_empty() || other.goal.chars().count() > into.goal.chars().count() {
+        into.goal = other.goal;
+    }
+    for know in other.knows {
+        let know = know.trim();
+        if !know.is_empty() && !into.knows.iter().any(|existing| existing == know) {
+            into.knows.push(know.to_string());
+        }
     }
 }
 
@@ -612,5 +764,85 @@ mod tests {
         let brief = StoryBrief::default();
         assert!(brief.is_empty());
         assert!(brief.render(STORY_BRIEF_CHAR_CAP).is_empty());
+    }
+
+    #[test]
+    fn protagonist_detection_prefers_self_identification() {
+        let context = "赵开来问：“你到底是谁？”我道：“免贵姓周，三脉堂周成。”\
+                       董强“哦”了一声。周成这个身份还得在金城继续用。";
+        let candidates = vec![
+            "大波浪卷女人".to_string(),
+            "妙姐".to_string(),
+            "周成".to_string(),
+            "赵开来".to_string(),
+        ];
+        assert_eq!(
+            detect_protagonist_name(context, &candidates).as_deref(),
+            Some("周成")
+        );
+        // 无自称句式时不瞎猜（宁可不标主角，也不把配角标成主角）。
+        let plain = "赵开来与董强在饭馆喝酒，妙姐推门进来。";
+        assert_eq!(detect_protagonist_name(plain, &candidates), None);
+        assert_eq!(detect_protagonist_name(context, &[]), None);
+    }
+
+    #[test]
+    fn protagonist_detection_ignores_frequent_third_person_mentions() {
+        // v0.99.12 真机误检：黄玄然出现 30+ 次且附近常有「我/身份」字样，
+        // 宽窗口计分曾把配角标成主角；显式自称句式才应获胜。
+        let mut context = String::new();
+        for _ in 0..40 {
+            context.push_str("黄玄然说高天观的事。我问他身份。");
+        }
+        context.push_str("后来我以周成身份立足金城；周成自报三脉堂周成。");
+        let candidates = vec![
+            "黄玄然".to_string(),
+            "周成".to_string(),
+            "赵开来".to_string(),
+        ];
+        assert_eq!(
+            detect_protagonist_name(&context, &candidates).as_deref(),
+            Some("周成")
+        );
+    }
+
+    #[test]
+    fn canonicalize_merges_alias_cast_into_protagonist() {
+        let mut brief = brief_from_summaries(
+            vec![BriefChapter {
+                chapter: 136,
+                cast: vec!["主角".into(), "我".into(), "周成".into(), "杨晓雯".into()],
+                ..Default::default()
+            }],
+            "",
+            vec![],
+            vec![
+                BriefCastState {
+                    name: "我".into(),
+                    role: "第一人称".into(),
+                    ..Default::default()
+                },
+                BriefCastState {
+                    name: "周成".into(),
+                    role: "主角/阴脉先生".into(),
+                    goal: "查清小护士身份".into(),
+                    ..Default::default()
+                },
+                BriefCastState {
+                    name: "杨晓雯".into(),
+                    ..Default::default()
+                },
+            ],
+            vec![],
+        );
+        brief.canonicalize_protagonist("周成");
+        assert_eq!(brief.protagonist, "周成");
+        assert_eq!(brief.chapters[0].cast, vec!["周成", "杨晓雯"]);
+        assert_eq!(brief.cast_states.len(), 2);
+        assert_eq!(brief.cast_states[0].name, "周成");
+        assert!(brief.cast_states[0].goal.contains("小护士"));
+        let rendered = brief.render(STORY_BRIEF_CHAR_CAP);
+        assert!(rendered.contains("主角：周成"), "{rendered}");
+        assert!(!rendered.contains("主角：我"), "{rendered}");
     }
 }

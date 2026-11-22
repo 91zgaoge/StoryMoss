@@ -7497,6 +7497,11 @@ impl AgencyCoordinator {
         let final_verdict = match outcome {
             GateOutcome::Passed { verdict } => verdict,
             GateOutcome::RevisionRequired { issues, verdict } if !revised => {
+                // v0.99.12：保留首稿与首道裁决，供修订后对比；修订稿若让
+                // 编辑裁决从 pass 变 revise（真机第 11 章 r1 pass/0.7269 →
+                // r2 revise/0.6269），回退首稿装配，不把更差的稿当修订成功。
+                let original_draft = draft.clone();
+                let first_verdict = verdict.clone();
                 // 总线：修订提案（P5 时间线/学习中心数据源）
                 let pool = self.pool.clone();
                 let rid = run_id.to_string();
@@ -7532,45 +7537,157 @@ impl AgencyCoordinator {
                 // v0.93.12: 修订轮不再把整条管线判死——续写训练 run 917dd138
                 // 正是在这里「第二道主创熔断」后整轮失败，而首轮草稿其实可用。
                 // 调用失败/熔断时保留首轮草稿，采用首道 gate 裁决继续装配。
-                let revise_out = match self
-                    .run_role_with_llm_and_budget(
-                        budget,
-                        AgentRole::LeadWriter,
-                        board,
-                        registry,
-                        run_id,
-                        story_id,
-                        premise,
-                        &task,
-                    )
-                    .await
-                {
-                    Ok(out) => Some(out),
-                    Err(e) => {
-                        log::warn!(
-                            "agency: 修订阶段调用失败（{}），保留首轮草稿继续装配 run={}",
-                            e,
-                            run_id
-                        );
-                        None
-                    }
-                };
-                let revision_done = revise_out.as_ref().map(|out| !out.aborted).unwrap_or(false);
-                if revision_done {
-                    revised = true;
-                    // 修订后按本章 key 取回草稿：并行循环中 draft
-                    // 区可能已有后续章节草稿。取不回时保留首轮草稿，
-                    // 不让取稿失败吞掉整轮产出。
+                //
+                // v0.99.12：训练批量（direct_gate_json）跳过 ReAct 修订循环。
+                // 真机修订 prompt 约 30k 字符（15k tokens，含工具目录与资产），
+                // 7/10 章熔断或正常结束却不写黑板；直出只需正文+问题（约 4k
+                // tokens），速度与成功率都更高。非训练批量仍保留 tool_loop。
+                let skip_tool_loop = self.direct_gate_json;
+                let revise_out = if skip_tool_loop {
+                    log::info!(
+                        "agency: 训练直连模式，修订跳过 tool_loop，直接直出修订稿 run={}",
+                        run_id
+                    );
+                    None
+                } else {
                     match self
-                        .latest_draft_by_key(board, run_id, &draft.key, "修订后未取回本章草稿")
+                        .run_role_with_llm_and_budget(
+                            budget,
+                            AgentRole::LeadWriter,
+                            board,
+                            registry,
+                            run_id,
+                            story_id,
+                            premise,
+                            &task,
+                        )
                         .await
                     {
-                        Ok(d) => draft = d,
+                        Ok(out) => Some(out),
+                        Err(e) => {
+                            log::warn!(
+                                "agency: 修订阶段调用失败（{}），保留首轮草稿继续装配 run={}",
+                                e,
+                                run_id
+                            );
+                            None
+                        }
+                    }
+                };
+                // v0.99.12：修订完成 = 真的拿到「与首稿不同且可装配」的新稿。
+                // 旧实现只看 tool_loop 是否正常结束：模型正常结束但没写黑板、
+                // 或只回了 tool_call 时仍算「已修订」，真机因此 7/10 章编审判
+                // 修订却 0 章真正修订；而熔断分支直接保留首稿。
+                let mut revision_done = false;
+                let mut revision_draft: Option<BoardItem> = None;
+                let mut failure_reason: Option<String> = None;
+                match revise_out.as_ref() {
+                    Some(out) if out.aborted => {
+                        let reason = circuit_break_reason(out);
+                        log::warn!(
+                            "agency: 修订主创 tool_loop 熔断（{}），尝试直出修订兜底 run={}",
+                            reason,
+                            run_id
+                        );
+                        failure_reason = Some(format!("熔断（{reason}）"));
+                    }
+                    Some(out) => {
+                        // 1) 本章 key 的新稿（并行批量下只能取本章，见
+                        //    v0.99.0）。
+                        if let Ok(d) = self
+                            .latest_draft_by_key(board, run_id, &draft.key, "修订后未取回本章草稿")
+                            .await
+                        {
+                            if revision_candidate_usable(&d.content, &draft.content) {
+                                revision_draft = Some(d);
+                                revision_done = true;
+                            }
+                        }
+                        // 2) 模型正常结束但没写黑板：最终输出就是完整修订稿，
+                        // 直接落黑板后采用。
+                        if !revision_done && revision_candidate_usable(&out.output, &draft.content)
+                        {
+                            let text = out.output.trim().to_string();
+                            let summary: String = text.chars().take(60).collect();
+                            let board_c = board.clone();
+                            let rid = run_id.to_string();
+                            let sid = story_id.to_string();
+                            let ckey = draft.key.clone();
+                            match self
+                                .db(move || {
+                                    board_c.write(
+                                        &rid,
+                                        &sid,
+                                        AgentRole::LeadWriter,
+                                        BoardZone::Draft,
+                                        "chapter",
+                                        &ckey,
+                                        &text,
+                                        &summary,
+                                    )
+                                })
+                                .await
+                            {
+                                Ok(d) => {
+                                    log::warn!(
+                                        "agency: 修订主创未写黑板，采用最终输出作为修订稿（{} 字）run={}",
+                                        d.content.chars().count(),
+                                        run_id
+                                    );
+                                    revision_draft = Some(d);
+                                    revision_done = true;
+                                }
+                                Err(e) => log::warn!(
+                                    "agency: 修订最终输出落黑板失败（{}）run={}",
+                                    e,
+                                    run_id
+                                ),
+                            }
+                        }
+                        if !revision_done {
+                            failure_reason = Some("正常结束但未产出可用修订稿".to_string());
+                        }
+                    }
+                    None => {
+                        failure_reason = Some(if skip_tool_loop {
+                            "训练直连模式（跳过工具循环）".to_string()
+                        } else {
+                            "调用失败".to_string()
+                        })
+                    }
+                }
+                // 3) 直出兜底：不依赖工具协议，把完整正文 + 逐条问题交给模型，
+                // 直接产出完整修订稿（此前兜底提示只有 item_id/version，
+                // 模型看不到正文必然过短失败）。
+                if !revision_done {
+                    match self
+                        .revision_prose_direct(
+                            board,
+                            run_id,
+                            story_id,
+                            budget,
+                            &draft,
+                            &issues,
+                            emotion.as_ref(),
+                            contract.as_ref(),
+                            failure_reason.as_deref().unwrap_or("修订轮未完成"),
+                        )
+                        .await
+                    {
+                        Ok(d) => {
+                            revision_draft = Some(d);
+                            revision_done = true;
+                        }
                         Err(e) => log::warn!(
-                            "agency: 修订后取回本章草稿失败（{}），保留首轮草稿 run={}",
+                            "agency: 修订轮直出兜底失败（{}），保留首轮草稿 run={}",
                             e,
                             run_id
                         ),
+                    }
+                }
+                if revision_done {
+                    if let Some(d) = revision_draft {
+                        draft = d;
                     }
                     self.check_cancel(cancel)?;
                     let second = self
@@ -7587,7 +7704,7 @@ impl AgencyCoordinator {
                             contract.as_ref(),
                         )
                         .await?;
-                    match second {
+                    let mut final_verdict = match second {
                         GateOutcome::Passed { verdict } => verdict,
                         GateOutcome::RevisionRequired { verdict, .. } => verdict,
                         GateOutcome::Failed { reason } => {
@@ -7599,14 +7716,33 @@ impl AgencyCoordinator {
                                 return Err(AppError::from(format!("质量门未通过: {}", reason)));
                             }
                         }
+                    };
+                    // 首稿裁决 pass、修订稿裁决变 revise：修订反而降级，
+                    // 回退首稿并保留首道 pass 裁决。
+                    if revision_worsened_verdict(&first_verdict, &final_verdict) {
+                        log::warn!(
+                            "agency: 修订后裁决由 pass 变 revise（首稿 {} → 修订 {}），\
+                             回退首稿装配 run={}",
+                            first_verdict.comments.chars().take(80).collect::<String>(),
+                            final_verdict.comments.chars().take(80).collect::<String>(),
+                            run_id
+                        );
+                        draft = original_draft;
+                        final_verdict = first_verdict;
+                        self.emit_progress(
+                            run_id,
+                            "revision",
+                            "reverted",
+                            "修订后裁决变差，回退首稿装配",
+                        );
+                    } else {
+                        revised = true;
                     }
+                    final_verdict
                 } else {
-                    let reason = revise_out
-                        .as_ref()
-                        .map(circuit_break_reason)
-                        .unwrap_or("调用失败");
+                    let reason = failure_reason.unwrap_or_else(|| "调用失败".to_string());
                     log::warn!(
-                        "agency: 修订轮主创未完成（{}），保留首轮草稿继续装配 run={}",
+                        "agency: 修订轮未完成（{}），保留首轮草稿继续装配 run={}",
                         reason,
                         run_id
                     );
@@ -7614,20 +7750,18 @@ impl AgencyCoordinator {
                         run_id,
                         "revision",
                         "skipped",
-                        "修订轮未完成（模型熔断），保留首轮草稿继续装配",
+                        "修订轮未完成（模型熔断/无可装配新稿），保留首轮草稿继续装配",
                     );
                     // 模型可能已把修订稿写到本章别的 key（如「第N章修订」）；
                     // 有更完整的同章新稿则采用。v0.99.0：只能采用**本章**草稿——
                     // 并行批量里 gate(n) 与 writer(n+1) 并发，黑板最新稿通常是
                     // 下一章；旧实现按任意 key 取稿会把第 n+1 章正文装进第 n
-                    // 章，
-                    // 整批章号错位、相邻章正文完全相同（真机 1118 训练 13/14、
-                    // 16/17、19/20 字节一致）。
+                    // 章，整批章号错位、相邻章正文完全相同。
                     if let Ok(d) = self
                         .latest_draft_for_chapter(board, run_id, chapter_number)
                         .await
                     {
-                        if d.content.chars().count() >= 200 && d.content != draft.content {
+                        if revision_candidate_usable(&d.content, &draft.content) {
                             log::warn!(
                                 "agency: 修订熔断后采用同章黑板新稿「{}」（{} 字）run={}",
                                 d.key,
@@ -8938,7 +9072,10 @@ impl AgencyCoordinator {
             emotion_plan,
             scene_contract,
             deadline,
-            false,
+            // v0.99.12：训练批量（direct_gate_json）的第二轮 gate 也必须走
+            // 直连 JSON；此前这里硬编码 false，修订后的 round-2 又回到
+            // ReAct tool_loop（真机 round-2 75–92s 连续尝试、迟迟不落门禁）。
+            self.direct_gate_json,
         )
         .await?;
         // gate 观察埋点（best-effort）：outcome/round/key/issues_count/weighted
@@ -9248,6 +9385,90 @@ impl AgencyCoordinator {
         .await
     }
 
+    /// v0.99.12：修订直出兜底。修订轮 tool_loop 熔断/未写黑板时，用一次
+    /// 无工具的结构化散文调用产出完整修订稿：
+    /// 1) 先看同章黑板是否已有熔断前写入的新稿；
+    /// 2) 否则把**完整正文 + 逐条问题**交给主创，要求直接输出完整修订稿；
+    /// 3) 校验「与首稿不同且 ≥300 字」后写回本章 key，交给 round-2 gate。
+    #[allow(clippy::too_many_arguments)]
+    async fn revision_prose_direct(
+        &self,
+        board: &BlackboardService,
+        run_id: &str,
+        story_id: &str,
+        budget: &Arc<AgencyBudget>,
+        draft: &BoardItem,
+        issues: &[String],
+        plan: Option<&crate::emotion_circuit::ChapterEmotionPlan>,
+        scene_contract: Option<&crate::agency::narrative_contract::SceneContract>,
+        context_label: &str,
+    ) -> Result<BoardItem, AppError> {
+        if let Some(chapter_number) = Self::draft_chapter_number(&draft.key) {
+            if let Ok(d) = self
+                .latest_draft_for_chapter(board, run_id, chapter_number)
+                .await
+            {
+                if revision_candidate_usable(&d.content, &draft.content) {
+                    log::warn!(
+                        "agency: 修订兜底采用同章黑板新稿「{}」（{} 字）run={}",
+                        d.key,
+                        d.content.chars().count(),
+                        run_id
+                    );
+                    return Ok(d);
+                }
+            }
+        }
+        let task = build_direct_revision_task(&draft.content, issues, plan, scene_contract);
+        let llm = BudgetedLlm::new(
+            self.llm_for_run(run_id, AgentRole::LeadWriter, story_id),
+            budget.clone(),
+            AgentRole::LeadWriter,
+        );
+        let text = llm
+            .complete(
+                "你是主创。按修订要求直接输出完整正文全文，不要输出任何解释、标题或工具调用。",
+                &task,
+                TaskType::CreativeWriting,
+                crate::agency::roles::CREATIVE_MAX_OUTPUT_TOKENS,
+            )
+            .await?;
+        let text = text.trim().to_string();
+        if !revision_candidate_usable(&text, &draft.content) {
+            return Err(AppError::from(format!(
+                "修订{}，直出兜底仍不可用（{} 字符）",
+                context_label,
+                text.chars().count()
+            )));
+        }
+        let summary: String = text.chars().take(60).collect();
+        let board_c = board.clone();
+        let rid = run_id.to_string();
+        let sid = story_id.to_string();
+        let ckey = draft.key.clone();
+        let written = self
+            .db(move || {
+                board_c.write(
+                    &rid,
+                    &sid,
+                    AgentRole::LeadWriter,
+                    BoardZone::Draft,
+                    "chapter",
+                    &ckey,
+                    &text,
+                    &summary,
+                )
+            })
+            .await?;
+        log::warn!(
+            "agency: 修订{}，直出兜底产出修订稿（{} 字）run={}",
+            context_label,
+            written.content.chars().count(),
+            run_id
+        );
+        Ok(written)
+    }
+
     fn board(&self) -> BlackboardService {
         match &self.app_handle {
             Some(app) => BlackboardService::with_events(self.pool.clone(), app),
@@ -9439,6 +9660,74 @@ async fn resolve_role_prompt_with_pool(pool: &DbPool, prompt_id: &str, premise: 
             premise
         )
     })
+}
+
+/// v0.99.12：修订稿可用性判定。修订轮在真机上大量「正常结束但没写黑板」
+/// 或「熔断」，旧实现直接保留首稿；这里统一要求：内容不与首稿相同、达到
+/// 最短篇幅、且不是工具协议 JSON 回显。
+/// v0.99.12：修订是否让编辑裁决变差。只有「首稿 pass → 修订稿 revise」
+/// 视为降级回退；pass→pass 与 revise→revise 仍采用修订稿（修订通常改善
+/// 分项或承接），避免因 1–5 编辑分的噪声误回退。
+pub(crate) fn revision_worsened_verdict(first: &EditorVerdict, second: &EditorVerdict) -> bool {
+    first.verdict == "pass" && second.verdict == "revise"
+}
+
+pub(crate) fn revision_candidate_usable(text: &str, base: &str) -> bool {
+    const MIN_REVISION_CHARS: usize = 300;
+    let text = text.trim();
+    let base = base.trim();
+    if text.chars().count() < MIN_REVISION_CHARS || text == base {
+        return false;
+    }
+    // 模型把 board_write 的 JSON 参数当正文输出时不能当修订稿装配。
+    if text.starts_with('{') && text.contains("\"action\"") {
+        return false;
+    }
+    true
+}
+
+/// v0.99.12：无工具修订提示。修订兜底此前复用 tool_loop 的 base_task，
+/// 只给 item_id/version、不给正文，直出模式下模型根本看不到要改什么，
+/// 必然「输出过短」失败。这里把完整正文与逐条问题一起给出。
+pub(crate) fn build_direct_revision_task(
+    draft_content: &str,
+    issues: &[String],
+    plan: Option<&crate::emotion_circuit::ChapterEmotionPlan>,
+    scene_contract: Option<&crate::agency::narrative_contract::SceneContract>,
+) -> String {
+    const MAX_DRAFT_CHARS: usize = 16_000;
+    let content: String = draft_content.chars().take(MAX_DRAFT_CHARS).collect();
+    let issues_text = if issues.is_empty() {
+        "- 按编审意见修正承接、人物口吻与情节推进；保留已达标段落。".to_string()
+    } else {
+        issues
+            .iter()
+            .map(|issue| format!("- {}", issue.trim()))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let mut task = format!(
+        "【待修订正文（修订基底；保留既有事实、人物关系、时间线与未兑现伏笔）】\n{content}\n\n\
+         【必须修复的问题】\n{issues_text}\n\n\
+         【修订要求】\n\
+         - 只改有问题处，保留已达标段落与原有情节结果；\n\
+         - 不新增角色、不改变已发生事实、不改变章号与章节边界；\n\
+         - 直接输出完整修订后的正文全文，不要解释、不要工具调用、不要 markdown 代码围栏、不要章节标题。"
+    );
+    if let Some(plan) = plan {
+        let block = crate::emotion_circuit::render_batch_revision_block(plan);
+        if !block.trim().is_empty() {
+            task.push_str("\n\n");
+            task.push_str(&block);
+        }
+    }
+    if let Some(contract) = scene_contract {
+        let brief = crate::agency::narrative_contract::render_scene_brief(contract);
+        task.push_str(&format!(
+            "\n\n{brief}\n\n修订纪律：只改失败场/失败段，保留已达标项；不得新增角色、不得改变已发生事实、不得重写开头结尾。"
+        ));
+    }
+    task
 }
 
 /// v0.99.7：编辑审计直连 JSON 裁决（批量质检快路径）。

@@ -1,4 +1,6 @@
-# StoryMoss v0.99.11 架构文档
+# StoryMoss v0.99.12 架构文档
+
+> **v0.99.12**：**续写训练闭环收尾**——`logging::cleanup_old_logs` 修正保留条件反转（旧代码把 `mtime < cutoff` 当作「未过期」继续保留，启动时反而删掉当日 tracing）；`agency::story_brief` 新增 `protagonist` 字段、`detect_protagonist_name`（只认 `我叫X/我姓X/以X身份/X这个身份/X自报/自称X`，不足以判定时不标注）与 `canonicalize_protagonist`（把「我/主角/主人公/本人/阴脉先生」并入权威姓名、合并人物态、cast 去重）；训练 roster 按识别结果标注主角而非假定角色表第一项。`agency::coordinator::handle_gate` 的修订完成判定改为「拿到与首稿不同、≥300 字、非工具 JSON 的新稿」；训练批量（`direct_gate_json`）跳过 ReAct tool_loop，以 `build_direct_revision_task`（完整正文+逐条问题）直出修订稿并写回本章 key，再走第二轮 gate，熔断/失败才保留首稿。`continuation_training::suspect_new_terms` 采用长串优先的重叠窗口收敛，并过滤称谓后缀与器物收尾字。红线新增主角身份/配角互动/禁用「不是…而是…」排比与比喻堆叠。
 
 > **v0.99.11**：**模型调度止血**——`llm::openai` 现在解析 `finish_reason`/`usage.completion_tokens`/`completion_tokens_details.reasoning_tokens`；当响应 `content` 为空、无 tool_calls、`finish_reason=length` 且 reasoning 非空时，把 `max_tokens` ×4（封顶 32768）重试一次，解决 writer 申请 8192 被 CoT 吃满后返回空正文。`agency/roles` 的 `LeadWriter`/`Writer` 输出上限同步提升到 `CREATIVE_MAX_OUTPUT_TOKENS=32768`（只是上限），首章、散文回退、修订直出与节拍重试的创作调用同用该常量，避免每章先撞额度再重试。`GenerateRequest` 新增 `reasoning_effort` 并序列化到 OpenAI 同步/流式请求体；`LlmService::default_reasoning_effort` 的优先级为 profile 显式值 > JSON/结构化任务对 `Reasoning` 能力模型默认 `low` > 不发送（未声明 reasoning 的本地端点不接收未知参数）。网关新增 `filter_cooled_candidates_or_restore`：全部候选处于空正文冷却期时恢复原候选兜底，不再直接返回「所有候选模型都因连续空正文进入冷却」。`model_gateway` 的 keepalive 超时 5s→30s（`MissedTickBehavior::Delay` 防堆积）、pre-call 探测 5s/4 tokens→30s/64 tokens；空正文 WARN 60s 全局节流，避免 10 秒一次的探测刷屏埋掉真实生成失败。
 

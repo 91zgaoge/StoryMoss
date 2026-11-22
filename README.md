@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.11-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.12-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.12 · 续写训练真机复盘（日志保留 / 主角识别 / 修订直出 / 探针收敛）
+
+- **问题**：11-22 的 10 章训练（报告 `aa70a919`）编审判 6 章修订，但报告写「0 章真正修订、7 章判修订但修订未完成」——修订只要 tool_loop 正常结束就记账，模型没写黑板也算完成；v0.99.11 重跑时单章修订 prompt 约 30k 字符（15k tokens），24 分钟仍未完成。同日重启后当日 tracing 从新进程第一行开始：日志保留条件写反，启动时删掉刚写入的日志、留下 7 天前旧文件。确定性 cast 兜底把出场最早的「大波浪卷女人」当成角色表第一项，旧 roster 便标成主角；brief 里「我/主角/周成」并存，编审把主角姓名判成配角。记忆探针仍报 `蓝漆铁/黄铜钥/邵先生/传呼机/冷库门`。
+- **结果**：日志保留改为「早于 7 天才删」，当日 tracing 不再丢失；主角只按原文自称句式（我叫X/以X身份/X自报/自称X）识别，并把「我/主角/阴脉先生」合并到权威姓名，roster 不再假定第一项是主角；训练批量修订跳过 ReAct，用完整正文 + 逐条问题直出并校验「与首稿不同、≥300 字」，写回后再走第二轮 gate（round-2 也跟随直连 JSON）——修订完成才记账；LeadWriter 单章草稿写入上限 2 次，第二稿成功写入即采用，避免单章 9 稿轮询；首稿裁决 pass、修订稿变 revise 时回退首稿；探针改为长串优先 + 称谓/器物收尾过滤；写作红线新增「禁止不是…而是…排比/比喻堆叠、每章至少一次配角互动、主角身份统一」。新增 6 条回归测试。
 
 ### v0.99.11 · 模型调度止血（撞额度重试 + reasoning_effort + 冷却兜底）
 

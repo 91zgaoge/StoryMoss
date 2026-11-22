@@ -30,8 +30,8 @@ use crate::{
         materialize::upsert_seed_relationship,
         prose_ground::name_in_prose,
         story_brief::{
-            brief_from_summaries, BriefCastState, BriefChapter, BriefTerm, BriefThread, StoryBrief,
-            StoryBriefRepository,
+            brief_from_summaries, detect_protagonist_name, BriefCastState, BriefChapter, BriefTerm,
+            BriefThread, StoryBrief, StoryBriefRepository,
         },
     },
     db::{
@@ -1639,6 +1639,17 @@ pub(crate) fn persist_training_bundle(
         })
         .unwrap_or_default();
     let mut brief = brief_from_summaries(brief_chapters, &arc_hint, threads, cast_states, terms);
+    // v0.99.12：把「我/主角」合并到原文自称的主角姓名。确定性 cast 兜底
+    // 按出场顺序建角色，第一项常常不是主角（真机 12:38 首项是大波浪卷
+    // 女人）；不合并会让 roster 标错主角、编审把主角姓名判成配角。
+    if let Some(protagonist) = detect_protagonist_name(&prose, &roster) {
+        log::info!(
+            "agency: 资产重建识别主角「{}」story={}",
+            protagonist,
+            story_id
+        );
+        brief.canonicalize_protagonist(&protagonist);
+    }
     brief.source = "training_assets".to_string();
     brief.updated_at = chrono::Local::now().to_rfc3339();
     match StoryBriefRepository::new(pool.clone()).upsert(story_id, &brief) {
@@ -1758,8 +1769,33 @@ pub async fn ensure_story_brief(
     story_id: &str,
     context_chapters: &[(usize, String)],
 ) -> StoryBrief {
-    if let Ok(Some(brief)) = StoryBriefRepository::new(pool.clone()).get_by_story(story_id) {
+    if let Ok(Some(mut brief)) = StoryBriefRepository::new(pool.clone()).get_by_story(story_id) {
         if !brief.is_empty() {
+            // v0.99.12：旧 brief 没有 protagonist，读回时按原文自称补一次，
+            // 把「我/主角」并入权威姓名（老沙盒也能被编审正确理解）。
+            if brief.protagonist.trim().is_empty() {
+                let prose: String = context_chapters
+                    .iter()
+                    .map(|(_, content)| content.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let candidates: Vec<String> = brief
+                    .cast_states
+                    .iter()
+                    .map(|state| state.name.clone())
+                    .chain(
+                        brief
+                            .canon_terms
+                            .iter()
+                            .filter(|term| term.kind == "人物")
+                            .map(|term| term.term.clone()),
+                    )
+                    .collect();
+                if let Some(protagonist) = detect_protagonist_name(&prose, &candidates) {
+                    brief.canonicalize_protagonist(&protagonist);
+                    let _ = StoryBriefRepository::new(pool.clone()).upsert(story_id, &brief);
+                }
+            }
             return brief;
         }
     }
@@ -1872,7 +1908,20 @@ fn build_and_persist_brief(
             ..Default::default()
         })
         .collect();
+    let context_prose: String = chapters
+        .iter()
+        .map(|(_, content)| content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let candidates: Vec<String> = terms
+        .iter()
+        .filter(|t| t.kind == "人物")
+        .map(|t| t.term.clone())
+        .collect();
     let mut brief = brief_from_summaries(brief_chapters, &arc_hint, threads, cast_states, terms);
+    if let Some(protagonist) = detect_protagonist_name(&context_prose, &candidates) {
+        brief.canonicalize_protagonist(&protagonist);
+    }
     brief.source = "deterministic".to_string();
     let _ = StoryBriefRepository::new(pool.clone()).upsert(story_id, &brief);
     log::info!(

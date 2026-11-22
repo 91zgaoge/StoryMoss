@@ -2,6 +2,23 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.12（2026-11-22）
+
+**续写训练真机复盘：重启不再删掉当日日志、主角只按原文自称识别、修订改为直出兜底、记忆探针不再报器物碎片。**
+
+- 证据（本机 11-22 实机）：①08:37 的 10 章训练（报告 `aa70a919`，总分 0.688、承接 9.1）编审 4 pass / 6 revise，但报告写「3 通过 / 0 修订 / 7 章判修订但修订未完成」——`handle_gate` 只要修订 tool_loop「正常结束」就置 `revised=true`，模型没写黑板也算完成；熔断分支直接保留首稿。12:37 重跑 v0.99.11 时单章修订 prompt 约 30k 字符（15k tokens），24 分钟仍未完成。②重启后 `logs/storymoss.YYYY-MM-DD` 从新进程第一行开始，训练窗口 tracing 整段消失——`cleanup_old_logs` 条件写反：`modified < cutoff` 被当成「未过期」继续保留，反而删掉刚写入的当日日志，并留下 7 天前旧文件。③12:38 沙盒角色模型未返回，确定性 cast 兜底按出场顺序把「大波浪卷女人」建为第一名，旧 roster 直接把第一名标成主角；brief 里「我/主角/周成」并存，编审把主角被称「周成」判成「换成配角」。④记忆探针仍报 `蓝漆铁/蓝漆铁门`、`黄铜钥/黄铜钥匙`、`邵先生`、`传呼机`、`冷库门`。
+- 日志保留：`cleanup_old_logs` 修正为「mtime 早于 cutoff 才删除」，超过单文件上限仍删除；新增真实 mtime 回归测试（当日日志保留、8 天前删除、非 storymoss 前缀不动、超大文件删除）。
+- 主角身份：新增 `detect_protagonist_name`（只认 `我叫X/我姓X/以X身份/X这个身份/X自报/自称X` 等自称句式，命中不足或并列时不标注）与 `StoryBrief::canonicalize_protagonist`（把「我/主角/主人公/本人/阴脉先生」并入权威姓名，合并人物态、cast 去重）；训练 roster 按识别结果标注主角，不再假定角色表第一项；报告「长程记忆」行记录识别结果。编审不再把主角姓名当配角。
+- 修订闭环：`revision_candidate_usable` 要求「与首稿不同、≥300 字、非工具 JSON」；训练批量（`direct_gate_json`）跳过 ReAct 修订循环，直接用 `build_direct_revision_task` 把**完整正文 + 逐条问题**交给主创直出（旧兜底只给 item_id/version，模型看不到正文必然过短失败），校验后写回本章 key 再走第二轮 gate；tool_loop 正常结束但没写黑板时采用最终输出；熔断/失败时才保留首稿。非训练批量仍保留原 tool_loop。
+- 写作上限与 round-2 直连：`agency/tool_loop` 给 LeadWriter 设定「章节草稿写入上限 2 次」（zone=draft/item_type=chapter/content≥1200 才计入），第二稿成功写入即采用并结束循环；连续 4 轮只读取/查询不写章稿时提前结束并交给黑板稿/散文兜底（真机 writer 12 曾 10 轮全耗在读取、正文一稿未写）。真机单章曾连续 board_write 9 次（2.7–4.2k 字/稿、单章 7 分钟），拖慢整批并挤占 deadline；`agency/coordinator::evaluate_gate` 的 round-2 gate 由硬编码 false 改为跟随 `direct_gate_json`，训练修订后的复审不再回到 ReAct tool_loop（真机 round-2 75–92s 连续尝试、门禁迟迟不落）。
+- 修订回退：首稿裁决为 pass、修订稿裁决变 revise 时（真机第 11 章 r1 pass/0.7269 → 直出修订 r2 revise/0.6269），回退首稿并保留首道 pass 裁决，避免把更差的修订稿当成功装配；pass→pass 与 revise→revise 仍采用修订稿。
+- 旧 brief 修复：`ensure_story_brief` 读回旧沙盒 brief 时，若 `protagonist` 为空则按原文自称补一次并合并 alias cast。
+- 记忆探针：重叠窗口改为「长串优先、短碎片一律丢弃」（不再要求更长串出现次数不少于短串），新增称谓后缀（先生/女士/小姐/师傅/老板/公子/太太/大人/同志/老总）与器物收尾字（门/机/钥匙/纸/布/盒/包/灯/车/铁/铜/石/木…）过滤；真机误报五类全部收敛，真实新名（赵老鬼/引魂蛆/骨刺）保留。
+- 写作红线：语体边界新增「禁止同章反复用『不是……而是……』排比与『像……像……』比喻堆叠（比喻每 500 字至多一处）」；推进边界新增「每章至少一次配角互动，禁止主角单人解谜独角戏」；新增主角身份红线（主角始终是「我」，他人称其姓名/先生/阴脉先生均为同一人，禁止叫成配角姓氏）。
+- **测试**：Rust **2263/17**（+10：日志保留、主角识别、主角误检回归、cast 合并、探针器物/称谓、修订候选、直出修订 prompt、LeadWriter 写作上限、空轮提前结束、修订变差回退）；tsc 0；Vitest **728/3**（数量不变，Rust-only）；Playwright **144/5**（全量复跑）；fmt/clippy/guard/prettier 全绿。
+- **本机候选版复跑**（17:42–18:10，训练沙盒 `1122-1800`）：资产重建识别主角「周成」；第 11 章 writer 在第 2 稿后触发写作上限，初始稿 gate r1 weighted 0.7206（voice/hooks 8、findings 1）→ 训练直连修订产出 3290 字 → round-2 gate 12s 返回 verdict pass、findings 0、voice/hooks 8→9（旧版 round-2 为 75–92s tool_loop）；章节自动取名「第十一章 深夜走廊里的空药瓶」；章节 11 装配 3289 字。
+- **未关闭**：安装 v0.99.12 后重跑同一 10 章训练，确认报告「主角：周成」、修订完成数 >0、探针无器物碎片、重启后当日 tracing 仍在；训练批量直出修订的成功率需连续两轮观察。
+
 ## v0.99.11（2026-11-22）
 
 **模型调度止血：推理模型撞额度不再返回空正文、`reasoning_effort` 真正生效、冷却不再锁死唯一候选、健康探测不再把慢模型判死。**

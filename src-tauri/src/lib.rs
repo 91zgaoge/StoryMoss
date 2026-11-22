@@ -479,6 +479,23 @@ fn init_task_system_and_automation(
     }
     app.manage(task_service);
 
+    // v0.99.12（仅 debug）：真机自动化验证入口。UI 自动化会受前台应用
+    // 抢占影响（keystroke 可能落到用户正在编辑的文档），训练验证改用
+    // 环境变量触发已注册任务：启动后 8s 调 TaskService::trigger_task。
+    // 发布构建不包含该分支，不影响用户路径。
+    #[cfg(debug_assertions)]
+    if let Ok(task_id) = std::env::var("STORYMOSS_TRIGGER_TASK") {
+        let handle = app_handle.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+            let service = handle.state::<task_system::service::TaskService>();
+            match service.trigger_task(&task_id) {
+                Ok(()) => log::info!("[DevTrigger] task {} triggered", task_id),
+                Err(e) => log::error!("[DevTrigger] task {} trigger failed: {}", task_id, e),
+            }
+        });
+    }
+
     // Initialize automation service
     let automation_service =
         automation::service::AutomationService::new(app_handle.clone(), pool.clone());
