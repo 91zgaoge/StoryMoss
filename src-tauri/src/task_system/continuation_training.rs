@@ -591,11 +591,18 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         }
         let prior =
             self.load_prior_insights(&payload.book_title, context_start, &context_prose, blind);
-        let first_gen = context_n + 1;
-        let last_gen = context_n + truth_n;
+        // v0.99.14：沙盒章号必须沿用原书真实章号。旧实现把上下文按
+        // 1..=context_n 灌入、续写从 context_n+1 起，143
+        // 章后起续写会产出「第 11 章」， 与实际应当承接的原书第 144
+        // 章编号不一致。
+        let next_chapter = Self::sandbox_continuation_start(context, truths);
+        let first_gen = next_chapter;
+        let last_gen = next_chapter + truth_n as i32 - 1;
+        let context_first = context.first().map(|c| c.0).unwrap_or(0);
+        let context_last = context.last().map(|c| c.0).unwrap_or(0);
         let base_instruction = format!(
-            "这是续写训练沙盒：前 {context_n} 章是小说《{}》的真实内容。\
-             本轮连续续写 {truth_n} 章（沙盒第 {first_gen}–{last_gen} 章）：\
+            "这是续写训练沙盒：前 {context_n} 章是小说《{}》第 {context_first}–{context_last} 章的真实内容。\
+             本轮从原书第 {first_gen} 章起连续续写 {truth_n} 章（沙盒沿用原书章号：第 {first_gen}–{last_gen} 章）：\
              每一章都以与原文一致的文风、叙事节奏和人物口吻，紧接本沙盒上一章自然承接\
              （不要总结、不要复述、不要写大纲），并保持人物、地点、时代与未完结事件连续。",
             payload.book_title
@@ -701,9 +708,9 @@ impl TaskExecutor for ContinuationTrainingExecutor {
                 log::info!("[ContinuationTraining] 任务取消，已传播到续写管线");
             }
         });
-        // 沙盒章号连续：上下文占 1..=context_n，续写从 context_n+1 起，
-        // 一次批量写 truth_n 章（gate/装配/章号仍走同一管线）。
-        let next_chapter = (context_n + 1) as i32;
+        // 沙盒沿用原书章号：上下文 scene 写作原书第 N 章，续写从真实后续
+        // 基准首章（如第 144 章）起，一次批量写 truth_n 章（gate/装配/章号
+        // 仍走同一管线）。
         let batch = coordinator
             .run_continue_batch_with_cancel(
                 &run_id,
@@ -1223,6 +1230,18 @@ impl ContinuationTrainingExecutor {
         (begin, end)
     }
 
+    /// v0.99.14：续写沙盒沿用原书真实章号——首章号取真实后续基准首章
+    /// （`truths[0].number`），而不是沙盒内部序号 `context_n + 1`。
+    /// 例：原书第 134–143 章灌入上下文、第 144–153 章作基准时，续写首章
+    /// 必须是第 144 章，不是第 11 章。
+    fn sandbox_continuation_start(context: &[Chapter], truths: &[Chapter]) -> i32 {
+        truths
+            .first()
+            .map(|(number, _)| *number as i32)
+            .or_else(|| context.last().map(|(number, _)| *number as i32 + 1))
+            .unwrap_or(1)
+    }
+
     fn pick_start(payload: &TrainingPayload, total: usize) -> usize {
         match payload.strategy.as_str() {
             "random" => {
@@ -1467,13 +1486,16 @@ impl ContinuationTrainingExecutor {
     ) -> Result<(), String> {
         let repo =
             crate::db::repositories::scene_repository::SceneRepository::new(self.pool.clone());
-        for (i, (num, content)) in chapters.iter().enumerate() {
+        for (num, content) in chapters.iter() {
             // v0.99.8：源章节标题统一为「第一百三十四章 魑魅魍魉横行」。
             // 旧实现只写「第 134 章」，原书标题正文被丢掉。
             let source_title =
                 crate::utils::chapter_title::format_source_chapter_title(*num as u32, content);
+            // v0.99.14：sequence_number 沿用原书真实章号（旧实现从 1 连续编号，
+            // 续写首章因此被编成第 11 章而不是第 144 章）。
+            let scene_number = *num as i32;
             let scene = repo
-                .create(story_id, (i + 1) as i32, Some(&source_title))
+                .create(story_id, scene_number, Some(&source_title))
                 .map_err(|e| format!("创建场景失败：{e}"))?;
             repo.update(
                 &scene.id,
@@ -2037,9 +2059,12 @@ impl ContinuationTrainingExecutor {
                 tail_chars(&truth_plain, SYNTH_TAIL_CHARS).replace('\n', " ")
             ));
             if !gen.trim().is_empty() {
+                let gen_number = generated
+                    .get(i)
+                    .map(|(number, _)| *number)
+                    .unwrap_or(*truth_num as i32);
                 excerpts.push_str(&format!(
-                    "【AI 沙盒第 {} 章】开头：{}｜结尾：{}\n",
-                    (context_n + 1 + i) as i32,
+                    "【AI 沙盒第 {gen_number} 章】开头：{}｜结尾：{}\n",
                     Self::preview_chars(gen, SYNTH_HEAD_CHARS).replace('\n', " "),
                     tail_chars(gen, SYNTH_TAIL_CHARS).replace('\n', " ")
                 ));
@@ -2085,7 +2110,11 @@ impl ContinuationTrainingExecutor {
         feedback: &TrainingFeedback,
         ungrounded: &std::collections::HashSet<String>,
     ) -> (String, String, String) {
-        let first_gen = (context_n + 1) as i32;
+        // v0.99.14：沙盒沿用原书章号，续写首章 = 真实基准首章。
+        let first_gen = truths
+            .first()
+            .map(|c| c.0 as i32)
+            .unwrap_or((context_n + 1) as i32);
         let last_gen = first_gen + truth_n as i32 - 1;
         let first_truth = truths.first().map(|c| c.0).unwrap_or(0);
         let last_truth = truths.last().map(|c| c.0).unwrap_or(first_truth);
@@ -3563,19 +3592,40 @@ mod tests {
             "阴脉先生",
             "真",
             "仿",
-            107,
-            11,
-            106,
+            144,
+            144,
+            143,
             "桐人晃了晃栽在地。",
             false,
         );
-        assert!(prompt.contains("沙盒第 11 章"));
-        assert!(prompt.contains("对应真实第 107 章"));
+        assert!(prompt.contains("沙盒第 144 章"));
+        assert!(prompt.contains("对应真实第 144 章"));
         assert!(prompt.contains("上一章结尾"));
         assert!(prompt.contains("桐人晃了晃栽在地"));
         assert!(prompt.contains("紧接"));
         assert!(prompt.contains("continuity"));
         assert!(prompt.contains("编审"));
+    }
+
+    #[test]
+    fn sandbox_continuation_start_uses_source_chapter_numbers() {
+        // v0.99.14 真机事故：原书第 134–143 章灌入上下文、第 144–153 章作
+        // 真实后续基准时，旧实现从沙盒内部序号 context_n+1=11 起续写，
+        // 报告与 scene 都写成「第 11 章」。续写首章必须沿用原书章号 144。
+        let context: Vec<Chapter> = (134..=143).map(|n| (n, format!("第{n}章正文"))).collect();
+        let truths: Vec<Chapter> = (144..=153).map(|n| (n, format!("第{n}章正文"))).collect();
+        let start = ContinuationTrainingExecutor::sandbox_continuation_start(&context, &truths);
+        assert_eq!(
+            start, 144,
+            "143 章后起续写的首章必须是第 144 章，不是沙盒序号第 11 章"
+        );
+
+        // 无真实后续基准的防御路径：取上下文末章 +1。
+        let only_context: Vec<Chapter> = vec![(143, "正文".to_string())];
+        assert_eq!(
+            ContinuationTrainingExecutor::sandbox_continuation_start(&only_context, &[]),
+            144
+        );
     }
 
     #[test]
@@ -3741,6 +3791,42 @@ mod tests {
         assert_eq!(parsed["reviewed"], 2);
         assert!(parsed["overall"].as_f64().unwrap() > 0.5);
         assert_eq!(parsed["continuity"], 5.5);
+    }
+
+    #[test]
+    fn build_report_uses_source_chapter_numbers_for_sandbox_range() {
+        // v0.99.14：143 章后起续写时，报告不得把沙盒章号写成内部序号 11–12。
+        let context: Vec<Chapter> = (134..=143).map(|n| (n, format!("前文{n}"))).collect();
+        let truths: Vec<Chapter> = vec![
+            (144, "真一百四十四".to_string()),
+            (145, "真一百四十五".to_string()),
+        ];
+        let reviews = vec![
+            review_row(144, 144, 5.0, Some(4.0)),
+            review_row(145, 145, 6.0, Some(7.0)),
+        ];
+        let (report, _, _) = ContinuationTrainingExecutor::build_report(
+            "阴脉先生",
+            10,
+            2,
+            &context,
+            &truths,
+            &reviews,
+            None,
+            "世界观✓",
+            2,
+            0,
+            0,
+            0,
+            true,
+            &TrainingFeedback::default(),
+            &std::collections::HashSet::new(),
+        );
+        assert!(
+            report.contains("连续续写 2 章（沙盒第 144–145 章）对比原书第 144–145 章"),
+            "{report}"
+        );
+        assert!(!report.contains("沙盒第 11–12 章"), "{report}");
     }
 
     #[test]

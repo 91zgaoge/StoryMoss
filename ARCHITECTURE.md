@@ -1,4 +1,6 @@
-# StoryMoss v0.99.13 架构文档
+# StoryMoss v0.99.14 架构文档
+
+> **v0.99.14**：**续写训练沙盒章号沿用原书**——训练沙盒的 `scenes.sequence_number` / `chapters.chapter_number` 直接使用原书真实章号（如 134–143），不再从 1 连续编号；`ContinuationTrainingExecutor::sandbox_continuation_start` 取真实后续基准首章作为续写起点（143 章后起续写 → 第 144 章，缺基准退化为上下文末章 +1）。训练指令、`build_report` 区间、编审总评的沙盒章号均由真实章号派生；旧实现 `context_n + 1 + i` 会把 10 章上下文后的续写首章写成第 11 章，与原文第 144 章对比错位。
 
 > **v0.99.13**：**幕前 CAS 基线 scene 绑定 + 更新检查多源裁决**——`useScenePersistence` 的 CAS 基线由裸正文改为 `SceneBaseline{sceneId, content}`：`persistSceneContent` 在保存入口同步捕获本 scene 基线（旧实现在 `await prev` 之后才读共享 ref，切章已把 ref 换成新章 DB 正文，上一章在途保存拿新章指纹校验旧 scene → 后端判 `scene_conflict`、前端误报「另一窗口更新」并停止重试，真机 10/10 次冲突均在切章后 10–50ms）；跨 scene 保存不发送 `expected_content_hash`（null），成功回写只在本 scene 仍被跟踪时进行，避免在途保存覆盖新章基线；视觉空稿（`<p></p>`/`<p><br></p>`/`<p>&nbsp;</p>`）跳过写库（后端 v0.93.16 忽略正文但仍返回命中 1 行，旧实现会把基线写成空稿导致之后永久冲突）。`updater::decide_update_check` 取代 `conclude_update_checks`：至少一个源明确返回「无更新」即判已是最新并附 `CheckUpdateResult.warning`（可选、缺省不序列化，前端只记 warn 日志），所有源都失败才整体报错；`install_update` 无可用更新时返回 `No update available`。
 

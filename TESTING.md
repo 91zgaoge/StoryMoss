@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.99.13)
+# 🧪 StoryMoss 自动化测试环境 (v0.99.14)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.99.14 变更说明
+
+- Rust **2267 passed / 17 ignored**（+2）：续写沙盒首章号沿用原书真实章号（143 章后起续写 = 第 144 章）1、训练报告沙盒区间使用真实章号而非内部序号 1；`review_prompt` 章号契约同步更新。
+- tsc 0；Vitest **732 passed / 3 skipped**（数量不变，Rust-only）；Playwright **144 passed / 5 skipped**（全量复跑）；`cargo +nightly-2026-10-05 fmt`、`cargo clippy`（0 error）、`python3 scripts/architecture_guard.py`、`npm run format:check`（src-frontend）全绿。
+- 验收：安装 v0.99.14 后重跑同一 10 章训练，确认①新沙盒上下文 scene 序号为原书第 134–143 章（不再是 1–10）；②续写首个 scene 为第 144 章（不再是第 11 章），自动取名为「第一百四十四章 …」；③报告 `generated_chapter=144`，逐章对比表为「沙盒第 144–153 章 vs 原书第 144–153 章」。
 
 ### v0.99.13 变更说明
 

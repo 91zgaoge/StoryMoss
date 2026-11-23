@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.13-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.14-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.14 · 续写训练沙盒章号沿用原书
+
+- **问题**：训练沙盒把上下文按 1..N 编号、续写从 `context_n+1` 起；原书第 134–143 章作上下文时，续写首个 scene 是第 11 章（自动取名「第十一章 …」），报告也写「沙盒第 11 章 vs 原书第 144 章」，与真实续写章号错位。
+- **结果**：上下文 scene/chapter 序号改用原书真实章号（134–143），续写首章取真实后续基准首章（143 章后起续写 → **第 144 章**）；训练指令、报告区间与编审总评统一使用真实章号。新增 2 条回归测试（首章号推导、报告区间）。
 
 ### v0.99.13 · 切章保存不再误丢稿 / 更新检查不再假报错（日志巡检）
 

@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.14（2026-11-23）
+
+**续写训练沙盒章号沿用原书：143 章后起续写的首章是原书第 144 章，不再是沙盒内部第 11 章。**
+
+- 证据（本机库与训练报告）：训练沙盒 `1122-1829` 的上下文 scene 序号 1–10 对应原书第 134–143 章，续写落库 scene 却是 11/12 并自动取名「第十一章 朱砂印与二八车」「第十二章 半盒烟换一句大河村」；`continuation_training_reports` 全部 10 份报告的 `generated_chapter` 都是 11，而真实后续基准是原书第 144–153 章。报告表格因此写成「沙盒第 11 章 vs 原书第 144 章」，看起来像两本书错位。
+- 根因：`seed_scenes` 用 `(i + 1)` 给上下文 scene 编号（丢弃原书真实章号），续写起点又固定为 `context_n + 1`；`build_report`/`synthesis_prompt` 也按 `context_n + 1 + i` 派生沙盒章号。
+- 修复：`seed_scenes` 的 `scenes.sequence_number` / `chapters.chapter_number` 直接用原书真实章号（134–143）；新增 `sandbox_continuation_start`，续写首章取真实后续基准首章 `truths[0]`（143 章后起续写 → 144），缺失基准时退化为上下文末章 +1；训练指令、报告区间、编审总评的沙盒章号全部改用真实后续章号；报告表格现在为「沙盒第 144–153 章 vs 原书第 144–153 章」。
+- **测试**：Rust **2267/17**（+2：`sandbox_continuation_start_uses_source_chapter_numbers`、`build_report_uses_source_chapter_numbers_for_sandbox_range`；`review_prompt` 章号契约同步更新）；tsc 0；Vitest **732/3**（数量不变，Rust-only）；Playwright **144/5**（全量复跑）；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：安装 v0.99.14 后重跑同一 10 章训练，确认新沙盒 scene 从原书第 144 章开始、报告 `generated_chapter=144`、逐章表 144–153 对齐；旧沙盒（已按 1..N 编号）不迁移，仅影响新训练。
+
 ## v0.99.13（2026-11-23）
 
 **日志巡检：切章不再误报「另一窗口已更新」并丢掉上一章末次编辑；官网已是最新时不再把 GitHub 网络故障升级成「更新失败」。**
