@@ -1,12 +1,20 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.99.14)
+# 🧪 StoryMoss 自动化测试环境 (v0.99.16)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
 
-### v0.99.14 变更说明
+### v0.99.16 变更说明
 
-- Rust **2267 passed / 17 ignored**（+2）：续写沙盒首章号沿用原书真实章号（143 章后起续写 = 第 144 章）1、训练报告沙盒区间使用真实章号而非内部序号 1；`review_prompt` 章号契约同步更新。
+- Rust **2283 passed / 17 ignored**（本轮 +4，含 v0.99.15 的 +11）：①`prompt_limit_learned_in_client_estimate_units`（真机 10,275 字符/5,137 估算、8,068MB 需求/7,459MB 可用 → 上限 ≈4,748，下一轮 5,690 必须跳过）；②`prompt_token_estimate_includes_system_prompt`；③`startup_sweep_marks_stale_running_trace_failed` 与 `startup_sweep_skips_fresh_running_traces`（陈旧 running 改写 failed/关闭步骤/写中断原因，刚写入与已完成不动，坏文件不 panic）；④`memory_probes_drop_phrase_windows_from_real_reports`（往桌上一/周老师/明天中午/穿灰夹克/一件事/两半灰/三道横/出一点/半根烟/指甲盖/摸出烟 均不进探针，赵老鬼保留）。
+- tsc 0；Vitest **732 passed / 3 skipped**（数量不变，Rust-only）；Playwright **144 passed / 5 skipped**（全量复跑）；`cargo +nightly-2026-10-05 fmt`、`cargo clippy`（0 error）、`python3 scripts/architecture_guard.py`、`npm run format:check`（src-frontend）全绿。
+- `gitnexus impact`：`sweep_interrupted_traces` 3 个直接依赖 / LOW、`record_prompt_limit_failure` 2 个 / LOW、`suspect_new_terms` 1 个 / LOW（启动清扫仅新增文件操作，不改变 State manage 顺序与窗口创建）。
+
+### v0.99.15 变更说明
+
+- Rust **2278 passed / 17 ignored**（+11）：`agency::mainline` 6（真实后续章摘要→逐章 goal/cast/location/key_terms/must_terms、beat block 禁止推迟主线、逐章落地探针、gate 核对块缺失要素、别名匹配「福摩萨夜总会→福摩萨」「大波浪卷女人→大波浪卷」、确定性兜底排除主角/碎片）；`agency::style_probe` 4（对白/口语画像、逐章漂移、AI 腔统计、原文语体样本优先对白段落）；`SceneBeatCard::align_to_mainline` 1（主线人物/地点/next_node 覆盖陈旧节拍卡并剥掉主角前缀）；`TrainingStage::Mainline` 契约同步。
+- tsc 0；Vitest **732 passed / 3 skipped**（数量不变，Rust-only）；Playwright **144 passed / 5 skipped**（全量复跑）；`cargo +nightly-2026-10-05 fmt`、`cargo clippy`（0 error）、`python3 scripts/architecture_guard.py`、`npm run format:check`（src-frontend）全绿。
+- 验收：①truth_hints 训练日志出现「原著主线投影就绪：10 章逐章任务」且沙盒故事大纲 `【下一节点】` 被逐章主线块替换；②第 144 章 draft/最终 scene 以「福摩萨—邵卫江」为主线（不再是审问护士/午时石鼓），editor gate comment 点名「主线事件全部实现」；③报告新增「原著主线落地探针」「文风漂移探针」「AI 腔探针」，truth_hints 行写明注入本轮真实后续主线；④blind 模式仍不注入真实后续节点/主线投影；⑤普通续写（无 mainline projection）writer/gate 提示词逐字不变。
 - tsc 0；Vitest **732 passed / 3 skipped**（数量不变，Rust-only）；Playwright **144 passed / 5 skipped**（全量复跑）；`cargo +nightly-2026-10-05 fmt`、`cargo clippy`（0 error）、`python3 scripts/architecture_guard.py`、`npm run format:check`（src-frontend）全绿。
 - 验收：安装 v0.99.14 后重跑同一 10 章训练，确认①新沙盒上下文 scene 序号为原书第 134–143 章（不再是 1–10）；②续写首个 scene 为第 144 章（不再是第 11 章），自动取名为「第一百四十四章 …」；③报告 `generated_chapter=144`，逐章对比表为「沙盒第 144–153 章 vs 原书第 144–153 章」。
 

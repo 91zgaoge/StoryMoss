@@ -424,6 +424,9 @@ fn spawn_observe_editor(
             None,
             deadline,
             false,
+            None,
+            None,
+            None,
         )
         .await;
         match result {

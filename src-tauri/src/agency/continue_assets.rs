@@ -427,11 +427,17 @@ fn condense_story_outline_impl(raw: &str, next_node: &str) -> String {
     }
 
     let mut core: Option<String> = None;
+    // v0.99.15：训练的原著主线投影必须排在 core 之后、转折点之前。
+    // 旧顺序把它当普通 other 块放到最后，OUTLINE_CHAR_CAP=1200 截断时
+    // 先把 10 章主线任务截掉——而这正是 writer 最需要的硬约束。
+    let mut projection: Option<String> = None;
     let mut turning: Vec<String> = Vec::new();
     let mut other: Vec<String> = Vec::new();
     for b in blocks {
         if b.contains("【核心冲突】") && core.is_none() {
             core = Some(b);
+        } else if b.contains("【原著主线投影") && projection.is_none() {
+            projection = Some(b);
         } else if b.contains("【转折点】") || b.contains("【关键转折点】") {
             if turning.len() < 3 {
                 turning.push(b);
@@ -455,6 +461,9 @@ fn condense_story_outline_impl(raw: &str, next_node: &str) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(c) = core {
         parts.push(c);
+    }
+    if let Some(p) = projection {
+        parts.push(p);
     }
     parts.extend(turning);
     parts.extend(other);

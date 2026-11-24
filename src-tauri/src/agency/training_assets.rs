@@ -190,7 +190,11 @@ pub async fn rebuild_from_context(
     }
 }
 
-async fn summarize_chapters(
+/// v0.99.15：续写训练的**真实后续章**也要逐章摘要——原著主线投影
+/// （`agency::mainline`）用它的 summary/result/cast/location/key_terms
+/// 构成逐章硬任务。公开给 `task_system::continuation_training` 调用；
+/// 单章失败仍走确定性摘要，不阻断训练。
+pub(crate) async fn summarize_chapters(
     pool: &DbPool,
     llm: &LlmService,
     book_title: &str,
@@ -1990,6 +1994,69 @@ pub fn ensure_deterministic_outline(pool: &DbPool, story_id: &str, brief: &Story
                 story_id,
                 e
             );
+            false
+        }
+    }
+}
+
+/// v0.99.15：把原著主线投影写进沙盒故事大纲。
+///
+/// 真机 2026-11-24：大纲 `【下一节点】` 来自上下文 134–143 章的归纳
+/// （「就地审问伪装护士」），writer 按它写，把原书 144 章「去福摩萨找
+/// 邵卫江」推迟，之后另起平行支线。这里**删除**旧的「下一节点」，
+/// 追加逐章主线任务；gate 的 editor_assets 与 chapter planner 都读这份
+/// 大纲，因此主线从「上一轮报告里的一行建议」升级为硬约束。
+pub(crate) fn apply_mainline_projection(
+    pool: &DbPool,
+    story_id: &str,
+    projection: &crate::agency::mainline::MainlineProjection,
+) -> bool {
+    if projection.is_empty() {
+        return false;
+    }
+    let repo = StoryOutlineRepository::new(pool.clone());
+    let existing = repo
+        .get_by_story(story_id)
+        .ok()
+        .flatten()
+        .map(|o| o.content)
+        .unwrap_or_default();
+    let mut content = existing.trim().to_string();
+    // 旧投影/下一节点都在尾部；重跑同一沙盒时先清掉，避免叠加。
+    if let Some(pos) = content.find("【原著主线投影") {
+        content.truncate(pos);
+    }
+    if let Some(pos) = content.rfind("【下一节点】") {
+        content.truncate(pos);
+    }
+    content = content.trim().to_string();
+    if !content.is_empty() {
+        content.push_str("\n\n");
+    }
+    content.push_str(&projection.render_outline_block());
+    let result = match repo.get_by_story(story_id).ok().flatten() {
+        Some(_) => repo.update(story_id, Some(&content), None).map(|_| ()),
+        None => repo
+            .create(
+                story_id,
+                &content,
+                None,
+                3,
+                Some(projection.beats.len() as i32),
+            )
+            .map(|_| ()),
+    };
+    match result {
+        Ok(()) => {
+            log::info!(
+                "agency: 已写入原著主线投影 story={} beats={}",
+                story_id,
+                projection.beats.len()
+            );
+            true
+        }
+        Err(e) => {
+            log::warn!("agency: 原著主线投影写入失败 story={} err={}", story_id, e);
             false
         }
     }

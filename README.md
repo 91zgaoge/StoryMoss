@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.14-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.16-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,16 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.16 · 日志巡检：容量路由 / 记忆探针 / trace 收尾
+
+- **问题**：v0.99.14 日志包（`14356f2f`，macOS）自身窗口 0 条 ERROR，但暴露三处应用侧缺陷：①11-24 连续 8 次 Qwren127 GPU OOM——每次都在学「prompt 上限」，却按服务端 token 存、按字符数 ÷2 比，中文正文两者相差约 40%，学到的上限永远够不到，v0.99.2 的容量路由从未触发；②两份训练报告的记忆探针把 `往桌上一/周老师/明天中午/穿灰夹克/一件事/半根烟` 等跨词短语当「疑似新专名」；③6 个 trace 在应用重启后永久停在 `running`。
+- **结果**：GPU 容量上限改用客户端估算 `prompt_chars / 2` 学习，`prompt_tokens_est` 计入 system prompt，所有容量闸门同口径；记忆探针补首字动词/数词/介词过滤、时间词、称谓后缀与器物收尾；`TraceStore::new` 启动时清扫超过 30 分钟仍 running 的遗留 trace（关闭步骤、写 failed 与中断原因），多实例安全且不阻塞。新增 4 条回归测试；Rust **2283/17**、tsc 0、Vitest **732/3**、Playwright **144/5**、fmt/clippy/guard/prettier 全绿。本版同时包含上一轮未发版的 v0.99.15（原著主线投影 + 原文语体样本常驻）。
+
+### v0.99.15 · 续写训练：原著主线投影 + 原文语体样本常驻
+
+- **问题**：11-24 两轮 10 章训练（0.696 / 0.706）编审反复指出两类老大难：①原书主线被弃——第 144 章把「今晚去福摩萨正面冲撞邵卫江」推成「明日」，随后另起老曹—法林寺—三理教平行支线，10 章成为「解谜—复述—再解谜」；②风格逐章稀释——从原著的碎嘴自嘲、市井诙谐滑向冷硬 Noir，151–152 章几乎消失。根因是资产重建的故事大纲「下一节点」只由前 10 章上下文归纳（「就地审问伪装护士」），writer 严格按硬大纲写作；StyleDNA 只给六维指标，原文语体样本仅在上一轮 style<6.0 才注入，10 章批量每章只喂上一章生成稿，风格自我稀释；节拍卡仍用上一章 cast（杨晓雯），正确主线的章也被「具名阻力未出现」规则打回修订。
+- **结果**：新增 `agency::mainline`——用本轮真实后续章的逐章结构化摘要生成「逐章主线任务 + 关键人物/地点 + 硬核对要素」，写进沙盒故事大纲，并按章注入章纲规划、writer 与 gate；gate 发现必需要素缺失时即使 editor 放行也强制修订一次，报告输出逐章主线落地探针。新增 `agency::style_probe`——每章常驻原文语体样本（对白密集/第一人称碎嘴段落）与量化基线（句长/对白/第一人称/口语词/比喻），报告输出文风漂移与 AI 腔探针；训练红线补市井自嘲、反冷硬、反身体反应堆砌、开章赌注与单一强钩；`SceneBeatCard::align_to_mainline` 用主线人物/地点/推进节点覆盖陈旧节拍卡；批量 premise 去掉「第N章起」避免 editor 纠结章号。真机 18:17 训练已确认 144/145 章按福摩萨—邵卫江主线落地，editor 直接写「主线事件全部实现」。新增 11 条回归测试。
 
 ### v0.99.14 · 续写训练沙盒章号沿用原书
 

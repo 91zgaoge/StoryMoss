@@ -279,18 +279,24 @@ impl HealthRegistry {
     }
 
     /// v0.99.2: 记录一次 GPU OOM 并估算该模型的实际 prompt 上限。
+    ///
+    /// **单位契约（v0.99.16 修复）**：`prompt_tokens_est` 必须与
+    /// `prompt_limit_exceeded` 的比较值同单位（客户端估算 `chars / 2`），
+    /// 不能传服务端 tokenizer 的 token 数。中文正文服务端实测约 0.71
+    /// token/字，直接存服务端 tokens 会让学到的上限比闸门估算高约 40%，
+    /// 容量路由永远不触发（2026-11-24 真机连续 8 次重撞 OOM）。
     pub fn record_prompt_limit_failure(
         &mut self,
         model_id: &str,
         model_name: &str,
-        prompt_tokens: u32,
+        prompt_tokens_est: u32,
         required_mb: u64,
         available_mb: u64,
     ) {
-        if required_mb == 0 || available_mb == 0 || prompt_tokens == 0 {
+        if required_mb == 0 || available_mb == 0 || prompt_tokens_est == 0 {
             return;
         }
-        let estimate = (prompt_tokens as u64 * available_mb / required_mb).max(256) as u32;
+        let estimate = (prompt_tokens_est as u64 * available_mb / required_mb).max(256) as u32;
         let record = self.records.entry(model_id.to_string()).or_default();
         let limit = record.prompt_limit_tokens.unwrap_or(u32::MAX).min(estimate);
         record.prompt_limit_tokens = Some(limit);

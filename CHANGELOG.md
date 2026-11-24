@@ -2,6 +2,29 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.16（2026-11-25）
+
+**日志巡检：GPU 容量路由真正生效（不再连续重撞 OOM）、记忆探针不再把跨词短语当新专名、异常退出后 trace 不再永久卡在 running。本版同时包含上一轮未发版的 v0.99.15（续写训练原著主线投影 + 原文语体样本常驻）。**
+
+- 证据（日志包 `14356f2f`，v0.99.14 / macOS，11-22～11-24）：v0.99.14 自身运行窗口 **0 条 ERROR 级日志**；creative_workflow 里 3 次 `check_update` 失败与 1 次 `scene_conflict` 均为 v0.99.13 修复前的旧版本记录（11-21/11-22），已闭环。真实应用缺陷集中在三处：①11-24 06:49–07:34 连续 8 次 Qwren127 GPU OOM，每次都在「学习 GPU 容量上限」，但随后更大的 prompt 仍被送去；②v0.99.14 两份训练报告的记忆探针列出 `往桌上一/周老师/明天中午/穿灰夹克/一件事/两半灰/三道横/出一点/半根烟/指甲盖/摸出烟` 等跨词短语；③日志包含 6 个状态仍为 `running` 的 trace（训练中重启应用被打断，其中 4 个最后一步也停在 running）。
+- GPU 容量单位：`record_prompt_limit_failure` 改为按**客户端估算** `prompt_chars / 2` 学习上限（服务端 tokenizer 对中文约 0.71 token/字，真机 10,275 字符 → 7,346 tokens；旧实现存服务端 tokens，学到的上限约 6,790，而闸门随后按估算 5,690 判断「装得下」，容量路由永远不触发）。同时 `prompt_tokens_est` 计入 `system_prompt`，让 `resolve_role_model`、候选打分与候选循环容量闸门使用同一口径。
+- 记忆探针：`suspect_new_terms` 新增首字过滤（往/向/从/到/在/跟/与/替/为/朝/经/由/沿/顺 + 摸/穿/拿/说/出/走/看/想/问/叫 + 数词量词），补时间词（明天/今天/中午/晚上…）、称谓后缀（老师/医生/队长/主任…）与器物收尾（烟/茶/酒/饭/水/菜/汤/药），并把方位/介词加入虚词过滤。
+- Trace：`TraceStore::new` 在 State 就绪前同步清扫 mtime 超过 30 分钟仍为 `running` 的 trace（关闭未闭合步骤、写 `failed` 与「应用退出或崩溃导致运行中断」），阈值同时避免多实例并发误伤活运行；解析/读写失败一律跳过，不阻塞、不 panic。
+- **测试**：Rust **2283/17**（本轮 +4：客户端估算单位学习、估算含 system_prompt、遗留 running trace 清扫、真实报告短语探针回归；含 v0.99.15 的 +11）；tsc 0；Vitest **732/3**（数量不变，Rust-only）；Playwright **144/5**（全量复跑）；fmt/clippy/guard/prettier 全绿；`gitnexus impact`：`sweep_interrupted_traces` 3 个直接依赖 / LOW，`record_prompt_limit_failure` 2 个 / LOW，`suspect_new_terms` 1 个 / LOW。
+- **未关闭**：安装 v0.99.16 后重跑同一 10 章训练，确认 Qwren 大 prompt 只学习一次、后续请求按容量跳过并落到其他候选；报告记忆探针不再出现上述短语；重启应用后旧 trace 不再显示 running。Qwren 显存需 ~9.1GB 而本机可用 8.4–8.9GB 属环境容量，容量路由只避免反复重撞，不改变模型能否装下。
+
+## v0.99.15（2026-11-24）
+
+**续写训练根治两类老大难：原著主线被弃 + 文风逐章稀释；主线从「上一轮报告里的一行建议」升级为逐章硬任务，原文语体样本与量化基线每章常驻。**
+
+- 证据（本机 2026-11-24 两轮 10 章训练）：报告 `d5f75064`（总分 0.696、承接 8.55、`reference_gap` 2.9）与 `900d60ef`（0.706、承接 8.60、gap 2.95）的跨章总评连续写「原著主线被弃：第 144 章把福摩萨推至明日、连夜再探老宅，之后这条线再没落地」「AI 十章是『老曹解谜—复述—再解谜』的平推链」「风格走势持续偏冷硬 noir，原著碎嘴自嘲与市井诙谐逐章稀释，151–152 已接近干硬」。复核沙盒：资产重建的故事大纲 `【下一节点】` 是「就地控制并审问伪装护士」——writer 严格按它写作，把原书 144 章「去福摩萨找邵卫江」推迟；上一轮 `improvement_md` 里的「真实后续节点」只有 2 行，优先级远低于故事大纲/章纲。风格侧 `style_dna_applied=true`，但 `force_style_anchor = !style_applied || style < 6.0` 为 false，10 章没有任何原文语体样本；StyleDNA 六维指标无法复刻语感。
+- 主线投影：新增 `agency::mainline`（`MainlineProjection`/`MainlineBeat`）。truth_hints 模式下，用 `training_assets::summarize_chapters` 对**本轮真实后续章**逐章摘要（小 prompt、并发 3、沿用 V163 缓存），生成逐章 `goal`（该章已发生主线事件）、`cast`/`location`、`key_terms`（提示）与 `must_terms`（硬核对：真实章出现频次前二人物 + 首地点）；`apply_mainline_projection` 写进沙盒故事大纲（删除旧「下一节点」，投影块在 `condense_story_outline` 中排 core 之后、转折点之前，避免被 1200 字上限截掉）。新增 `TrainingStage::Mainline`（37%，逐章进度 36–39）与 blind 模式跳过。
+- 注入与门禁：coordinator 新增 `with_mainline_projection`/`with_style_exemplar`。`generate_chapter_outline` 的 `scene_info` 注入「本章原著主线任务」；writer task 最前再压一道，资产区追加整批投影；`evaluate_gate_impl` 注入「编辑核对用」块（含确定性缺失要素）；`mainline_missing` 非空时即使 editor 判 pass 也强制 `RevisionRequired` 一次（editor 已判 revise 时把缺失项并入 issues）；`SceneBeatCard::align_to_mainline` 用主线人物/地点/推进节点覆盖上一章遗留的节拍卡，修掉「正确主线的章被『具名阻力杨晓雯未出现』打回」。
+- 文风：新增 `agency::style_probe`。`build_exemplar` 从上下文章抽首/中/尾 3 段（优先对白密集、第一人称碎嘴、口语词多；compact 2 段/900 字），连同量化基线（平均句长、对白占比、第一人称/口语词/比喻每千字、短句占比）与硬约束每章注入 writer/修订 prompt，不再依赖上一轮 style 分。`drift_report` 逐章标出偏离基线 ±25% 的指标，`ai_ism_report` 统计后槽牙/身体反应成对/「不是…而是…」/比喻密度；报告新增「主线落地探针」「文风漂移探针」「AI 腔探针」，并把确定性证据追加进下一轮 `improvement_md`。
+- 其他：训练红线扩到 9 条（市井自嘲/反冷硬/反 AI 腔/开章赌注/单一强钩/主线边界）；逐章编审 `reference_gap` 必须点名被推迟/替换的主线节点，`style` 以真实章语体为基线；跨章总评新增「是否用平行支线替代主线」「语体是否逐章冷硬化」；批量 `premise` 去掉「第N章起」（editor 直连 JSON 曾反复纠结 premise 144 vs draft 152 章号）。
+- **测试**：Rust **2278/17**（+11：mainline 6（含别名匹配）、style_probe 4、beat_card 主线对齐 1；训练阶段契约同步）；tsc 0；Vitest **732/3**（数量不变，Rust-only）；Playwright **144/5**（全量复跑）；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：完成本轮 10 章训练报告，确认主线落地探针逐章 ✓、文风漂移/AI 腔探针下降、加权总分与 `reference_gap` 回升；报告「下一轮改进」中确定性主线/文风修正需连续两轮观察。
+
 ## v0.99.14（2026-11-23）
 
 **续写训练沙盒章号沿用原书：143 章后起续写的首章是原书第 144 章，不再是沙盒内部第 11 章。**

@@ -5,8 +5,9 @@
 
 use std::{
     collections::{HashMap, VecDeque},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
+    time::{Duration, SystemTime},
 };
 
 use chrono::Utc;
@@ -16,6 +17,13 @@ use tauri::{AppHandle, Manager};
 use crate::error::AppError;
 
 const MAX_MEMORY_TRACES: usize = 200;
+
+/// v0.99.16: 启动清扫的陈旧阈值。
+///
+/// 单次 LLM 步骤最长 600s（首字节/总超时上限），正常运行中的 trace 每隔
+/// 几分钟就会写盘刷新 mtime；超过 30 分钟仍是 `running` 的文件只可能来自
+/// 上次进程退出/崩溃。阈值同时用于避免多实例并发时误伤另一实例的活运行。
+const STALE_TRACE_AGE_MINUTES: u64 = 30;
 
 /// 单个 Trace 步骤
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,6 +176,57 @@ struct TraceStoreInner {
     request_id_to_trace: HashMap<String, String>,
 }
 
+/// v0.99.16: 将上次进程遗留的 `running` trace 标记为 failed。
+///
+/// - 只处理 mtime 早于 [`STALE_TRACE_AGE_MINUTES`] 的文件，避免多实例
+///   并发时误伤另一实例正在写的 trace；
+/// - 解析失败/读写失败一律跳过——启动清扫不得阻塞、不得 panic；
+/// - 返回成功改写的条数。
+pub(crate) fn sweep_interrupted_traces(dir: &Path, now: SystemTime) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let stale_after = Duration::from_secs(STALE_TRACE_AGE_MINUTES.saturating_mul(60));
+    let mut swept = 0usize;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .ok()
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|modified| now.duration_since(modified).ok())
+            .map(|age| age >= stale_after)
+            .unwrap_or(false);
+        if !stale {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(mut trace) = serde_json::from_str::<GenerationTrace>(&content) else {
+            continue;
+        };
+        if trace.status != "running" {
+            continue;
+        }
+        trace.close_open_steps("failed");
+        trace.finish(
+            "failed",
+            Some("应用退出或崩溃导致运行中断（启动时清扫遗留 running trace）".to_string()),
+        );
+        let Ok(json) = serde_json::to_string_pretty(&trace) else {
+            continue;
+        };
+        if std::fs::write(&path, json).is_ok() {
+            swept += 1;
+        }
+    }
+    swept
+}
+
 /// 全局 Trace 存储
 #[derive(Clone, Debug)]
 pub struct TraceStore {
@@ -184,6 +243,17 @@ impl TraceStore {
         std::fs::create_dir_all(&log_dir).map_err(|e| AppError::Internal {
             message: format!("创建 trace 日志目录失败: {}", e),
         })?;
+        // v0.99.16: 上次进程退出/崩溃时仍在运行的 trace 会永久停在
+        // `running`（2026-11-24 日志包：6 条训练 trace 卡 running，其中
+        // 4 条是重启打断的），Tracing 面板与日志分析都无法区分「进行中」
+        // 与「已中断」。启动时在 State 就绪前同步清扫，避免与新 run 竞态。
+        let swept = sweep_interrupted_traces(&log_dir, SystemTime::now());
+        if swept > 0 {
+            log::warn!(
+                "[Tracing] 启动清扫 {} 条上次进程遗留的 running trace → failed（应用退出/重启中断）",
+                swept
+            );
+        }
         Ok(Self {
             inner: Arc::new(Mutex::new(TraceStoreInner {
                 traces: VecDeque::with_capacity(MAX_MEMORY_TRACES),
@@ -447,4 +517,81 @@ pub fn new_trace_id() -> String {
 /// 便捷函数：为当前请求获取或创建 trace_id
 pub fn ensure_trace_id(request_trace_id: &Option<String>) -> String {
     request_trace_id.clone().unwrap_or_else(new_trace_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_trace(dir: &Path, trace: &GenerationTrace) -> PathBuf {
+        let path = dir.join(format!("{}.json", trace.trace_id));
+        std::fs::write(&path, serde_json::to_string_pretty(trace).unwrap()).unwrap();
+        path
+    }
+
+    fn read_trace(path: &Path) -> GenerationTrace {
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    fn running_trace(id: &str) -> GenerationTrace {
+        let mut trace = GenerationTrace::new(id);
+        trace.add_step("generation.start", "orchestrator");
+        trace.add_step("agency_writer", "agency");
+        trace
+    }
+
+    #[test]
+    fn startup_sweep_skips_fresh_running_traces() {
+        // 刚写入的 running trace 属于当前/另一实例，清扫必须放过（30
+        // 分钟阈值）。
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_trace(dir.path(), &running_trace("fresh"));
+        let swept = sweep_interrupted_traces(dir.path(), SystemTime::now());
+        assert_eq!(swept, 0);
+        assert_eq!(read_trace(&path).status, "running");
+    }
+
+    #[test]
+    fn startup_sweep_marks_stale_running_trace_failed() {
+        let dir = tempfile::tempdir().unwrap();
+        let stale_path = write_trace(dir.path(), &running_trace("stale-running"));
+
+        let mut done = GenerationTrace::new("already-done");
+        done.add_step("generation.start", "orchestrator");
+        done.finish("completed", None);
+        let done_path = write_trace(dir.path(), &done);
+
+        // 坏文件不得让清扫 panic。
+        std::fs::write(dir.path().join("broken.json"), "not-json").unwrap();
+
+        let now = SystemTime::now()
+            + Duration::from_secs(STALE_TRACE_AGE_MINUTES.saturating_mul(60) + 60);
+        let swept = sweep_interrupted_traces(dir.path(), now);
+        assert_eq!(swept, 1, "只有 stale-running 需要改写");
+
+        let stale = read_trace(&stale_path);
+        assert_eq!(stale.status, "failed");
+        assert!(stale.finished_at.is_some(), "必须写 finished_at");
+        assert!(
+            stale
+                .error_message
+                .as_deref()
+                .unwrap_or("")
+                .contains("中断"),
+            "error_message 应说明启动清扫: {:?}",
+            stale.error_message
+        );
+        assert!(
+            stale
+                .steps
+                .iter()
+                .all(|step| step.status.as_deref() == Some("failed") && step.end_ms.is_some()),
+            "所有未闭合步骤都要收尾: {:?}",
+            stale.steps
+        );
+
+        let done = read_trace(&done_path);
+        assert_eq!(done.status, "completed", "已完成 trace 不得改写");
+        assert!(done.error_message.is_none());
+    }
 }

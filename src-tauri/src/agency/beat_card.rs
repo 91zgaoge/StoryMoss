@@ -213,6 +213,69 @@ pub fn quota_text_for_beats(
 }
 
 impl SceneBeatCard {
+    /// v0.99.15：训练原著主线投影 → 节拍卡对齐。
+    ///
+    /// 真机第 144 章：资产/节拍卡来自上一章，具名阻力仍是「杨晓雯」，
+    /// 章契约因此要求正文出现杨晓雯，而原著主线是「福摩萨—邵卫江」——
+    /// editor 判 pass、规则复检却因「具名阻力未出现」把整章打回修订。
+    /// 主线人物/地点/下一拍优先：把它们写进 cast、冲突双方与推进节点，
+    /// 章纲、writer、gate 契约才在同一世界里核对。
+    pub fn align_to_mainline(&mut self, beat: &crate::agency::mainline::MainlineBeat) {
+        if beat.cast.is_empty() && beat.location.trim().is_empty() && beat.goal.trim().is_empty() {
+            return;
+        }
+        for name in &beat.cast {
+            let name = name.trim();
+            if name.is_empty() {
+                continue;
+            }
+            if !self.cast.iter().any(|member| member.name == name) {
+                self.cast.push(CastMember {
+                    name: name.to_string(),
+                    purpose: "原著主线关键人物".to_string(),
+                });
+            }
+        }
+        let pov = self
+            .cast
+            .first()
+            .map(|member| member.name.clone())
+            .unwrap_or_default();
+        if let Some(opponent) = beat
+            .cast
+            .iter()
+            .find(|name| name.as_str() != pov.as_str())
+            .cloned()
+        {
+            let has_mainline_party = self
+                .conflict_move
+                .parties
+                .iter()
+                .any(|party| beat.cast.iter().any(|name| name == party));
+            if !has_mainline_party {
+                if self.conflict_move.parties.is_empty() {
+                    self.conflict_move.parties.push(pov.clone());
+                }
+                if self.conflict_move.parties.len() >= 2 {
+                    self.conflict_move.parties[1] = opponent;
+                } else {
+                    self.conflict_move.parties.push(opponent);
+                }
+            }
+        }
+        if !beat.location.trim().is_empty() {
+            self.setting_location = Some(beat.location.clone());
+        }
+        if !beat.goal.trim().is_empty() {
+            let goal = beat.goal.trim();
+            let goal = goal.strip_prefix(pov.as_str()).unwrap_or(goal).trim();
+            self.next_outline_node = goal.chars().take(120).collect();
+            if self.change_delta.summary.trim().is_empty() {
+                self.change_delta.summary = goal.chars().take(120).collect();
+            }
+        }
+    }
+
     pub fn render_full(&self) -> String {
         let mut lines = vec!["【本章节拍任务】".to_string()];
         let cast = self
@@ -2005,5 +2068,48 @@ mod tests {
         );
         assert!(generic[3].starts_with("余波"), "{}", generic[3]);
         assert_ne!(generic[0], generic[1]);
+    }
+
+    #[test]
+    fn align_to_mainline_replaces_stale_opponent_and_location() {
+        let mut card = SceneBeatCard {
+            cast: vec![CastMember {
+                name: "周成".into(),
+                purpose: "主角".into(),
+            }],
+            conflict_move: ConflictMove {
+                action: "审问".into(),
+                parties: vec!["周成".into(), "杨晓雯".into()],
+                stage: crate::agency::beat_card::default_conflict_stage(),
+            },
+            emotion_beat: EmotionBeat {
+                summary: "警惕".into(),
+            },
+            next_outline_node: "就地审问伪装护士".into(),
+            expansion_quota: vec![],
+            expansion_quota_text: None,
+            setting_location: Some("武警医院".into()),
+            open_review_issues: vec![],
+            dead: vec![],
+            change_delta: ChangeDelta::default(),
+        };
+        let beat = crate::agency::mainline::MainlineBeat {
+            chapter_number: 144,
+            title: "法不可亵".into(),
+            goal: "周成离开医院后逛到福摩萨夜总会，当面冲撞邵卫江。".into(),
+            cast: vec!["邵卫江".into(), "大波浪卷".into()],
+            location: "福摩萨夜总会包厢".into(),
+            key_terms: vec!["福摩萨夜总会".into(), "邵卫江".into()],
+            must_terms: vec!["邵卫江".into(), "福摩萨夜总会".into()],
+        };
+        card.align_to_mainline(&beat);
+        assert!(card.cast.iter().any(|member| member.name == "邵卫江"));
+        assert_eq!(card.conflict_move.parties[1], "邵卫江");
+        assert_eq!(card.setting_location.as_deref(), Some("福摩萨夜总会包厢"));
+        assert!(card.next_outline_node.contains("福摩萨夜总会"));
+        assert!(
+            !card.next_outline_node.starts_with("周成"),
+            "主角前缀应剥掉"
+        );
     }
 }

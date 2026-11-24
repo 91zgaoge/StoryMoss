@@ -61,12 +61,14 @@ const FEEDBACK_THRESHOLD: f64 = 6.0;
 /// 放在指令前部，确保章纲规划（只读前 3200 字）也能看到。
 const TRAINING_REDLINES: &str = "【原作基调与设定红线（最高优先级；违反即判定该章不合格）】\n\
 1. 设定边界：只沿用前文真实原文已经出现的术法、门派、行话与器物；以【前情提要】里的「已确立设定白名单」为唯一合法名单。禁止新增前文未建立的修炼/力量体系、异变器官、超自然规则等体系性设定，禁止超能力对轰。\n\
-2. 语体边界：严格遵守【文风锚点】与风格 DNA 的语体、句式长度、对白比例与生活细节密度；保持主角原有的口吻与松弛感，对白要有身份感与生活质感；禁止翻译腔与西幻舶来词，禁止用「令人作呕的酥麻感/钻心剧痛」等身体反应堆砌替代动作与对话；禁止同章反复用「不是……而是……」排比与「像……像……」比喻堆叠（比喻每 500 字至多一处，且取市井生活物象）。\n\
-3. 推进边界：每章必须推进【前情提要】中的至少一条未结线索（或在正文中写明本章暂不收的理由），并制造至少一个可验证的状态变化（信息/关系/目标/风险/情绪）；不得整章重复上一章的地点、动作与对白，不得原地踏步；每章至少安排一次配角互动（对话/利益博弈/插科打诨），禁止主角单人解谜的独角戏。\n\
+2. 语体边界：严格遵守【原文语体样本与基线】【文风锚点】与风格 DNA 的句长、对白比例、口语颗粒与生活细节密度；保持主角原有的第一人称碎嘴、自嘲与松弛感，每章至少一处市井调侃或主角内心吐槽；禁止整章冷硬侦探腔、格言式旁白、书面总结腔与翻译腔；禁止用「后槽牙/喉头一紧/发麻/发凉/酥麻/钻心」等身体反应堆砌替代动作与对话；「不是……而是……」每章最多一次，比喻每 500 字至多一处且取市井生活物象。\n\
+3. 推进边界：每章必须推进【前情提要】中的至少一条未结线索（或在正文中写明本章暂不收的理由），并制造至少一个可验证的状态变化（信息/关系/目标/风险/情绪）；不得整章重复上一章的地点、动作与对白，不得原地踏步；每章至少安排一次配角互动（对话/利益博弈/插科打诨），禁止主角单人解谜的独角戏；信息必须在对抗或利益交锋中逼出，禁止用角色单向长段解说（老曹式独白）替代场面；开篇定一个当日必须拿到或保住的具体目标，章末结算输赢与代价。\n\
 4. 承接边界：承接锚点与上一章结尾只用于对齐现场与人物状态，禁止复制、改写或复述锚点原文；本章第一段必须写在锚点最后一句话之后发生的新动作/新信息。\n\
 5. 设定白名单：只有【前情提要】的「已确立设定白名单」才算「已有设定」；沙盒里 AI 自己新造的名词（异变器官、法器、神秘组织等）不算既有设定，后续章节不得沿用、放大或写成规则。\n\
 6. 长程边界：本批续写必须整体推进【前情提要】的总脉络与未结线索，不得另起新故事、新主角、新委托；每章只能在不偏离前情提要的方向上制造新事件。\n\
-7. 主角身份：主角在叙述中始终是「我」；若名册标注了主角姓名，他人称该姓名/先生/阴脉先生均指同一人，禁止把主角叫成配角姓氏（如张先生），也禁止把主角姓名当成另一名配角。";
+7. 主角身份：主角在叙述中始终是「我」；若名册标注了主角姓名，他人称该姓名/先生/阴脉先生均指同一人，禁止把主角叫成配角姓氏（如张先生），也禁止把主角姓名当成另一名配角。\n\
+8. 主线边界：本章先落地【本章原著主线任务】；不得把主线事件推迟到后续章节，不得用电话、短信、转述、跟踪或事后听说替代正面场面；不得另开与原书主线平行的长期支线；本地线索只能作为支线并行，不能覆盖主线。\n\
+9. 章末边界：只留一个具体强钩（未解动作或一句威胁），禁止电话、短信、跟踪、独白并置的多源堆叠；禁止连续两章用同一钩子模板。";
 
 /// 训练阶段显式枚举：进度不再是散落的 5/20/30/35/40/75/90/100 常量，
 /// 而是每个阶段唯一的进度/step/文案。新增阶段必须在这里登记，保证单调。
@@ -76,6 +78,7 @@ enum TrainingStage {
     Sandbox,
     Style,
     Assets,
+    Mainline,
     Continue,
     Compare,
     Review,
@@ -90,6 +93,7 @@ impl TrainingStage {
             TrainingStage::Sandbox => 20,
             TrainingStage::Style => 30,
             TrainingStage::Assets => 35,
+            TrainingStage::Mainline => 37,
             TrainingStage::Continue => 40,
             TrainingStage::Compare => 72,
             TrainingStage::Review => 85,
@@ -104,6 +108,7 @@ impl TrainingStage {
             TrainingStage::Sandbox => "sandbox",
             TrainingStage::Style => "style",
             TrainingStage::Assets => "assets",
+            TrainingStage::Mainline => "mainline",
             TrainingStage::Continue => "continue",
             TrainingStage::Compare => "compare",
             TrainingStage::Review => "review",
@@ -118,6 +123,7 @@ impl TrainingStage {
             TrainingStage::Sandbox => "正在创建训练沙盒故事…",
             TrainingStage::Style => "正在从真实章节学习文风…",
             TrainingStage::Assets => "正在重建世界观/大纲/角色/故事线…",
+            TrainingStage::Mainline => "正在提取原著主线逐章任务…",
             TrainingStage::Continue => "正在按原文风格连续续写…",
             TrainingStage::Compare => "正在取真实后续章并逐章对比…",
             TrainingStage::Review => "编审 Agent 正在汇总跨章分析并出质量报告…",
@@ -559,6 +565,98 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             ctx.log("info", &format!("已识别第一人称主角：{name}"));
         }
         let roster_block = build_roster_block(&roster, protagonist.as_deref());
+        // ── 3.6 原著主线投影 + 原文语体样本（v0.99.15）─────────────
+        // 真机根因：资产重建的故事大纲「下一节点」只由上下文归纳（审问护士），
+        // writer 按它把原书 144 章「去福摩萨找邵卫江」推迟，10 章另起平行支线。
+        // truth_hints 模式把本轮真实后续章逐章摘要成硬任务，写进故事大纲并
+        // 按章注入章纲/writer/gate；blind 模式跳过，避免基准泄漏。
+        let mainline_projection = if blind {
+            ctx.log("info", "blind 模式：跳过原著主线投影（不注入真实后续节点）");
+            None
+        } else {
+            ctx.update_progress(
+                TrainingStage::Mainline.step(),
+                TrainingStage::Mainline.progress(),
+                TrainingStage::Mainline.label(),
+            );
+            let truth_input: Vec<(usize, String)> = truths.iter().cloned().collect();
+            let mut mainline_summary =
+                crate::agency::training_assets::TrainingAssetSummary::default();
+            let mainline_progress: crate::agency::training_assets::AssetProgress = {
+                let task_id = task.id.clone();
+                let pool = self.pool.clone();
+                let app = self.app_handle.clone();
+                std::sync::Arc::new(move |done, total| {
+                    let ctx = crate::task_system::executor::TaskExecutionContext::new(
+                        task_id.clone(),
+                        pool.clone(),
+                        app.clone(),
+                    );
+                    let total = total.max(1);
+                    let p = 36 + ((done.min(total) as i32 * 3) / total as i32).min(3);
+                    let label = format!("原著主线投影 {done}/{total} 章摘要完成");
+                    ctx.update_progress("mainline", p, &label);
+                    ctx.log("info", &label);
+                })
+            };
+            let truth_briefs = crate::agency::training_assets::summarize_chapters(
+                &self.pool,
+                &asset_llm,
+                &payload.book_title,
+                &truth_input,
+                &mut mainline_summary,
+                Some(mainline_progress),
+            )
+            .await;
+            let projection =
+                crate::agency::mainline::from_briefs(truths, &truth_briefs, protagonist.as_deref());
+            crate::agency::training_assets::apply_mainline_projection(
+                &self.pool,
+                &story.id,
+                &projection,
+            );
+            ctx.log(
+                "info",
+                &format!(
+                    "原著主线投影就绪：{} 章逐章任务（摘要缓存 {}、兜底 {}）｜主线弧：{}",
+                    projection.beats.len(),
+                    mainline_summary.summary_cached,
+                    mainline_summary.summary_fallback,
+                    projection.arc.chars().take(120).collect::<String>()
+                ),
+            );
+            if !projection.is_empty() {
+                ctx.log(
+                    "info",
+                    &format!(
+                        "第{}章主线：{}",
+                        projection.beats[0].chapter_number, projection.beats[0].goal
+                    ),
+                );
+            }
+            Some(projection)
+        };
+        // 原文语体样本：不再只在上一轮 style<6.0 时注入。10 章批量里每章只
+        // 喂上一章生成稿，风格会自我稀释；每章都带原文段落 + 量化基线。
+        let context_plain: String = context
+            .iter()
+            .map(|(_, content)| crate::export::content::content_to_plain_text(content))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let style_exemplar = crate::agency::style_probe::build_exemplar(context, compact_prompt);
+        let style_baseline = crate::agency::style_probe::profile(&context_plain);
+        if !style_exemplar.is_empty() {
+            ctx.log(
+                "info",
+                &format!(
+                    "已注入原文语体样本与基线（{} 字；平均句长 {:.1}、对白 {:.0}%、口语词 {:.1}/千字）",
+                    style_exemplar.chars().count(),
+                    style_baseline.avg_sentence_len,
+                    style_baseline.dialogue_ratio * 100.0,
+                    style_baseline.colloquial_per_k
+                ),
+            );
+        }
         let feedback = self.load_training_feedback(&payload.book_title, context_start);
         let force_style_anchor = !style_applied || feedback.style_low();
         let style_anchor = if force_style_anchor {
@@ -695,9 +793,16 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         .with_assets_seeded(true)
         .with_batch_progress(progress_sink)
         .with_compact_prompt(compact_prompt)
+        // v0.99.15：原文语体样本每章常驻 writer/修订 prompt。
+        .with_style_exemplar(style_exemplar.clone())
         // v0.99.7：训练批量质检直连 JSON，绕开本地模型永不遵从的
         // ReAct action 格式（真机 v0.99.6 9/10 章质检降级）。
         .with_direct_gate_json(true);
+        let coordinator = if let Some(projection) = mainline_projection.clone() {
+            coordinator.with_mainline_projection(projection)
+        } else {
+            coordinator
+        };
         let cancel = Arc::new(AtomicBool::new(false));
         // 取消传播：任务被取消时同步中断续写管线（统一取消监听器，500ms）。
         // 监听句柄 Drop 随 execute 结束自动停止轮询，不再泄漏协程。
@@ -974,9 +1079,9 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             brief_rendered.chars().count()
         );
         let feedback_line = if blind {
-            "- 反馈模式：blind（过滤真实后续节点，避免基准泄漏）"
+            "- 反馈模式：blind（过滤真实后续节点与原著主线投影，避免基准泄漏）"
         } else {
-            "- 反馈模式：truth_hints（允许注入上一轮真实后续节点）"
+            "- 反馈模式：truth_hints（注入本轮真实后续的原著主线节点：逐章任务+关键要素）"
         };
         let prompt_line = if compact_prompt {
             "- Prompt 模式：compact（本地小模型）"
@@ -984,10 +1089,31 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             "- Prompt 模式：full"
         };
         let probe_line = memory_probes_line(&brief, &generated, &context_prose);
-        let asset_line = format!(
-            "{asset_line}\n- 长程记忆：{memory_line}\n{feedback_line}\n{prompt_line}\n- 记忆探针：{probe_line}"
+        // v0.99.15：主线落地与文风漂移是「老大难」的可测证据。
+        let mainline_cov = mainline_projection
+            .as_ref()
+            .map(|projection| projection.coverage(&generated));
+        let mainline_line = match (&mainline_projection, &mainline_cov) {
+            (Some(projection), Some(cov)) => format!(
+                "- 原著主线：{} 章逐章任务（{}）｜落地探针：{}",
+                projection.beats.len(),
+                projection.arc.chars().take(100).collect::<String>(),
+                cov.line
+            ),
+            _ => "- 原著主线：blind 模式未注入".to_string(),
+        };
+        let style_drift_line = format!(
+            "- {}",
+            crate::agency::style_probe::drift_report(&style_baseline, &generated)
         );
-        let (report_md, scores_json, improvement_md) = Self::build_report(
+        let ai_ism_line = format!(
+            "- {}",
+            crate::agency::style_probe::ai_ism_report(&generated)
+        );
+        let asset_line = format!(
+            "{asset_line}\n- 长程记忆：{memory_line}\n{feedback_line}\n{prompt_line}\n{mainline_line}\n{style_drift_line}\n{ai_ism_line}\n- 记忆探针：{probe_line}"
+        );
+        let (report_md, scores_json, mut improvement_md) = Self::build_report(
             &payload.book_title,
             context_n,
             truth_n,
@@ -1004,6 +1130,36 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             &feedback,
             &ungrounded,
         );
+        // v0.99.15：把确定性探针证据写成下一轮硬修正（不再只靠编审文字）。
+        if let Some(cov) = &mainline_cov {
+            if !cov.misses.is_empty() {
+                let mut misses: Vec<String> = Vec::new();
+                for (number, terms) in cov.misses.iter().take(4) {
+                    misses.push(format!(
+                        "第{number}章缺 {}",
+                        terms.iter().take(4).cloned().collect::<Vec<_>>().join("/")
+                    ));
+                }
+                improvement_md.push_str(&format!(
+                    "- 原著主线未落地（{}）：下一轮必须先落地该章主线事件/地点/关键人物，不得推迟到后续章节，不得用电话/短信/转述替代正面场面。\n",
+                    misses.join("；")
+                ));
+            }
+        }
+        let drift_text = crate::agency::style_probe::drift_report(&style_baseline, &generated);
+        if !drift_text.contains("均在基线") {
+            improvement_md.push_str(&format!(
+                "- 文风修正（{}）：下一轮每章对照【原文语体样本与基线】，恢复第一人称自嘲与市井口语颗粒；禁止冷硬侦探腔、格言式旁白与书面总结腔。\n",
+                drift_text.chars().take(260).collect::<String>()
+            ));
+        }
+        let ai_text = crate::agency::style_probe::ai_ism_report(&generated);
+        if !ai_text.contains("未检出") {
+            improvement_md.push_str(&format!(
+                "- AI 腔修正（{}）：删掉身体反应成对、比喻连用与「不是……而是……」排比；改为动作、对白与具体物象。\n",
+                ai_text.chars().take(200).collect::<String>()
+            ));
+        }
         ctx.update_progress(
             TrainingStage::Report.step(),
             TrainingStage::Report.progress(),
@@ -1953,13 +2109,13 @@ impl ContinuationTrainingExecutor {
             r#"{strict_line}你是编审。下面是《{book_title}》第 {truth_chapter} 章的原作者真实原文（仅用于衡量「与原书后续差距」，不是承接基准），以及 AI 按前文续写出的对应章（沙盒第 {generated_chapter} 章，对应真实第 {truth_chapter} 章）。请做「续写质量对比评审」：按五维打分（1-10，10=与作者本人水准不可区分），并分别判断沙盒承接与原书差距。
 
 评分口径：
-- style 文笔风格：句式长度分布、用词、语感、时代感、生活细节密度；
+- style 文笔风格：以原书真实章为语体基线（句长分布、对白比例、第一人称自嘲/碎嘴、市井口语颗粒、生活细节密度）；冷硬 noir 化、书面总结腔、格言式旁白、AI 腔（后槽牙/身体反应成对/比喻连用/「不是……而是……」排比）应按与原书的差距扣分；
 - plot 情节推进：本章**内部**是否完成真实的状态变化（信息/关系/目标/风险/情绪），而非原地踏步或说明性对白；不以是否撞见原书后续剧情扣分；
 - voice 人物口吻：对白与反应是否符合各角色身份、伤口/需求/防御，而非全员同一腔调；
 - pacing 节奏密度：详略比例、信息密度、有无注水铺垫；
 - hooks 钩子悬念：开头抓力与章末钩子经营。
 承接 continuity（1-10）：**只相对上一沙盒章**——AI 续写是否紧接第 {prior_chapter} 章结尾的现场、人物、时代与未完结事件（禁止换场、新主角、新委托、新事件）。即使 AI 未采用原书后续的真实走向，只要紧接上一沙盒章，continuity 仍应给高分。
-原书差距 reference_gap（1-10）：AI 续写与原作者后续真实章的世界线/事件/人物距离；10=几乎一致，1=完全另开一条线。只做诊断，不参与 continuity。
+原书差距 reference_gap（1-10）：AI 续写与原作者后续真实章的世界线/事件/人物距离；10=几乎一致，1=完全另开一条线。只做诊断，不参与 continuity。评分时必须核对：AI 是否把真实章的主线事件/地点/关键人物**推迟、替换或另开平行支线**；若是，comments 必须点名被推迟/替换的主线节点，improvement 必须写明下一轮如何回到该主线。
 
 {prior_block}【原作者的后续真实章（仅用于 reference_gap，不是承接基准）】
 {truth_cap}
@@ -2081,10 +2237,10 @@ impl ContinuationTrainingExecutor {
 {excerpts}
 
 请做跨章全面对比分析：
-1. 走势：AI 连续续写是否像原作者一样推进（人物弧、冲突升级、线索经营），还是逐章风格漂移/原地踏步；
+1. 走势（含主线）：AI 连续续写是否像原作者一样推进（人物弧、冲突升级、线索经营），是否沿原书真实后续的主线升级链推进，还是用「解谜—复述—再解谜」的平行支线替代；逐章文风是否稀释（对白比例、口语颗粒、第一人称自嘲是否持续下降、冷硬腔是否加重）；
 2. 跨章一致性：人物口吻、时代语感、地点与未完结事件是否连续，有无自相矛盾或记忆丢失；
-3. 与真实后续的差距：结构、节奏、钩子、信息密度、情感回路哪里最不像作者；
-4. 可执行改进：给出下一轮续写必须落实的具体指令（给 writer 看，不是泛泛而谈）。
+3. 与真实后续的差距：结构、节奏、钩子、信息密度、情感回路、主线事件是否被推迟/替换、语体哪里最不像作者；
+4. 可执行改进：给出下一轮续写必须落实的具体指令（给 writer 看，不是泛泛而谈），含「如何回到原书主线」与「如何恢复原书语体」两类硬指令。
 
 仅输出 JSON（不要 markdown、不要解释文字）：
 {{"overall":0.0-1.0总体分,"dimensions":{{"style":1-10,"plot":1-10,"voice":1-10,"pacing":1-10,"hooks":1-10,"continuity":1-10}},"cross_chapter":"跨章走势的 2-4 条发现（分号分隔）","strengths":["做得好的具体点"],"weaknesses":["具体短板"],"improvement":["下一轮必须落实的具体指令（3-6 条，每条 ≤60 字）"],"comments":"总评（≤200字）"}}"#
@@ -3143,27 +3299,42 @@ fn suspect_new_terms(
     context_prose: &str,
     canon_terms: &[crate::agency::story_brief::BriefTerm],
 ) -> Vec<String> {
-    const STOPWORDS: [&str; 42] = [
+    const STOPWORDS: &[&str] = &[
         "时候", "已经", "自己", "什么", "一个", "这个", "那个", "里面", "外面", "的话", "就是",
         "可是", "然后", "因为", "所以", "不是", "没有", "他们", "我们", "起来", "出来", "过去",
         "现在", "心里", "脸上", "身上", "手里", "眼睛", "声音", "地方", "东西", "事情", "感觉",
         "知道", "看着", "听见", "老头", "钥匙", "护士", "病人", "包厢", "抽屉",
+        // v0.99.16：真机报告里的时间/器物短语（明天中午、指甲盖）。
+        "明天", "今天", "昨天", "中午", "晚上", "早上", "下午", "半天", "一天", "一夜", "这时",
+        "那时", "指甲",
     ];
     // v0.99.9：跨词边界的 3–4 字窗口会把代词/虚词卷进「专名」（真机误报
     // 你脸上 / 把钥匙 / 周成把）。这些高频虚词几乎不会出现在人名里，命中即
     // 丢弃；已收录的复合词（脸上/手里…）按子串判定，避免被窗口截断绕过。
+    //
+    // v0.99.16：补入方位/介词（往向从到在跟与替为朝经由沿顺和）——真机
+    // 报告误报「往桌上一」「张宝山在」「往肩上一」。
     const FUNCTION_CHARS: &str = "你我您咱俺他她它的地得了着过把被给让这那哪个们吗呢吧啊呀哦嗯\
-                                  是有像就又也都还再很太更最没别声缕";
+                                  是有像就又也都还再很太更最没别声缕\
+                                  往向从到在跟与替为朝经由沿顺和";
+    // v0.99.16：窗口首字是动词/量词/数词时几乎都是短语而非专名
+    // （真机误报 摸出烟/出一点/穿灰夹克/一件事/两半灰/半根烟/三道横）。
+    // 代价是「三清殿」这类数字开头的词也会被过滤，但它们通常已在上下文/
+    // 白名单里；探针只做诊断，宁可少报碎片。
+    const LEADING_NON_NAME_CHARS: &str =
+        "往向从到在跟与替为朝经由沿顺摸穿拿说出走看想问叫一二三四五六七八九十几两半每各";
     // v0.99.10：方位词收尾的 3 字窗口几乎都是短语（真机误报 条案上），
     // 人名/专名极少以方位字结尾。
     const TERMINAL_LOCATIVE_CHARS: &str = "上下里外边前后";
     // v0.99.12：称谓后缀（邵先生）与常见器物收尾（蓝漆铁门/黄铜钥匙/
     // 传呼机/冷库门）是描述性短语，不是 AI 新造的专名。
-    const ADDRESS_SUFFIXES: [&str; 10] = [
-        "先生", "女士", "小姐", "师傅", "老板", "公子", "太太", "大人", "同志", "老总",
+    const ADDRESS_SUFFIXES: &[&str] = &[
+        "先生", "女士", "小姐", "师傅", "老板", "公子", "太太", "大人", "同志", "老总", "老师",
+        "医生", "大夫", "队长", "主任", "警官", "秘书", "嫂子", "姑娘", "大爷", "大妈",
     ];
     const COMMON_NOUN_TAIL_CHARS: &str =
-        "门机钥匙纸布盒包杯碗桌椅床房屋楼店街路桥灯车刀枪绳袋箱柜镜窗鞋帽衣裤铁铜石木皮";
+        "门机钥匙纸布盒包杯碗桌椅床房屋楼店街路桥灯车刀枪绳袋箱柜镜窗鞋帽衣裤铁铜石木皮\
+         烟茶酒饭水菜汤药";
     let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let chars: Vec<char> = generated.chars().collect();
     for n in 3..=4 {
@@ -3174,6 +3345,11 @@ fn suspect_new_terms(
             let term: String = chars[i..i + n].iter().collect();
             let stopword_hit = STOPWORDS.iter().any(|word| term.contains(word));
             let function_hit = term.chars().any(|c| FUNCTION_CHARS.contains(c));
+            let leading_hit = term
+                .chars()
+                .next()
+                .map(|c| LEADING_NON_NAME_CHARS.contains(c))
+                .unwrap_or(false);
             let locative_hit = term
                 .chars()
                 .last()
@@ -3190,6 +3366,7 @@ fn suspect_new_terms(
                 .all(|c| ('\u{4e00}'..='\u{9fff}').contains(&c) || c == '·')
                 && !stopword_hit
                 && !function_hit
+                && !leading_hit
                 && !locative_hit
                 && !address_hit
                 && !object_tail_hit
@@ -3647,6 +3824,7 @@ mod tests {
             TrainingStage::Sandbox,
             TrainingStage::Style,
             TrainingStage::Assets,
+            TrainingStage::Mainline,
             TrainingStage::Continue,
             TrainingStage::Compare,
             TrainingStage::Review,
@@ -3654,14 +3832,14 @@ mod tests {
             TrainingStage::Done,
         ];
         let progresses: Vec<i32> = stages.iter().map(|s| s.progress()).collect();
-        assert_eq!(progresses, vec![5, 20, 30, 35, 40, 72, 85, 92, 100]);
+        assert_eq!(progresses, vec![5, 20, 30, 35, 37, 40, 72, 85, 92, 100]);
         assert!(progresses.windows(2).all(|w| w[0] < w[1]));
         let steps: Vec<&str> = stages.iter().map(|s| s.step()).collect();
         assert_eq!(
             steps,
             vec![
-                "fetch", "sandbox", "style", "assets", "continue", "compare", "review", "report",
-                "done"
+                "fetch", "sandbox", "style", "assets", "mainline", "continue", "compare", "review",
+                "report", "done"
             ]
         );
     }
@@ -4158,6 +4336,45 @@ mod tests {
             "冷库门",
         ] {
             assert!(!has(junk), "器物/称谓短语不应入探针: {junk} in {line}");
+        }
+    }
+
+    #[test]
+    fn memory_probes_drop_phrase_windows_from_real_reports() {
+        // v0.99.16 真机报告误报（2026-11-24 v0.99.14）：
+        // 往桌上一 / 周老师 / 明天中午 / 穿灰夹克 / 一件事 / 两半灰 /
+        // 三道横 / 出一点 / 半根烟 / 指甲盖 / 摸出烟。
+        // 这些是跨词短语（动词/数词开头、时间词、称谓、器物收尾），
+        // 不是 AI 新造专名；真实新名（赵老鬼）必须保留。
+        use crate::agency::story_brief::StoryBrief;
+        let brief = StoryBrief::default();
+        let text = "往桌上一放，往桌上一放。周老师来了，周老师走了。\
+                    明天中午见面，明天中午再说。穿灰夹克的人，穿灰夹克很旧。\
+                    一件事办完，一件事又来。两半灰落桌，两半灰散了。\
+                    三道横在门框，三道横很深。出一点汗，出一点血。\
+                    半根烟烧完，半根烟又点。指甲盖发白，指甲盖裂了。\
+                    摸出烟来，摸出烟抽。\
+                    赵老鬼坐在暗处，赵老鬼不说话。赵老鬼抬起眼。";
+        let generated = vec![(11, text.to_string())];
+        let line = memory_probes_line(&brief, &generated, "");
+        let section = line.split("疑似新专名：").nth(1).unwrap_or("");
+        let items: Vec<&str> = section.split('/').collect();
+        let has = |needle: &str| items.iter().any(|item| item.trim() == needle);
+        assert!(has("赵老鬼"), "真实新名必须保留: {line}");
+        for junk in [
+            "往桌上一",
+            "周老师",
+            "明天中午",
+            "穿灰夹克",
+            "一件事",
+            "两半灰",
+            "三道横",
+            "出一点",
+            "半根烟",
+            "指甲盖",
+            "摸出烟",
+        ] {
+            assert!(!has(junk), "跨词短语不应入探针: {junk} in {line}");
         }
     }
 

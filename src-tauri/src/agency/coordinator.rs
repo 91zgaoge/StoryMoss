@@ -1203,6 +1203,12 @@ pub struct AgencyCoordinator {
     /// v0.99.7：批量质检直连 JSON（训练路径专用）。默认 false，普通批量/
     /// 导演保持旧 tool_loop 行为，避免改变既有 mock/测试语义。
     direct_gate_json: bool,
+    /// v0.99.15：训练「原著主线投影」。普通续写为 None，writer/章纲/gate
+    /// 的提示词逐字不变；训练时按章号注入硬任务并做落地探针。
+    mainline_projection: Option<Arc<crate::agency::mainline::MainlineProjection>>,
+    /// v0.99.15：训练「原文语体样本与基线」。每章都注入，不再依赖上一轮
+    /// style 分是否低于 6.0；普通续写为 None。
+    style_exemplar: Option<Arc<String>>,
     /// P0-1（v0.66.0）：测试用向量库注入。生产从 Tauri State 取
     /// （见 `retrieval_store`），测试用 `for_test_with_store` 注入。
     #[cfg(test)]
@@ -1228,6 +1234,8 @@ impl AgencyCoordinator {
             batch_progress_sink: None,
             compact_prompt: false,
             direct_gate_json: false,
+            mainline_projection: None,
+            style_exemplar: None,
             #[cfg(test)]
             test_vector_store: None,
             #[cfg(test)]
@@ -1250,6 +1258,8 @@ impl AgencyCoordinator {
             batch_progress_sink: None,
             compact_prompt: false,
             direct_gate_json: false,
+            mainline_projection: None,
+            style_exemplar: None,
             #[cfg(test)]
             test_vector_store: None,
             #[cfg(test)]
@@ -1301,6 +1311,29 @@ impl AgencyCoordinator {
     /// 失败仍回退旧 tool_loop/散文路径。
     pub fn with_direct_gate_json(mut self, direct: bool) -> Self {
         self.direct_gate_json = direct;
+        self
+    }
+
+    /// v0.99.15：训练原著主线投影（逐章硬任务 + 落地探针）。
+    pub fn with_mainline_projection(
+        mut self,
+        projection: crate::agency::mainline::MainlineProjection,
+    ) -> Self {
+        self.mainline_projection = if projection.is_empty() {
+            None
+        } else {
+            Some(Arc::new(projection))
+        };
+        self
+    }
+
+    /// v0.99.15：训练原文语体样本（逐章常驻 writer/修订 prompt）。
+    pub fn with_style_exemplar(mut self, exemplar: String) -> Self {
+        self.style_exemplar = if exemplar.trim().is_empty() {
+            None
+        } else {
+            Some(Arc::new(exemplar))
+        };
         self
     }
 
@@ -1681,6 +1714,8 @@ impl AgencyCoordinator {
             batch_progress_sink: self.batch_progress_sink.clone(),
             compact_prompt: self.compact_prompt,
             direct_gate_json: self.direct_gate_json,
+            mainline_projection: self.mainline_projection.clone(),
+            style_exemplar: self.style_exemplar.clone(),
             #[cfg(test)]
             test_vector_store: self.test_vector_store.clone(),
             #[cfg(test)]
@@ -3562,6 +3597,9 @@ impl AgencyCoordinator {
                 scene_contract.as_ref(),
                 deadline,
                 false,
+                None,
+                None,
+                None,
             )
             .await;
             // 取消后不再产出裁决/toast：用户已经终止这次生成，噪声反馈只会误导
@@ -3841,6 +3879,8 @@ impl AgencyCoordinator {
                 batch_progress_sink: None,
                 compact_prompt: false,
                 direct_gate_json: false,
+                mainline_projection: None,
+                style_exemplar: None,
                 #[cfg(test)]
                 test_vector_store: None,
                 #[cfg(test)]
@@ -5461,6 +5501,14 @@ impl AgencyCoordinator {
         directive: &str,
     ) -> String {
         let key = format!("第{}章", chapter_number);
+        // v0.99.15：训练的原著主线任务必须进入章纲规划。旧实现只在 writer
+        // 指令尾部出现，planner 仍按上下文资产规划「审问护士」，章纲与主线
+        // 直接冲突，writer 只会服从章纲。
+        let mainline_block = self
+            .mainline_projection
+            .as_ref()
+            .and_then(|projection| projection.render_beat_block(chapter_number))
+            .unwrap_or_default();
         // v0.30.31: 无故事大纲时短路（writer 上下文不含【故事大纲】段）--章节
         // 大纲须服从故事大纲，无大纲则生成无意义且徒增一次 LLM 调用；有故事大纲
         // 时注入 world+progress 生成锚定进度的章节大纲。短路恢复原 v0.30.21
@@ -5550,6 +5598,10 @@ impl AgencyCoordinator {
                 format!("\n作者补充要求（必须落实到本场景大纲）：{}", directive_owned)
             };
             let mut scene_info = format!("故事前提：{}\n本章：{}{}", premise_c, key_c, directive_block);
+            if !mainline_block.trim().is_empty() {
+                scene_info.push_str("\n\n");
+                scene_info.push_str(&mainline_block);
+            }
             if !brief_owned.is_empty() {
                 scene_info.push_str("\n\n【前情提要（前文已发生事实，必须据此判断本场景推进到哪、哪些线还开着；禁止另起新故事）】\n");
                 scene_info.push_str(&brief_owned);
@@ -6957,7 +7009,7 @@ impl AgencyCoordinator {
         // scenes——DB 的「latest」实际是 n-2。优先使用在途上一章的正文/大纲，
         // 否则 writer 会把每一章写成 n-2 的续篇（真机整批承接断裂）。
         let prior_owned = prior.map(|p| p.clone());
-        let (parts, card, latest_content, pinned_blocks) = self
+        let (parts, mut card, latest_content, pinned_blocks) = self
             .db({
                 let pool = pool.clone();
                 let sid = sid.clone();
@@ -6998,6 +7050,15 @@ impl AgencyCoordinator {
                 }
             })
             .await?;
+        // v0.99.15：原著主线人物/地点/推进节点覆盖上一章遗留的节拍卡，
+        // 否则章契约会把不相干的「杨晓雯」当具名阻力，正确主线的章也被打回。
+        if let Some(beat) = self
+            .mainline_projection
+            .as_ref()
+            .and_then(|projection| projection.beat_for(chapter_number))
+        {
+            card.align_to_mainline(beat);
+        }
         let has_brief = parts
             .as_ref()
             .and_then(|p| p.story_brief.as_ref())
@@ -7074,7 +7135,7 @@ impl AgencyCoordinator {
             .as_ref()
             .map(crate::emotion_circuit::render_batch_emotion_block)
             .unwrap_or_default();
-        let assets_ctx = if let Some(ref p) = parts {
+        let mut assets_ctx = if let Some(ref p) = parts {
             let (admitted, l2) = admit_for_continue(p, &card, &chapter_outline, "续写");
             render_parts(
                 p,
@@ -7091,6 +7152,28 @@ impl AgencyCoordinator {
         } else {
             String::new()
         };
+        // v0.99.15：训练的原著主线投影 + 原文语体样本逐章常驻。
+        // - 主线：整批固定，放在资产区（不是 directive 尾部），保证不会被 8192
+        //   字符的导演指令上限截掉；
+        // - 语体样本：每章都注入原文段落，阻断「上一章生成稿→下一章」的
+        //   风格自我稀释。
+        if let Some(projection) = self.mainline_projection.as_ref() {
+            let block = projection.render_assets_block(self.compact_prompt);
+            if !block.trim().is_empty() {
+                if !assets_ctx.is_empty() {
+                    assets_ctx.push_str("\n\n");
+                }
+                assets_ctx.push_str(&block);
+            }
+        }
+        if let Some(exemplar) = self.style_exemplar.as_deref() {
+            if !exemplar.trim().is_empty() {
+                if !assets_ctx.is_empty() {
+                    assets_ctx.push_str("\n\n");
+                }
+                assets_ctx.push_str(exemplar);
+            }
+        }
         // v0.79.1：批量续写按章契约 + 1–3 场投影写，不再只拿「章纲 + 资产 +
         // 有起伏」。契约失败只降级，不阻断批量；gate 仍取第一场契约核对。
         let deterministic = if crate::agency::narrative_contract::enabled() {
@@ -7148,6 +7231,18 @@ impl AgencyCoordinator {
             )
         } else {
             format!("续写{}（1500-2500 字）。{}必须推进剧情到故事大纲的下一节点，不得原地踏步、不得仅复述设定或复述前文；遵循世界观设定中的规则与约束。禁止重复：同一段落/句子不得出现两次，不得复述前文段落。\n资产已注入下方，无需 board_read 重复读取（如确有遗漏可补读）：\n{}\n完成后用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, CONTINUITY_HARD_RULE, assets_ctx, key)
+        };
+        // v0.99.15：本章原著主线任务放 writer task 最前（硬优先级高于章纲与
+        // 本地线索）；章纲规划也已收到同一块，正常情况二者一致，这里是
+        // 防 planner 漏抄/模型只读 task 首段的最后一道保险。
+        let writer_task = if let Some(block) = self
+            .mainline_projection
+            .as_ref()
+            .and_then(|projection| projection.render_beat_block(chapter_number))
+        {
+            format!("{block}\n\n{writer_task}")
+        } else {
+            writer_task
         };
         let writer_task = inject_batch_contract_block(writer_task, chapter_contract.as_ref());
         let writer_task = inject_batch_emotion_block(writer_task, &emotion_block);
@@ -7284,7 +7379,7 @@ impl AgencyCoordinator {
         let sid = story_id.to_string();
         let target_scene_owned = target_scene_id.map(str::to_string);
         let strategy = self.user_writing_strategy();
-        let (parts, card, existing, outline, prior) = self
+        let (parts, mut card, existing, outline, prior) = self
             .db({
                 let pool = pool.clone();
                 let sid = sid.clone();
@@ -7346,12 +7441,19 @@ impl AgencyCoordinator {
                 }
             })
             .await?;
+        if let Some(beat) = self
+            .mainline_projection
+            .as_ref()
+            .and_then(|projection| projection.beat_for(chapter_number))
+        {
+            card.align_to_mainline(beat);
+        }
         let admitted: Vec<String> = if !card.cast.is_empty() {
             card.cast.iter().map(|c| c.name.clone()).collect()
         } else {
             parts.table_names.clone()
         };
-        let assets_ctx = render_parts(
+        let mut assets_ctx = render_parts(
             &parts,
             &admitted,
             &outline,
@@ -7363,6 +7465,26 @@ impl AgencyCoordinator {
             &[],
             self.compact_prompt,
         );
+        // v0.99.15：修订轮同样带主线任务与语体样本，避免修订把正文改回
+        // 冷硬腔或再次丢掉主线。
+        if let Some(projection) = self.mainline_projection.as_ref() {
+            let block = projection.render_assets_block(self.compact_prompt);
+            if !block.trim().is_empty() {
+                assets_ctx.push_str("\n\n");
+                assets_ctx.push_str(&block);
+            }
+        }
+        if let Some(exemplar) = self.style_exemplar.as_deref() {
+            if !exemplar.trim().is_empty() {
+                assets_ctx.push_str("\n\n");
+                assets_ctx.push_str(exemplar);
+            }
+        }
+        let mainline_task = self
+            .mainline_projection
+            .as_ref()
+            .and_then(|projection| projection.render_beat_block(chapter_number))
+            .unwrap_or_default();
         let existing_chars = existing.chars().count();
         // v0.93.3: base_task 与 board_write 指令拆开——熔断兜底 prose 直出时
         // 复用 base_task（含导演指令），不带工具协议。
@@ -7394,6 +7516,11 @@ impl AgencyCoordinator {
                 "章"
             },
         );
+        let base_task = if mainline_task.trim().is_empty() {
+            base_task
+        } else {
+            format!("{mainline_task}\n\n{base_task}")
+        };
         let base_task = inject_director_directive(base_task, directive);
         // v0.93.16：资产缺失时修订也必须直接产出完整正文。
         let base_task = inject_assets_missing_rule(base_task);
@@ -8475,8 +8602,14 @@ impl AgencyCoordinator {
             } else {
                 format!("修订《{}》第{}章", title, ch)
             }
+        } else if count > 1 {
+            // v0.99.15：批量时 premise 不再写「第N章起」。真机 editor 直连
+            // JSON 拿到 premise=「续写第144章起」而草稿 key=「第152章」，
+            // 反复在思维链里纠结章号，浪费额度并偶发裁决不可解析；本章
+            // 章号已由 writer task / draft key 明确，批量范围不需要进 premise。
+            format!("续写《{}》", title)
         } else {
-            format!("续写《{}》第{}章起", title, start_chapter)
+            format!("续写《{}》第{}章", title, start_chapter)
         };
         let explicit_scene_target = revision_scene_id_override.is_some();
         let revision_scene_id: Option<String> = if let Some(ch) = revision {
@@ -9013,6 +9146,8 @@ impl AgencyCoordinator {
             emotion_plan,
             scene_contract,
             direct_gate_json: self.direct_gate_json,
+            mainline_projection: self.mainline_projection.clone(),
+            style_exemplar: self.style_exemplar.clone(),
         }
     }
 
@@ -9058,6 +9193,22 @@ impl AgencyCoordinator {
         // 质量门恒为编辑审计角色档（模型路由 + 定点取消注册）
         let llm = self.llm_for_run(run_id, AgentRole::EditorAuditor, story_id);
         let deadline = self.current_deadline();
+        // v0.99.15：训练门禁带「本章原著主线任务 + 确定性缺失要素」与原文
+        // 语体基线；editor 可据此直接判 revise，而不再只看局部文笔。
+        let draft_plain = crate::export::content::content_to_plain_text(&draft.content);
+        let (mainline_block, mainline_missing) = match Self::draft_chapter_number(&draft.key)
+            .and_then(|chapter| {
+                self.mainline_projection
+                    .as_ref()
+                    .and_then(|projection| projection.render_gate_block(chapter, &draft_plain))
+            }) {
+            Some((block, missing)) => (Some(block), Some(missing)),
+            None => (None, None),
+        };
+        let style_reference = self
+            .style_exemplar
+            .as_deref()
+            .map(|exemplar| crate::agency::continue_assets::truncate_chars(exemplar, 700));
         let (outcome, gate_score) = evaluate_gate_impl(
             &llm,
             budget,
@@ -9076,6 +9227,9 @@ impl AgencyCoordinator {
             // 直连 JSON；此前这里硬编码 false，修订后的 round-2 又回到
             // ReAct tool_loop（真机 round-2 75–92s 连续尝试、迟迟不落门禁）。
             self.direct_gate_json,
+            mainline_block.as_deref(),
+            mainline_missing.as_deref(),
+            style_reference.as_deref(),
         )
         .await?;
         // gate 观察埋点（best-effort）：outcome/round/key/issues_count/weighted
@@ -9420,6 +9574,22 @@ impl AgencyCoordinator {
             }
         }
         let task = build_direct_revision_task(&draft.content, issues, plan, scene_contract);
+        // v0.99.15：直出修订同样带主线任务 + 原文语体样本；否则 editor 指出
+        // 的「主线被推迟」「冷硬腔」在修订轮仍缺可直接模仿的原文。
+        let task = if let Some(block) = Self::draft_chapter_number(&draft.key).and_then(|chapter| {
+            self.mainline_projection
+                .as_ref()
+                .and_then(|projection| projection.render_beat_block(chapter))
+        }) {
+            format!("{block}\n\n{task}")
+        } else {
+            task
+        };
+        let task = if let Some(exemplar) = self.style_exemplar.as_deref() {
+            format!("{task}\n\n{exemplar}")
+        } else {
+            task
+        };
         let llm = BudgetedLlm::new(
             self.llm_for_run(run_id, AgentRole::LeadWriter, story_id),
             budget.clone(),
@@ -9874,6 +10044,12 @@ pub(crate) async fn evaluate_gate_impl(
     scene_contract: Option<&crate::agency::narrative_contract::SceneContract>,
     deadline: Option<std::time::Instant>,
     prefer_direct_json: bool,
+    // v0.99.15：训练的本章原著主线任务核对块（已按草稿算好缺失要素）。
+    mainline_block: Option<&str>,
+    // v0.99.15：缺失的主线关键要素；非空时即使 editor 放行也强制修订一次。
+    mainline_missing: Option<&[String]>,
+    // v0.99.15：训练原文语体基线（editor 核对文风漂移用）。
+    style_reference: Option<&str>,
 ) -> Result<(GateOutcome, Option<crate::agency::gate::GateScore>), AppError> {
     // 1) editor 裁决（解析失败重试一次）。
     // v0.30.19: 本地模型（Qwen/Gemma）在 ReAct tool_loop 内常不遵从 JSON
@@ -10014,6 +10190,18 @@ pub(crate) async fn evaluate_gate_impl(
         .await
         .unwrap_or_default()
     };
+    // v0.99.15：训练主线/语体核对块放在参照资产最后（recency），editor
+    // 在直连 JSON 与 tool_loop 两条路径都能看到。普通续写两块均为 None，
+    // editor_assets 逐字不变。
+    let mut editor_assets = editor_assets;
+    if let Some(block) = mainline_block.map(str::trim).filter(|s| !s.is_empty()) {
+        editor_assets.push_str(block);
+        editor_assets.push_str("\n\n");
+    }
+    if let Some(style) = style_reference.map(str::trim).filter(|s| !s.is_empty()) {
+        editor_assets.push_str(style);
+        editor_assets.push('\n');
+    }
     let mut verdict: Option<EditorVerdict> = None;
     // v0.99.7：批量质检优先直连 JSON（带参照资产、不经工具循环）。成功即
     // 跳过耗时的 ReAct tool_loop；失败再回退旧路径，保证不丢既有兜底。
@@ -10255,6 +10443,41 @@ pub(crate) async fn evaluate_gate_impl(
     } else {
         GateOutcome::Passed { verdict }
     };
+    // v0.99.15：训练主线硬拦截。editor 已拿到核对块，但本地模型可能仍给
+    // pass；只要确定性探针确认本章必需主线要素缺失，就强制修订一次
+    // （批量只做一轮修订，不会无限循环；修订后 gate 仍按原规则复审）。
+    let outcome = if let Some(missing) = mainline_missing.filter(|items| !items.is_empty()) {
+        let issue = format!(
+            "未落地本章原著主线任务（缺少 {}）：不得把主线事件推迟到后续章节，也不得用电话、短信、转述或事后听说替代正面场面。",
+            missing.join("、")
+        );
+        match outcome {
+            GateOutcome::Passed { mut verdict } => {
+                let issue_value = serde_json::Value::String(issue.clone());
+                if !verdict.blocking_issues.contains(&issue_value) {
+                    verdict.blocking_issues.push(issue_value);
+                }
+                GateOutcome::RevisionRequired {
+                    issues: vec![issue],
+                    verdict,
+                }
+            }
+            GateOutcome::RevisionRequired {
+                mut issues,
+                verdict,
+            } => {
+                // editor 已判 revise 但没提主线：把确定性缺失追加进 issues，
+                // 否则修订 prompt 不会去补主线。
+                if !issues.contains(&issue) {
+                    issues.push(issue);
+                }
+                GateOutcome::RevisionRequired { issues, verdict }
+            }
+            other => other,
+        }
+    } else {
+        outcome
+    };
     // 4) 判定落审查区（编辑审计为审查区 owner，active）
     record_gate_impl(
         board,
@@ -10416,6 +10639,9 @@ pub struct GateRunner {
     scene_contract: Option<Arc<crate::agency::narrative_contract::SceneContract>>,
     /// v0.99.7：训练批量质检直连 JSON（其它批量保持 tool_loop）。
     direct_gate_json: bool,
+    /// v0.99.15：训练主线投影与语体样本（普通批量为 None）。
+    mainline_projection: Option<Arc<crate::agency::mainline::MainlineProjection>>,
+    style_exemplar: Option<Arc<String>>,
 }
 
 impl GateRunner {
@@ -10427,6 +10653,20 @@ impl GateRunner {
         draft: BoardItem,
         round: u32,
     ) -> Result<GateOutcome, AppError> {
+        let draft_plain = crate::export::content::content_to_plain_text(&draft.content);
+        let (mainline_block, mainline_missing) =
+            match AgencyCoordinator::draft_chapter_number(&draft.key).and_then(|chapter| {
+                self.mainline_projection
+                    .as_ref()
+                    .and_then(|projection| projection.render_gate_block(chapter, &draft_plain))
+            }) {
+                Some((block, missing)) => (Some(block), Some(missing)),
+                None => (None, None),
+            };
+        let style_reference = self
+            .style_exemplar
+            .as_deref()
+            .map(|exemplar| crate::agency::continue_assets::truncate_chars(exemplar, 700));
         let (outcome, gate_score) = evaluate_gate_impl(
             &self.llm,
             &self.budget,
@@ -10442,6 +10682,9 @@ impl GateRunner {
             self.scene_contract.as_deref(),
             self.deadline,
             self.direct_gate_json,
+            mainline_block.as_deref(),
+            mainline_missing.as_deref(),
+            style_reference.as_deref(),
         )
         .await?;
         // gate 观察埋点（best-effort；并行批量路径与 coordinator.evaluate_gate

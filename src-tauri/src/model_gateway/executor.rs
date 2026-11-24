@@ -86,6 +86,23 @@ pub(crate) fn parse_gpu_memory_error(error: &str) -> Option<(u32, u64, u64)> {
     }
 }
 
+/// v0.99.16: 客户端 prompt token 估算（与心跳/候选容量闸门同一口径）。
+///
+/// 调用方已给出 `estimated_input_tokens` 时直接采用；否则按
+/// `(prompt + system) chars / 2` 估算。GPU 容量学习也必须用这个值，
+/// 不能用服务端 tokenizer 的 token 数（中文约 0.71 token/字）。
+pub(crate) fn estimate_prompt_tokens(
+    prompt_chars: usize,
+    system_chars: usize,
+    estimated_input_tokens: u32,
+) -> u32 {
+    if estimated_input_tokens > 0 {
+        estimated_input_tokens
+    } else {
+        ((prompt_chars + system_chars) / 2) as u32
+    }
+}
+
 /// 用户/看门狗取消后不得再试下一个候选。否则 600s 前端超时会再点燃本地模型。
 pub(crate) fn candidate_chain_stops_on(err: &AppError) -> bool {
     matches!(err, AppError::Cancellation { .. })
@@ -643,12 +660,20 @@ impl<R: Runtime> GatewayExecutor<R> {
 
     /// v0.99.2: prompt token 估算；优先用 request.estimated_input_tokens，
     /// 缺省时按 heartbeat 口径 prompt_chars / 2。
+    ///
+    /// v0.99.16：必须把 system_prompt 计入。候选循环的 GPU 容量闸门用的是
+    /// 「prompt + system chars / 2」，若这里只数 prompt，`resolve_role_model`
+    /// 与候选打分看到的 token 数会偏小，同一请求在不同闸门得到相反结论。
     fn prompt_tokens_est(&self, request: &GatewayRequest) -> u32 {
-        if request.estimated_input_tokens > 0 {
-            request.estimated_input_tokens
-        } else {
-            (request.prompt.chars().count() / 2) as u32
-        }
+        estimate_prompt_tokens(
+            request.prompt.chars().count(),
+            request
+                .system_prompt
+                .as_deref()
+                .map(|s| s.chars().count())
+                .unwrap_or(0),
+            request.estimated_input_tokens,
+        )
     }
 
     /// v0.23.59: 供 LlmService 调用的公开标记 Unhealthy 接口。
@@ -1380,8 +1405,8 @@ impl<R: Runtime> GatewayExecutor<R> {
                 continue;
             }
 
-            let prompt_est = prompt_chars / 2;
-            if self.prompt_limit_exceeded(&candidate.model_id, prompt_est as u32) {
+            let prompt_est = self.prompt_tokens_est(&request);
+            if self.prompt_limit_exceeded(&candidate.model_id, prompt_est) {
                 log::warn!(
                     "[Gateway] 候选 [{}/{}] {} 实测 GPU 容量上限装不下当前提示（约 {} tokens / {} 字符），跳过",
                     idx + 1,
@@ -1628,17 +1653,27 @@ impl<R: Runtime> GatewayExecutor<R> {
                     if let Some((tokens, required_mb, available_mb)) =
                         parse_gpu_memory_error(&e.to_string())
                     {
+                        // v0.99.16：学习上限必须与闸门比较使用同一单位。
+                        // 服务端 tokens 来自本地模型的 tokenizer（中文实测约
+                        // 0.71 token/字，2026-11-24 真机 10,275 字符 → 7,346
+                        // tokens），而候选闸门用客户端估算（chars / 2）。若直接
+                        // 存服务端 tokens，学到的上限（约 6.8k）永远高于随后
+                        // 请求的估算值（约 5.1k）——v0.99.2 的容量路由因此从未
+                        // 触发，同一天连续 8 次重撞 OOM。这里改用与闸门同一个
+                        // `prompt_tokens_est` 折算上限。
+                        let prompt_est = self.prompt_tokens_est(&request).max(1);
                         log::warn!(
-                            "[Gateway] 学习 GPU 容量上限: model={} prompt_tokens={} required_mb={} available_mb={}",
+                            "[Gateway] 学习 GPU 容量上限: model={} prompt_tokens={} prompt_tokens_est={} required_mb={} available_mb={}",
                             candidate.model_id,
                             tokens,
+                            prompt_est,
                             required_mb,
                             available_mb
                         );
                         self.record_prompt_limit_failure(
                             &candidate.model_id,
                             &candidate.model_name,
-                            tokens,
+                            prompt_est,
                             required_mb,
                             available_mb,
                         );
@@ -2747,5 +2782,34 @@ mod tests {
         assert!(!registry.prompt_limit_exceeded("qwren", 1000));
         registry.clear_prompt_limit("qwren");
         assert!(registry.prompt_limit_tokens("qwren").is_none());
+    }
+
+    /// v0.99.16 真机回归（2026-11-24）：GPU 容量上限必须与候选闸门同单位。
+    ///
+    /// 10,275 字符的 prompt（客户端估算 5,137 tokens）被 Qwren 服务端报成
+    /// 7,346 tokens（requires 8,068MB / available 7,459MB）。若存服务端
+    /// tokens，上限 ≈6,790，随后 11,381 字符（估算 5,690）仍被判「装得下」
+    /// → 再次 OOM；按客户端估算学习，上限 ≈4,748，下一次必须跳过。
+    #[test]
+    fn prompt_limit_learned_in_client_estimate_units() {
+        let mut registry = HealthRegistry::new();
+        registry.record_prompt_limit_failure("qwren", "Qwren127", 5137, 8068, 7459);
+        let limit = registry.prompt_limit_tokens("qwren").expect("limit");
+        assert!(limit < 5000, "应折算到 chars/2 估算单位: {limit}");
+        assert!(
+            registry.prompt_limit_exceeded("qwren", 5690),
+            "下一轮 11,381 字符（估算 5,690）必须被容量闸门跳过"
+        );
+        assert!(!registry.prompt_limit_exceeded("qwren", 4000));
+    }
+
+    #[test]
+    fn prompt_token_estimate_includes_system_prompt() {
+        // 候选闸门数 prompt+system；估算函数不得漏掉 system_prompt。
+        assert_eq!(estimate_prompt_tokens(1000, 200, 0), 600);
+        // 调用方已给出估算值时优先采用。
+        assert_eq!(estimate_prompt_tokens(1000, 200, 9000), 9000);
+        // 空 prompt 也不 panic。
+        assert_eq!(estimate_prompt_tokens(0, 0, 0), 0);
     }
 }
