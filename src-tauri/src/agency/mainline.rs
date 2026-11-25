@@ -41,12 +41,25 @@ pub struct MainlineBeat {
     pub must_terms: Vec<String>,
 }
 
-/// 一批真实后续章的主线投影。
+/// 主线投影的来源。训练用真实后续章（Truth），生产用故事大纲/章节合同/
+/// 卷纲/Blueprint（StoryPlan）。两者的注入结构相同，只是核对口径与文案不同：
+/// - Truth：必须按原书主线推进（训练教学信号）；
+/// - StoryPlan：必须按作者已确立的故事计划推进（生产续写/创世）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MainlineSource {
+    #[default]
+    Truth,
+    StoryPlan,
+}
+
+/// 一批真实后续章或故事计划章的主线投影。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MainlineProjection {
     /// 原书主线走势（章标题链，≤400 字）。
     pub arc: String,
     pub beats: Vec<MainlineBeat>,
+    /// v0.99.23：来源（训练真实后续章 / 生产故事计划）。
+    pub source: MainlineSource,
 }
 
 /// 确定性落地探针结果。
@@ -61,6 +74,13 @@ pub struct MainlineCoverage {
 impl MainlineProjection {
     pub fn is_empty(&self) -> bool {
         self.beats.is_empty()
+    }
+
+    fn origin(&self, truth: &'static str, plan: &'static str) -> &'static str {
+        match self.source {
+            MainlineSource::Truth => truth,
+            MainlineSource::StoryPlan => plan,
+        }
     }
 
     pub fn beat_for(&self, chapter_number: i32) -> Option<&MainlineBeat> {
@@ -99,10 +119,11 @@ impl MainlineProjection {
         } else {
             format!("\n【主线弧（升级方向）】{}", self.arc.trim())
         };
+        let origin = self.origin("原著", "故事");
         let block = format!(
-            "【原著主线投影（本批续写必须按原书主线推进；细节可自由发挥，但下列逐章主线事件/地点/关键人物不得推迟、替换或用电话/转述替代）】\n{lines}{arc}\n\
+            "【{origin}主线投影（本批续写必须按{origin}主线推进；细节可自由发挥，但下列逐章主线事件/地点/关键人物不得推迟、替换或用电话/转述替代）】\n{lines}{arc}\n\
              【硬约束】每章先落地本章主线任务，再处理其他支线；不得把本章主线推到后续章节；\
-             不得另开与原书主线平行的长期支线；若本章主线与本地线索冲突，以本章主线为准，并把本地线索降为支线并行处理。"
+             不得另开与{origin}主线平行的长期支线；若本章主线与本地线索冲突，以本章主线为准，并把本地线索降为支线并行处理。"
         );
         if compact {
             crate::agency::continue_assets::truncate_chars(&block, 900)
@@ -116,8 +137,9 @@ impl MainlineProjection {
         if self.is_empty() {
             return String::new();
         }
-        let mut out = String::from(
-            "【原著主线投影（本批续写必须按此原书主线推进；细节可自由发挥，主线事件/地点/关键人物不可替换或推迟）】\n",
+        let origin = self.origin("原著", "故事");
+        let mut out = format!(
+            "【{origin}主线投影（本批续写必须按此{origin}主线推进；细节可自由发挥，主线事件/地点/关键人物不可替换或推迟）】\n"
         );
         for beat in &self.beats {
             let goal: String = beat.goal.chars().take(200).collect();
@@ -153,8 +175,9 @@ impl MainlineProjection {
             .cloned()
             .collect::<Vec<_>>()
             .join("、");
+        let origin = self.origin("原著", "故事");
         let mut block = format!(
-            "【本章原著主线任务（最高优先级；必须落地）】\n第{}章：{}\n",
+            "【本章{origin}主线任务（最高优先级；必须落地）】\n第{}章：{}\n",
             beat.chapter_number, beat.goal
         );
         if !beat.location.trim().is_empty() {
@@ -191,10 +214,16 @@ impl MainlineProjection {
         draft_plain: &str,
     ) -> Option<(String, Vec<String>)> {
         let beat = self.beat_for(chapter_number)?;
-        let terms: &[String] = if beat.must_terms.is_empty() {
-            &beat.key_terms
-        } else {
+        let terms: &[String] = if !beat.must_terms.is_empty() {
             &beat.must_terms
+        } else if self.source == MainlineSource::StoryPlan {
+            // 生产「故事计划」只有大纲下一节点/卷纲时，人物/地点列表来自
+            // 角色名册而非该章明确要求；不拿它做硬缺失核对（第一人称正文
+            // 只有「我」时会把主角姓名误判为缺失）。CHAPTER 合同/Blueprint
+            // 的 must_terms 仍照常硬核对。
+            &[]
+        } else {
+            &beat.key_terms
         };
         let missing: Vec<String> = terms
             .iter()
@@ -214,8 +243,9 @@ impl MainlineProjection {
                 missing.join("、")
             )
         };
+        let origin = self.origin("原著", "故事");
         let block = format!(
-            "【本章原著主线任务（编辑核对用）】\n第{}章：{}\n关键人物/地点：{terms_text}\n{check}\n\
+            "【本章{origin}主线任务（编辑核对用）】\n第{}章：{}\n关键人物/地点：{terms_text}\n{check}\n\
              裁决要求：若本章主线事件被推迟/替换/用转述替代，或上述必需人物/地点缺失且无等价替代，\
              判 revise 并在 blocking_issues 写明具体修正；若正文以等价方式落地，不扣分。",
             beat.chapter_number, beat.goal
@@ -331,7 +361,11 @@ pub fn from_briefs(
         });
     }
     let arc = render_arc(&beats);
-    MainlineProjection { arc, beats }
+    MainlineProjection {
+        arc,
+        beats,
+        source: MainlineSource::Truth,
+    }
 }
 
 /// 从真实章抽 2–3 条「关键对白语感」。
@@ -341,7 +375,7 @@ pub fn from_briefs(
 /// 新角色只能靠摘要里的性格标签，声音不像作者。抽取真实章引号短句（≤40
 /// 字、含！/？、含人物名或我/你优先），供 writer 化用口气与句式，不整段
 /// 照抄旁白。
-fn extract_voice_cues(plain: &str, cast: &[String]) -> Vec<String> {
+pub(crate) fn extract_voice_cues(plain: &str, cast: &[String]) -> Vec<String> {
     let chars: Vec<char> = plain.chars().collect();
     let pairs = [('“', '”'), ('「', '」'), ('『', '』')];
     let mut candidates: Vec<(String, i32, usize)> = Vec::new();
@@ -781,6 +815,7 @@ mod tests {
                 key_terms: vec!["福摩萨夜总会".into(), "邵卫江".into()],
                 must_terms: vec!["福摩萨夜总会".into(), "邵卫江".into()],
             }],
+            source: MainlineSource::Truth,
         };
         let block = p.render_beat_block(144).unwrap();
         assert!(block.contains("不得把该事件推迟到后续章节"));
@@ -817,6 +852,7 @@ mod tests {
                     must_terms: vec!["汪必成".into()],
                 },
             ],
+            source: MainlineSource::Truth,
         };
         let generated = vec![
             (144, "我在医院走廊审问护士。".to_string()),
@@ -844,6 +880,7 @@ mod tests {
                 key_terms: vec!["福摩萨夜总会".into(), "邵卫江".into()],
                 must_terms: vec!["福摩萨夜总会".into(), "邵卫江".into()],
             }],
+            source: MainlineSource::Truth,
         };
         let (block, missing) = p.render_gate_block(144, "我在医院走廊审问护士。").unwrap();
         assert!(block.contains("福摩萨夜总会"));

@@ -36,6 +36,7 @@ pub mod narrative_contract;
 pub mod observe;
 pub mod outline_replan;
 pub mod persist;
+pub mod production_context;
 pub mod prose_ground;
 pub mod reporter;
 pub mod repository;

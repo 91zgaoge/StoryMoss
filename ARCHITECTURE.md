@@ -1,4 +1,6 @@
-# StoryMoss v0.99.22 架构文档
+# StoryMoss v0.99.23 架构文档
+
+> **v0.99.23**：**续写训练能力全量复用**——新增 `agency::production_context`：`StoryPlanInputs`/`from_story_plan` 从故事大纲 `【下一节点】`（兼容 `推进方向：`）、CHAPTER 合同 `goal/must_cover_nodes`、卷纲 `goal/climax`、Blueprint 逐章目的派生 `MainlineProjection`（`MainlineSource::StoryPlan`）；`build_static` 从前文 scene 抽 `style_probe` 语体样本/基线，无前文退到 corpus/StyleDNA，并确定性构建 `StoryBrief`（逐章事实/人物态/伏笔/白名单）。`AgencyCoordinator` 新增 `production_capabilities`/静态缓存/整批主线缓存；`write_chapter`、`write_beat_once`、`write_revision_chapter`、`generate_chapter_outline`、`revision_prose_direct`、`GateRunner`、`evaluate_gate`、genesis fastpath、`spawn_editor_qc` 全部接入；批量主线只有首章用「下一节点」，后续章用合同/卷纲 beat；生产默认直连编审 JSON；genesis 按题材推荐风格 DNA 自动绑定 `stories.style_dna_id`。生产写作红线 9 条；训练显式字段优先，不覆盖训练 LLM brief。
 
 > **v0.99.22**：**v0.99.21 真机验证结果**——10 章训练报告 `018e787e`：加权 0.734、style 7.01、plot 7.67、voice 7.11、pacing 7.17、hooks 7.28、承接 8.9、`reference_gap` 7.07、编审 6 pass/4 revise/0 unavailable、主线探针 9/10 ✓。架构不变（v0.99.21 的创作 effort/封顶空稿重试/建议性文风门禁已验证）。仍未根治：146 小梅诊室试探替换、149 考据压缩、147 荤腔纯情化、148/152/153 格言/预告腔；下一轮按报告改进项继续。
 

@@ -1211,6 +1211,18 @@ pub struct AgencyCoordinator {
     style_exemplar: Option<Arc<String>>,
     /// v0.99.15：训练原文语体量化基线；gate 用它做严重漂移硬核对。
     style_baseline: Option<Arc<crate::agency::style_probe::StyleProfile>>,
+    /// v0.99.23：生产路径复用训练能力（主线投影/语体样本/前情提要/gate）。
+    /// 训练显式设置的字段优先；生产字段为空时从故事计划与已写前文派生。
+    production_capabilities: bool,
+    /// 同一 run 内缓存生产静态能力（语体样本/基线/StoryBrief），
+    /// 避免每章重扫前文。
+    production_cache:
+        Mutex<HashMap<String, Arc<crate::agency::production_context::ProductionStatic>>>,
+    /// 批量续写的整批主线投影（按 batch start/count 一次构建）。逐章调用
+    /// 不能再把故事大纲的「下一节点」重复套到每一章；只有本批首章用它，
+    /// 后续章用章合同/卷纲 beat，避免批量原地踏步。
+    production_batch_mainline:
+        Mutex<Option<(String, Arc<crate::agency::mainline::MainlineProjection>)>>,
     /// P0-1（v0.66.0）：测试用向量库注入。生产从 Tauri State 取
     /// （见 `retrieval_store`），测试用 `for_test_with_store` 注入。
     #[cfg(test)]
@@ -1235,10 +1247,14 @@ impl AgencyCoordinator {
             assets_seeded: false,
             batch_progress_sink: None,
             compact_prompt: false,
-            direct_gate_json: false,
+            // v0.99.23：生产路径复用训练直连编审 JSON（失败仍回退 tool_loop）。
+            direct_gate_json: true,
             mainline_projection: None,
             style_exemplar: None,
             style_baseline: None,
+            production_capabilities: true,
+            production_cache: Mutex::new(HashMap::new()),
+            production_batch_mainline: Mutex::new(None),
             #[cfg(test)]
             test_vector_store: None,
             #[cfg(test)]
@@ -1264,6 +1280,11 @@ impl AgencyCoordinator {
             mainline_projection: None,
             style_exemplar: None,
             style_baseline: None,
+            // 测试默认关闭生产复用：既有 mock 断言逐字不变；生产复用测试
+            // 用 `with_production_capabilities(true)` 显式启用。
+            production_capabilities: false,
+            production_cache: Mutex::new(HashMap::new()),
+            production_batch_mainline: Mutex::new(None),
             #[cfg(test)]
             test_vector_store: None,
             #[cfg(test)]
@@ -1352,6 +1373,186 @@ impl AgencyCoordinator {
             Some(Arc::new(baseline))
         };
         self
+    }
+
+    /// v0.99.23：生产路径复用训练能力（主线投影/语体样本/前情提要/gate）。
+    pub fn with_production_capabilities(mut self, enabled: bool) -> Self {
+        self.production_capabilities = enabled;
+        self
+    }
+
+    /// 训练已显式注入主线/语体时，不再构建生产静态层，避免确定性 brief
+    /// 覆盖训练资产的 LLM brief。
+    fn should_use_production_static(&self) -> bool {
+        self.production_capabilities
+            && self.mainline_projection.is_none()
+            && self.style_exemplar.is_none()
+            && self.style_baseline.is_none()
+    }
+
+    /// 生产静态能力（同一 run 内按 story_id 缓存）。训练显式字段不经过这里。
+    fn production_static(
+        &self,
+        story_id: &str,
+    ) -> Option<Arc<crate::agency::production_context::ProductionStatic>> {
+        if !self.should_use_production_static() {
+            return None;
+        }
+        {
+            let cache = self
+                .production_cache
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            if let Some(static_) = cache.get(story_id) {
+                return Some(static_.clone());
+            }
+        }
+        let static_ = Arc::new(crate::agency::production_context::build_static(
+            &self.pool, story_id,
+        ));
+        log::info!(
+            "agency production context: story={} style_source={} style_chars={} brief_source={} brief_chars={}",
+            story_id,
+            static_.style_source,
+            static_
+                .style_exemplar
+                .as_deref()
+                .map(str::chars)
+                .map(|n| n.count())
+                .unwrap_or(0),
+            static_.brief_source,
+            static_
+                .story_brief
+                .as_ref()
+                .map(|b| {
+                    b.render(crate::agency::story_brief::STORY_BRIEF_CHAR_CAP)
+                        .chars()
+                        .count()
+                })
+                .unwrap_or(0)
+        );
+        let mut cache = self
+            .production_cache
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        cache.insert(story_id.to_string(), static_.clone());
+        Some(static_)
+    }
+
+    /// 主线投影解析：训练显式投影优先；否则生产从故事计划派生当前章。
+    /// 生产不构建整批 beats（batch 每章独立调用），只取当前章一个硬任务。
+    fn resolve_mainline(
+        &self,
+        story_id: &str,
+        chapter_number: i32,
+        next_hint: Option<&str>,
+    ) -> Option<Arc<crate::agency::mainline::MainlineProjection>> {
+        if let Some(projection) = &self.mainline_projection {
+            return Some(projection.clone());
+        }
+        if !self.production_capabilities {
+            return None;
+        }
+        // 批量续写：整批主线已在 run_batch_inner 入口一次构建。本批后续章
+        // 若该投影没有对应 beat（无章合同/卷纲），不要再把「下一节点」
+        // 套到这一章——否则每一章都被同一个下一节点钉住。
+        {
+            let cache = self
+                .production_batch_mainline
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            if let Some((cached_story, projection)) = cache.as_ref() {
+                if cached_story == story_id {
+                    return projection
+                        .beat_for(chapter_number)
+                        .map(|_| projection.clone());
+                }
+            }
+        }
+        crate::agency::production_context::build_mainline_with_hint(
+            &self.pool,
+            story_id,
+            chapter_number,
+            1,
+            next_hint,
+        )
+        .map(|p| Arc::new(p))
+    }
+
+    /// 语体样本/基线解析：训练显式字段优先；否则生产从前文/风格 DNA 派生。
+    fn resolve_style(
+        &self,
+        story_id: &str,
+    ) -> (
+        Option<Arc<String>>,
+        Option<Arc<crate::agency::style_probe::StyleProfile>>,
+    ) {
+        let static_ = self.production_static(story_id);
+        let exemplar = self.style_exemplar.clone().or_else(|| {
+            static_
+                .as_ref()
+                .and_then(|s| s.style_exemplar.clone())
+                .map(Arc::new)
+        });
+        let baseline = self.style_baseline.clone().or_else(|| {
+            static_
+                .as_ref()
+                .and_then(|s| s.style_baseline)
+                .map(Arc::new)
+        });
+        (exemplar, baseline)
+    }
+
+    /// 生产写作红线：训练显式指令已带 TRAINING_REDLINES 时不重复注入。
+    fn production_redlines(&self) -> Option<&'static str> {
+        if self.production_capabilities
+            && self.mainline_projection.is_none()
+            && self.style_exemplar.is_none()
+            && self.style_baseline.is_none()
+        {
+            Some(crate::agency::continue_assets::PRODUCTION_WRITING_REDLINES)
+        } else {
+            None
+        }
+    }
+
+    /// 自动续写 / 导演派发的单角色 writer 任务也复用生产语体、前情提要与
+    /// 红线。单角色任务没有确定的章号，故只注入章号无关的能力，不注入
+    /// 主线 beat（避免把「下一节点」错误套到当前章）。
+    fn augment_creative_task(&self, story_id: &str, role: AgentRole, task: &str) -> String {
+        if !matches!(role, AgentRole::LeadWriter | AgentRole::Writer) {
+            return task.to_string();
+        }
+        if !self.production_capabilities
+            || self.mainline_projection.is_some()
+            || self.style_exemplar.is_some()
+            || self.style_baseline.is_some()
+        {
+            return task.to_string();
+        }
+        let static_ = self.production_static(story_id);
+        let (style_exemplar, _baseline) = self.resolve_style(story_id);
+        let mut out = String::new();
+        if let Some(redlines) = self.production_redlines() {
+            out.push_str(redlines);
+            out.push_str("\n\n");
+        }
+        out.push_str(task);
+        if let Some(brief) = static_
+            .as_ref()
+            .and_then(|s| s.story_brief.as_ref())
+            .filter(|b| !b.is_empty())
+        {
+            out.push_str("\n\n");
+            out.push_str(&brief.render(crate::agency::story_brief::STORY_BRIEF_CHAR_CAP));
+        }
+        if let Some(exemplar) = style_exemplar.as_deref() {
+            if !exemplar.trim().is_empty() {
+                out.push_str("\n\n");
+                out.push_str(exemplar);
+            }
+        }
+        out
     }
 
     /// P0-1：取向量库。生产从 Tauri State 拿（setup 已 manage；try_state 不
@@ -1734,6 +1935,9 @@ impl AgencyCoordinator {
             mainline_projection: self.mainline_projection.clone(),
             style_exemplar: self.style_exemplar.clone(),
             style_baseline: self.style_baseline.clone(),
+            production_capabilities: self.production_capabilities,
+            production_cache: Mutex::new(HashMap::new()),
+            production_batch_mainline: Mutex::new(None),
             #[cfg(test)]
             test_vector_store: self.test_vector_store.clone(),
             #[cfg(test)]
@@ -2280,6 +2484,7 @@ impl AgencyCoordinator {
         let pool = self.pool.clone();
         let title_c = pack.title.clone();
         let genre_c = pack.genre.clone();
+        let genre_style = genre_c.clone();
         let premise_c = premise.to_string();
         let story = tokio::task::spawn_blocking(move || {
             let repo = StoryRepository::new(pool.clone());
@@ -2293,6 +2498,7 @@ impl AgencyCoordinator {
                 reference_book_id: None,
             })?;
             apply_story_format_from_premise(&pool, &story.id, &premise_c);
+            apply_genesis_style_from_genre(&pool, &story.id, genre_style.as_deref());
             Ok::<_, rusqlite::Error>(story)
         })
         .await
@@ -3131,6 +3337,7 @@ impl AgencyCoordinator {
                 let pool = self.pool.clone();
                 let title_c = title.clone();
                 let genre_c = genre.clone();
+                let genre_style = genre_c.clone();
                 let premise_c = premise.to_string();
                 let story = tokio::task::spawn_blocking(move || {
                     let repo = StoryRepository::new(pool.clone());
@@ -3144,6 +3351,7 @@ impl AgencyCoordinator {
                         reference_book_id: None,
                     })?;
                     apply_story_format_from_premise(&pool, &story.id, &premise_c);
+                    apply_genesis_style_from_genre(&pool, &story.id, genre_style.as_deref());
                     Ok::<_, rusqlite::Error>(story)
                 })
                 .await
@@ -3328,9 +3536,29 @@ impl AgencyCoordinator {
         // board_read 轮询（此前 7-10 轮，本地模型连接超时时单轮 180s，易破
         // 600s 整体超时）。资产已注入后 writer 倾向第一轮直接 board_write +
         // final。
-        let assets_ctx = self
+        let mainline = self.resolve_mainline(&story_id, 1, None);
+        let (style_exemplar, _style_baseline) = self.resolve_style(&story_id);
+        let mut assets_ctx = self
             .build_writer_assets_context(run_id, &story_id, premise, budget)
             .await;
+        // v0.99.23：创世首章同样注入故事计划主线 + 风格 DNA/前文语体样本。
+        if let Some(projection) = mainline.as_deref() {
+            let block = projection.render_assets_block(self.compact_prompt);
+            if !block.trim().is_empty() {
+                if !assets_ctx.is_empty() {
+                    assets_ctx.push_str("\n\n");
+                }
+                assets_ctx.push_str(&block);
+            }
+        }
+        if let Some(exemplar) = style_exemplar.as_deref() {
+            if !exemplar.trim().is_empty() {
+                if !assets_ctx.is_empty() {
+                    assets_ctx.push_str("\n\n");
+                }
+                assets_ctx.push_str(exemplar);
+            }
+        }
         let writer_task = if assets_ctx.is_empty() {
             // 资产区为空或读取失败：退回原 task（让 writer 自行 board_read
             // 探索）
@@ -3342,6 +3570,19 @@ impl AgencyCoordinator {
                  完成后用 board_write 把完整正文写入 draft 区（item_type=chapter, key=第1章）。",
                 assets_ctx
             )
+        };
+        let writer_task = if let Some(block) = mainline
+            .as_ref()
+            .and_then(|projection| projection.render_beat_block(1))
+        {
+            format!("{block}\n\n{writer_task}")
+        } else {
+            writer_task
+        };
+        let writer_task = if let Some(redlines) = self.production_redlines() {
+            format!("{writer_task}\n\n{redlines}")
+        } else {
+            writer_task
         };
         let writer_out = self
             .run_role_with_llm_and_budget(
@@ -3570,6 +3811,29 @@ impl AgencyCoordinator {
         let premise = premise.to_string();
         let source = source.to_string();
         let draft = draft.clone();
+        // v0.99.23：创世后台质检同样复用训练的主线/语体核对（此前直接调
+        // evaluate_gate_impl 且五项全 None，生产 gate 能力完全不生效）。
+        let qc_chapter = chapter_number
+            .or_else(|| Self::draft_chapter_number(&draft.key))
+            .unwrap_or(1);
+        let qc_mainline = self.resolve_mainline(&story_id, qc_chapter, None);
+        let draft_plain = crate::export::content::content_to_plain_text(&draft.content);
+        let (qc_mainline_block, qc_mainline_missing) = match qc_mainline
+            .as_ref()
+            .and_then(|p| p.render_gate_block(qc_chapter, &draft_plain))
+        {
+            Some((block, missing)) => (Some(block), Some(missing)),
+            None => (None, None),
+        };
+        let (qc_style_exemplar, qc_style_baseline) = self.resolve_style(&story_id);
+        let qc_style_reference = qc_style_exemplar
+            .as_deref()
+            .map(|ex| crate::agency::continue_assets::truncate_chars(ex, 700));
+        let qc_style_issue = qc_style_baseline.as_deref().and_then(|baseline| {
+            crate::agency::style_probe::severe_drift_issue(baseline, &draft_plain)
+                .or_else(|| crate::agency::style_probe::ai_ism_issue(&draft_plain))
+        });
+        let qc_direct_json = self.direct_gate_json;
         // v0.59.0：附属取消标志——run 返回后用户仍可「取消」停掉这次后台审查；
         // 预算沿用 run 自己的额度（此前每次 spawn 新建独立预算，质检 token
         // 完全不进任何 run 的账）。
@@ -3614,11 +3878,11 @@ impl AgencyCoordinator {
                 None,
                 scene_contract.as_ref(),
                 deadline,
-                false,
-                None,
-                None,
-                None,
-                None,
+                qc_direct_json,
+                qc_mainline_block.as_deref(),
+                qc_mainline_missing.as_deref(),
+                qc_style_reference.as_deref(),
+                qc_style_issue.as_deref(),
             )
             .await;
             // 取消后不再产出裁决/toast：用户已经终止这次生成，噪声反馈只会误导
@@ -3897,10 +4161,13 @@ impl AgencyCoordinator {
                 assets_seeded: false,
                 batch_progress_sink: None,
                 compact_prompt: false,
-                direct_gate_json: false,
+                direct_gate_json: true,
                 mainline_projection: None,
                 style_exemplar: None,
                 style_baseline: None,
+                production_capabilities: true,
+                production_cache: Mutex::new(HashMap::new()),
+                production_batch_mainline: Mutex::new(None),
                 #[cfg(test)]
                 test_vector_store: None,
                 #[cfg(test)]
@@ -4161,6 +4428,7 @@ impl AgencyCoordinator {
         let llm = self.llm_for_run(run_id, role, story_id);
         let board = self.board();
         let registry = Arc::new(ToolRegistry::agency_default());
+        let task_aug = self.augment_creative_task(story_id, role, task);
         let mut result = run_role_loop_reported(
             &llm,
             &budget,
@@ -4171,7 +4439,7 @@ impl AgencyCoordinator {
             run_id,
             story_id,
             premise,
-            task,
+            &task_aug,
             self.current_deadline(),
             reporter,
             cancel.clone(),
@@ -4252,9 +4520,10 @@ impl AgencyCoordinator {
 
         let board = self.board();
         let registry = Arc::new(ToolRegistry::agency_default());
+        let task_aug = self.augment_creative_task(story_id, role, task);
         let mut result = self
             .run_role_with_llm_and_budget(
-                &budget, role, &board, &registry, run_id, story_id, premise, task,
+                &budget, role, &board, &registry, run_id, story_id, premise, &task_aug,
             )
             .await;
 
@@ -5524,8 +5793,8 @@ impl AgencyCoordinator {
         // v0.99.15：训练的原著主线任务必须进入章纲规划。旧实现只在 writer
         // 指令尾部出现，planner 仍按上下文资产规划「审问护士」，章纲与主线
         // 直接冲突，writer 只会服从章纲。
-        let mainline_block = self
-            .mainline_projection
+        let outline_mainline = self.resolve_mainline(story_id, chapter_number, None);
+        let mainline_block = outline_mainline
             .as_ref()
             .and_then(|projection| projection.render_beat_block(chapter_number))
             .unwrap_or_default();
@@ -6097,6 +6366,32 @@ impl AgencyCoordinator {
                 }
             })
             .await?;
+        // v0.99.23：创世/单章续写同样复用训练能力。生产没有真实后续章，
+        // 主线从故事大纲下一节点/章合同/卷纲派生；语体从前文章节或 StyleDNA
+        // 派生；前情提要由确定性 brief 兜底。
+        let production_static = self.production_static(story_id);
+        if let Some(ref mut p) = parts {
+            if p.story_brief.as_ref().map(|b| b.is_empty()).unwrap_or(true) {
+                if let Some(brief) = production_static
+                    .as_ref()
+                    .and_then(|s| s.story_brief.clone())
+                {
+                    p.story_brief = Some(brief);
+                }
+            }
+        }
+        let mainline = self.resolve_mainline(
+            story_id,
+            chapter_number,
+            Some(card.next_outline_node.as_str()),
+        );
+        let (style_exemplar, _style_baseline) = self.resolve_style(story_id);
+        if let Some(beat) = mainline
+            .as_ref()
+            .and_then(|projection| projection.beat_for(chapter_number))
+        {
+            card.align_to_mainline(beat);
+        }
         let has_brief = parts
             .as_ref()
             .and_then(|p| p.story_brief.as_ref())
@@ -6251,7 +6546,7 @@ impl AgencyCoordinator {
                 )
             })
         };
-        let (user, admitted, l2, lock, scene_contract) = if let Some(ref mut p) = parts {
+        let (mut user, admitted, l2, lock, scene_contract) = if let Some(ref mut p) = parts {
             let (mut admitted, mut l2) = admit_for_continue(p, &card, &chapter_outline, instr);
             let mut lock = compile_continue_director(
                 Some(p),
@@ -6501,6 +6796,29 @@ impl AgencyCoordinator {
                 );
             (user, admitted, l2, lock, scene_contract)
         };
+        // v0.99.23：创世 writer prompt 同样先落地故事主线，再校准原文语体。
+        // 生产主线来自大纲下一节点/章合同/卷纲；训练显式投影优先。
+        let mut capability_prefix = String::new();
+        if let Some(block) = mainline
+            .as_ref()
+            .and_then(|projection| projection.render_beat_block(chapter_number))
+        {
+            capability_prefix.push_str(&block);
+            capability_prefix.push_str("\n\n");
+        }
+        if let Some(redlines) = self.production_redlines() {
+            capability_prefix.push_str(redlines);
+            capability_prefix.push_str("\n\n");
+        }
+        if !capability_prefix.is_empty() {
+            user = format!("{capability_prefix}{user}");
+        }
+        if let Some(exemplar) = style_exemplar.as_deref() {
+            if !exemplar.trim().is_empty() {
+                user.push_str("\n\n");
+                user.push_str(exemplar);
+            }
+        }
         let frozen = self.continue_freeze.pin(
             run_id,
             crate::agency::continue_freeze::FrozenContinueShot {
@@ -7029,7 +7347,7 @@ impl AgencyCoordinator {
         // scenes——DB 的「latest」实际是 n-2。优先使用在途上一章的正文/大纲，
         // 否则 writer 会把每一章写成 n-2 的续篇（真机整批承接断裂）。
         let prior_owned = prior.map(|p| p.clone());
-        let (parts, mut card, latest_content, pinned_blocks) = self
+        let (mut parts, mut card, latest_content, pinned_blocks) = self
             .db({
                 let pool = pool.clone();
                 let sid = sid.clone();
@@ -7070,10 +7388,28 @@ impl AgencyCoordinator {
                 }
             })
             .await?;
-        // v0.99.15：原著主线人物/地点/推进节点覆盖上一章遗留的节拍卡，
-        // 否则章契约会把不相干的「杨晓雯」当具名阻力，正确主线的章也被打回。
-        if let Some(beat) = self
-            .mainline_projection
+        // v0.99.23：生产复用训练能力。训练显式字段优先；普通续写从故事
+        // 计划/前文派生主线投影、语体样本与基线、前情提要。
+        let production_static = self.production_static(story_id);
+        if let Some(ref mut p) = parts {
+            if p.story_brief.as_ref().map(|b| b.is_empty()).unwrap_or(true) {
+                if let Some(brief) = production_static
+                    .as_ref()
+                    .and_then(|s| s.story_brief.clone())
+                {
+                    p.story_brief = Some(brief);
+                }
+            }
+        }
+        let mainline = self.resolve_mainline(
+            story_id,
+            chapter_number,
+            Some(card.next_outline_node.as_str()),
+        );
+        let (style_exemplar, _style_baseline) = self.resolve_style(story_id);
+        // 主线人物/地点/推进节点覆盖上一章遗留的节拍卡，否则章契约会把
+        // 不相干的旧人物当具名阻力，正确主线的章也被打回。
+        if let Some(beat) = mainline
             .as_ref()
             .and_then(|projection| projection.beat_for(chapter_number))
         {
@@ -7172,12 +7508,13 @@ impl AgencyCoordinator {
         } else {
             String::new()
         };
-        // v0.99.15：训练的原著主线投影 + 原文语体样本逐章常驻。
-        // - 主线：整批固定，放在资产区（不是 directive 尾部），保证不会被 8192
+        // v0.99.15/v0.99.23：主线投影 + 语体样本逐章常驻（训练显式字段优先，
+        // 生产从故事计划/前文派生）。
+        // - 主线：放在资产区（不是 directive 尾部），保证不会被 8192
         //   字符的导演指令上限截掉；
         // - 语体样本：每章都注入原文段落，阻断「上一章生成稿→下一章」的
         //   风格自我稀释。
-        if let Some(projection) = self.mainline_projection.as_ref() {
+        if let Some(projection) = mainline.as_deref() {
             let block = projection.render_assets_block(self.compact_prompt);
             if !block.trim().is_empty() {
                 if !assets_ctx.is_empty() {
@@ -7186,7 +7523,7 @@ impl AgencyCoordinator {
                 assets_ctx.push_str(&block);
             }
         }
-        if let Some(exemplar) = self.style_exemplar.as_deref() {
+        if let Some(exemplar) = style_exemplar.as_deref() {
             if !exemplar.trim().is_empty() {
                 if !assets_ctx.is_empty() {
                     assets_ctx.push_str("\n\n");
@@ -7255,12 +7592,18 @@ impl AgencyCoordinator {
         // v0.99.15：本章原著主线任务放 writer task 最前（硬优先级高于章纲与
         // 本地线索）；章纲规划也已收到同一块，正常情况二者一致，这里是
         // 防 planner 漏抄/模型只读 task 首段的最后一道保险。
-        let writer_task = if let Some(block) = self
-            .mainline_projection
+        let redlines = self.production_redlines();
+        let writer_task = if let Some(block) = mainline
             .as_ref()
             .and_then(|projection| projection.render_beat_block(chapter_number))
         {
-            format!("{block}\n\n{writer_task}")
+            if let Some(redlines) = redlines {
+                format!("{block}\n\n{redlines}\n\n{writer_task}")
+            } else {
+                format!("{block}\n\n{writer_task}")
+            }
+        } else if let Some(redlines) = redlines {
+            format!("{redlines}\n\n{writer_task}")
         } else {
             writer_task
         };
@@ -7399,7 +7742,7 @@ impl AgencyCoordinator {
         let sid = story_id.to_string();
         let target_scene_owned = target_scene_id.map(str::to_string);
         let strategy = self.user_writing_strategy();
-        let (parts, mut card, existing, outline, prior) = self
+        let (mut parts, mut card, existing, outline, prior) = self
             .db({
                 let pool = pool.clone();
                 let sid = sid.clone();
@@ -7461,8 +7804,28 @@ impl AgencyCoordinator {
                 }
             })
             .await?;
-        if let Some(beat) = self
-            .mainline_projection
+        // v0.99.23：生产修订同样带前情提要/故事计划主线/语体样本。
+        let production_static = self.production_static(story_id);
+        if parts
+            .story_brief
+            .as_ref()
+            .map(|b| b.is_empty())
+            .unwrap_or(true)
+        {
+            if let Some(brief) = production_static
+                .as_ref()
+                .and_then(|s| s.story_brief.clone())
+            {
+                parts.story_brief = Some(brief);
+            }
+        }
+        let mainline = self.resolve_mainline(
+            story_id,
+            chapter_number,
+            Some(card.next_outline_node.as_str()),
+        );
+        let (style_exemplar, _style_baseline) = self.resolve_style(story_id);
+        if let Some(beat) = mainline
             .as_ref()
             .and_then(|projection| projection.beat_for(chapter_number))
         {
@@ -7485,23 +7848,22 @@ impl AgencyCoordinator {
             &[],
             self.compact_prompt,
         );
-        // v0.99.15：修订轮同样带主线任务与语体样本，避免修订把正文改回
-        // 冷硬腔或再次丢掉主线。
-        if let Some(projection) = self.mainline_projection.as_ref() {
+        // 修订轮同样带主线任务与语体样本，避免修订把正文改回冷硬腔或再次
+        // 丢掉主线。
+        if let Some(projection) = mainline.as_deref() {
             let block = projection.render_assets_block(self.compact_prompt);
             if !block.trim().is_empty() {
                 assets_ctx.push_str("\n\n");
                 assets_ctx.push_str(&block);
             }
         }
-        if let Some(exemplar) = self.style_exemplar.as_deref() {
+        if let Some(exemplar) = style_exemplar.as_deref() {
             if !exemplar.trim().is_empty() {
                 assets_ctx.push_str("\n\n");
                 assets_ctx.push_str(exemplar);
             }
         }
-        let mainline_task = self
-            .mainline_projection
+        let mainline_task = mainline
             .as_ref()
             .and_then(|projection| projection.render_beat_block(chapter_number))
             .unwrap_or_default();
@@ -7540,6 +7902,11 @@ impl AgencyCoordinator {
             base_task
         } else {
             format!("{mainline_task}\n\n{base_task}")
+        };
+        let base_task = if let Some(redlines) = self.production_redlines() {
+            format!("{base_task}\n\n{redlines}")
+        } else {
+            base_task
         };
         let base_task = inject_director_directive(base_task, directive);
         // v0.93.16：资产缺失时修订也必须直接产出完整正文。
@@ -8631,6 +8998,23 @@ impl AgencyCoordinator {
         } else {
             format!("续写《{}》第{}章", title, start_chapter)
         };
+        // v0.99.23：批量生产主线一次构建整批 beats（本批首章用故事大纲
+        // 「下一节点」，后续章用章合同/卷纲），避免逐章重复同一节点。
+        if self.production_capabilities && self.mainline_projection.is_none() && revision.is_none()
+        {
+            if let Some(projection) = crate::agency::production_context::build_mainline(
+                &self.pool,
+                story_id,
+                start_chapter,
+                count,
+            ) {
+                let mut cache = self
+                    .production_batch_mainline
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner());
+                *cache = Some((story_id.to_string(), Arc::new(projection)));
+            }
+        }
         let explicit_scene_target = revision_scene_id_override.is_some();
         let revision_scene_id: Option<String> = if let Some(ch) = revision {
             if count != 1 || start_chapter != ch {
@@ -9169,6 +9553,15 @@ impl AgencyCoordinator {
             mainline_projection: self.mainline_projection.clone(),
             style_exemplar: self.style_exemplar.clone(),
             style_baseline: self.style_baseline.clone(),
+            production_capabilities: self.production_capabilities,
+            production_static: self.production_static(story_id),
+            production_batch_mainline: self
+                .production_batch_mainline
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .as_ref()
+                .filter(|(sid, _)| sid == story_id)
+                .map(|(_, projection)| projection.clone()),
         }
     }
 
@@ -9217,20 +9610,29 @@ impl AgencyCoordinator {
         // v0.99.15：训练门禁带「本章原著主线任务 + 确定性缺失要素」与原文
         // 语体基线；editor 可据此直接判 revise，而不再只看局部文笔。
         let draft_plain = crate::export::content::content_to_plain_text(&draft.content);
+        let gate_mainline = Self::draft_chapter_number(&draft.key).and_then(|chapter| {
+            self.mainline_projection.clone().or_else(|| {
+                if self.production_capabilities {
+                    self.resolve_mainline(story_id, chapter, None)
+                } else {
+                    None
+                }
+            })
+        });
         let (mainline_block, mainline_missing) = match Self::draft_chapter_number(&draft.key)
             .and_then(|chapter| {
-                self.mainline_projection
+                gate_mainline
                     .as_ref()
                     .and_then(|projection| projection.render_gate_block(chapter, &draft_plain))
             }) {
             Some((block, missing)) => (Some(block), Some(missing)),
             None => (None, None),
         };
-        let style_reference = self
-            .style_exemplar
+        let (gate_style_exemplar, gate_style_baseline) = self.resolve_style(story_id);
+        let style_reference = gate_style_exemplar
             .as_deref()
             .map(|exemplar| crate::agency::continue_assets::truncate_chars(exemplar, 700));
-        let style_issue = self.style_baseline.as_deref().and_then(|baseline| {
+        let style_issue = gate_style_baseline.as_deref().and_then(|baseline| {
             crate::agency::style_probe::severe_drift_issue(baseline, &draft_plain)
                 .or_else(|| crate::agency::style_probe::ai_ism_issue(&draft_plain))
         });
@@ -9602,8 +10004,10 @@ impl AgencyCoordinator {
         let task = build_direct_revision_task(&draft.content, issues, plan, scene_contract);
         // v0.99.15：直出修订同样带主线任务 + 原文语体样本；否则 editor 指出
         // 的「主线被推迟」「冷硬腔」在修订轮仍缺可直接模仿的原文。
+        let direct_mainline = Self::draft_chapter_number(&draft.key)
+            .and_then(|chapter| self.resolve_mainline(story_id, chapter, None));
         let task = if let Some(block) = Self::draft_chapter_number(&draft.key).and_then(|chapter| {
-            self.mainline_projection
+            direct_mainline
                 .as_ref()
                 .and_then(|projection| projection.render_beat_block(chapter))
         }) {
@@ -9611,8 +10015,14 @@ impl AgencyCoordinator {
         } else {
             task
         };
-        let task = if let Some(exemplar) = self.style_exemplar.as_deref() {
+        let (direct_exemplar, _direct_baseline) = self.resolve_style(story_id);
+        let task = if let Some(exemplar) = direct_exemplar.as_deref() {
             format!("{task}\n\n{exemplar}")
+        } else {
+            task
+        };
+        let task = if let Some(redlines) = self.production_redlines() {
+            format!("{task}\n\n{redlines}")
         } else {
             task
         };
@@ -10698,6 +11108,11 @@ pub struct GateRunner {
     style_exemplar: Option<Arc<String>>,
     /// v0.99.15：训练原文语体量化基线；gate 用它做严重漂移硬核对。
     style_baseline: Option<Arc<crate::agency::style_probe::StyleProfile>>,
+    /// v0.99.23：生产复用（故事计划主线 + 前文语体/前情提要）。
+    production_capabilities: bool,
+    production_static: Option<Arc<crate::agency::production_context::ProductionStatic>>,
+    /// 批量整批主线投影（避免逐章 gate 重复套用「下一节点」）。
+    production_batch_mainline: Option<Arc<crate::agency::mainline::MainlineProjection>>,
 }
 
 impl GateRunner {
@@ -10710,20 +11125,48 @@ impl GateRunner {
         round: u32,
     ) -> Result<GateOutcome, AppError> {
         let draft_plain = crate::export::content::content_to_plain_text(&draft.content);
-        let (mainline_block, mainline_missing) =
-            match AgencyCoordinator::draft_chapter_number(&draft.key).and_then(|chapter| {
-                self.mainline_projection
-                    .as_ref()
-                    .and_then(|projection| projection.render_gate_block(chapter, &draft_plain))
-            }) {
-                Some((block, missing)) => (Some(block), Some(missing)),
-                None => (None, None),
-            };
-        let style_reference = self
-            .style_exemplar
+        let draft_chapter = AgencyCoordinator::draft_chapter_number(&draft.key);
+        let gate_mainline = self.mainline_projection.clone().or_else(|| {
+            if self.production_capabilities {
+                if let Some(projection) = &self.production_batch_mainline {
+                    return draft_chapter
+                        .filter(|chapter| projection.beat_for(*chapter).is_some())
+                        .map(|_| projection.clone());
+                }
+                draft_chapter.and_then(|chapter| {
+                    crate::agency::production_context::build_mainline(
+                        &self.pool, &story_id, chapter, 1,
+                    )
+                    .map(Arc::new)
+                })
+            } else {
+                None
+            }
+        });
+        let (mainline_block, mainline_missing) = match draft_chapter.and_then(|chapter| {
+            gate_mainline
+                .as_ref()
+                .and_then(|projection| projection.render_gate_block(chapter, &draft_plain))
+        }) {
+            Some((block, missing)) => (Some(block), Some(missing)),
+            None => (None, None),
+        };
+        let gate_style_exemplar = self.style_exemplar.clone().or_else(|| {
+            self.production_static
+                .as_ref()
+                .and_then(|s| s.style_exemplar.clone())
+                .map(Arc::new)
+        });
+        let gate_style_baseline = self.style_baseline.clone().or_else(|| {
+            self.production_static
+                .as_ref()
+                .and_then(|s| s.style_baseline)
+                .map(Arc::new)
+        });
+        let style_reference = gate_style_exemplar
             .as_deref()
             .map(|exemplar| crate::agency::continue_assets::truncate_chars(exemplar, 700));
-        let style_issue = self.style_baseline.as_deref().and_then(|baseline| {
+        let style_issue = gate_style_baseline.as_deref().and_then(|baseline| {
             crate::agency::style_probe::severe_drift_issue(baseline, &draft_plain)
                 .or_else(|| crate::agency::style_probe::ai_ism_issue(&draft_plain))
         });
@@ -11720,6 +12163,65 @@ fn compile_continue_director(
     *l2 = collapse_names(l2, &lock);
     rewrite_card_cast(card, &lock);
     lock
+}
+
+/// v0.99.23：创世首章也要有风格能力。故事没有显式 style_dna_id 时，按题材
+/// 画像的推荐风格 DNA 选第一个可用 DNA 写入故事；生产静态层据此派生
+/// StyleDNA 语体基线，writer/gate 在首章即按风格 DNA 校准（有前文后自动
+/// 改用前文语体样本）。
+fn apply_genesis_style_from_genre(pool: &DbPool, story_id: &str, genre: Option<&str>) {
+    let Some(genre) = genre.map(str::trim).filter(|g| !g.is_empty()) else {
+        return;
+    };
+    let profiles = crate::db::GenreProfileRepository::new(pool.clone())
+        .get_all()
+        .unwrap_or_default();
+    let profile = profiles.into_iter().find(|p| {
+        if p.genre_name == genre || p.canonical_name == genre {
+            return true;
+        }
+        let aliases: Vec<String> = p
+            .aliases_json
+            .as_deref()
+            .and_then(|raw| serde_json::from_str(raw).ok())
+            .unwrap_or_default();
+        aliases.iter().any(|alias| alias.trim() == genre)
+    });
+    let Some(profile) = profile else {
+        return;
+    };
+    let ids: Vec<String> = profile
+        .recommended_style_dna_ids
+        .as_deref()
+        .and_then(|raw| serde_json::from_str(raw).ok())
+        .unwrap_or_default();
+    let dna_repo = crate::db::StyleDnaRepository::new(pool.clone());
+    let Some(dna_id) = ids
+        .into_iter()
+        .find(|id| dna_repo.get_by_id(id).ok().flatten().is_some())
+    else {
+        return;
+    };
+    let Ok(conn) = pool.get() else {
+        return;
+    };
+    let now = chrono::Local::now().to_rfc3339();
+    if conn
+        .execute(
+            "UPDATE stories SET style_dna_id = ?1, genre_profile_id = COALESCE(genre_profile_id, ?2), \
+             updated_at = ?3 WHERE id = ?4 AND style_dna_id IS NULL",
+            rusqlite::params![dna_id, profile.id, now, story_id],
+        )
+        .unwrap_or(0)
+        > 0
+    {
+        log::info!(
+            "agency genesis: 自动绑定题材推荐风格 DNA story={} genre={} dna={}",
+            story_id,
+            genre,
+            dna_id
+        );
+    }
 }
 
 fn apply_story_format_from_premise(pool: &DbPool, story_id: &str, premise: &str) {

@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.99.22)
+# 🧪 StoryMoss 自动化测试环境 (v0.99.23)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.99.23 变更说明（生产复用层）
+
+- 新增 9 条 Rust 单测：`production_context` 4（章节合同/卷纲/下一节点、DB 大纲读取、前文语体+StoryBrief）、StyleDNA 语体基线 1、生产复用 4（writer prompt 注入故事主线/语体/前文提要/红线、gate 硬核对故事计划主线、批量「下一节点」只首章生效、创世 fastpath 复用能力）。
+- Rust **2299 passed / 17 ignored**（+9）；tsc 0；Vitest **732 passed / 3 skipped**（Rust-only，数量不变）；Playwright **144 passed / 5 skipped**（全量复跑，数量不变）；fmt/clippy/guard/prettier 全绿。
+- 未关闭：真机创世首章与普通续写复测（确认主线/语体/前情提要/红线/gate 在无 truth 章的生产路径生效）。
 
 ### v0.99.22 变更说明（文档验证版）
 

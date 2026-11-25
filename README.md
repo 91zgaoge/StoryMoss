@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.22-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.23-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.23 · 续写训练能力全量复用：创世/普通续写/导演/单章均启用
+
+- **问题**：主线投影、原文语体样本/基线、前情提要（StoryBrief）、直连编审 gate 此前只在续写训练沙盒注入（训练执行器显式 `with_*`），普通创世与续写只拿到部分能力；训练出的质量改进无法进入真实创作路径。
+- **结果**：新增生产复用层——从故事大纲/CHAPTER 合同/卷纲/Blueprint 派生故事主线，从前文 scene 抽语体样本/基线（无前文退到 StyleDNA/corpus），确定性构建前情提要；genesis fastpath、单章/批量/导演续写、修订、章纲、GateRunner/后台 QC 全部接入；生产默认直连编审 JSON；genesis 自动绑定题材推荐风格 DNA；自动续写/单角色 writer 任务也注入语体样本、前情提要、红线等章号无关能力；生产写作红线 9 条。批量主线只有首章用「下一节点」，后续章用合同/卷纲 beat。训练显式字段优先，不覆盖训练 LLM brief。Rust **2299/17**（+9）、tsc 0、Vitest **732/3**、Playwright **144/5**、fmt/clippy/guard/prettier 全绿。
 
 ### v0.99.22 · v0.99.21 真机验证：总分 0.734 / 口吻 7.11 / 原书差距 7.07
 

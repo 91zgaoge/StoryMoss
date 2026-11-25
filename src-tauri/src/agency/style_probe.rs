@@ -116,6 +116,36 @@ pub fn profile(plain: &str) -> StyleProfile {
     }
 }
 
+/// 从 StyleDNA 派生一个近似语体基线（无前文原文时使用）。
+///
+/// StyleDNA 是六维指标（句长/对白比例/比喻密度/视角），不是原文样本；这里
+/// 只把它转换成 gate 可用的量化基线。`chars` 用 1 表示「有基线但无原文
+/// 字符样本」，不会让 `severe_drift_issue` 跳过句长/对白/比喻核对。
+pub fn from_style_dna(dna: &crate::domain::style::StyleDNA) -> Option<StyleProfile> {
+    let avg_sentence_len = dna.syntax.avg_sentence_length as f64;
+    let dialogue_ratio = dna.dialogue.dialogue_ratio.clamp(0.0, 1.0) as f64;
+    let metaphor_per_k = dna.rhetoric.metaphor_density.max(0.0) as f64;
+    if avg_sentence_len <= 0.0 && dialogue_ratio <= 0.0 && metaphor_per_k <= 0.0 {
+        return None;
+    }
+    let first_person = matches!(
+        dna.perspective.pov_type.as_str(),
+        "first_person" | "first-person" | "第一人称"
+    );
+    Some(StyleProfile {
+        chars: 1,
+        sentences: 1,
+        avg_sentence_len,
+        short_ratio: 0.0,
+        dialogue_ratio,
+        first_person_per_k: if first_person { 20.0 } else { 0.0 },
+        // DNA 没有口语词密度字段；保持 0，让 severe_drift_issue 跳过该项，
+        // 但句长/对白/比喻仍照常核对。
+        colloquial_per_k: 0.0,
+        metaphor_per_k,
+    })
+}
+
 fn is_chinese_or_digit(c: char) -> bool {
     ('\u{4e00}'..='\u{9fff}').contains(&c) || c.is_ascii_digit()
 }
@@ -682,6 +712,23 @@ mod tests {
         let line = ai_ism_report(&generated);
         assert!(line.contains("不是…而是"));
         assert!(line.contains("身体反应") || line.contains("后槽牙"));
+    }
+
+    #[test]
+    fn baseline_from_style_dna_enforces_sentence_length_without_prose() {
+        use crate::domain::style::StyleDNA;
+        let mut dna = StyleDNA::new("生产风格");
+        dna.syntax.avg_sentence_length = 30;
+        dna.dialogue.dialogue_ratio = 0.35;
+        dna.rhetoric.metaphor_density = 1.0;
+        dna.perspective.pov_type = "first_person".into();
+        let baseline = from_style_dna(&dna).expect("DNA 有指标，应生成基线");
+        assert_eq!(baseline.avg_sentence_len, 30.0);
+        assert!((baseline.dialogue_ratio - 0.35).abs() < 1e-6);
+        assert!(baseline_line(&baseline).contains("30.0"));
+        let issue =
+            severe_drift_issue(&baseline, "他推门。灯灭了。风进来。").expect("短句应触发漂移");
+        assert!(issue.contains("句长") || issue.contains("对白"));
     }
 
     #[test]

@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.23（2026-11-25）
+
+**续写训练能力全量复用：创世/智能创作/普通续写/导演/单章均启用主线投影、语体样本与基线、前情提要、写作红线、直连 gate。**
+
+- 根因：训练沙盒独享的四条能力此前只在 `continuation_training.rs` 注入（`with_mainline_projection`/`with_style_exemplar`/`with_style_baseline`），生产 coordinator 默认全空；genesis 快路径与后台 QC 还直接调 writer/gate，绕过训练字段。训练出的质量改进因此无法进入真实创作路径。
+- 新增 `agency/production_context.rs`：①主线投影从故事大纲 `【下一节点】`/旧格式 `推进方向：`、CHAPTER 合同 `goal/must_cover_nodes`、卷纲 `goal/climax`、Blueprint 逐章目的派生（`MainlineSource::StoryPlan`，文案改为「故事主线」，训练仍为「原著主线」）；②语体样本/基线从前文 scene 正文抽取，无前文退到 corpus 或 StyleDNA 六维基线；③StoryBrief 从最近 10 章前文确定性构建（逐章事实/人物态/伏笔线索/设定白名单），已有训练 brief 复用；全部确定性、无 LLM。
+- 接线：`write_chapter`/`write_beat_once`/`write_revision_chapter`/`generate_chapter_outline`/`revision_prose_direct`/`GateRunner`/`evaluate_gate`/genesis fastpath/`spawn_editor_qc` 全部接入生产能力；批量续写入口一次构建整批主线，只有首章用「下一节点」，后续章用章合同/卷纲 beat，避免批量原地踏步。生产默认直连编审 JSON；genesis 按题材画像推荐风格 DNA 自动绑定 `stories.style_dna_id`，首章起即有 StyleDNA 基线；自动续写/导演派发的单角色 writer 任务也注入语体样本、前情提要、红线等章号无关能力。新增生产写作红线 9 条；训练显式字段优先，不覆盖训练 LLM brief。
+- 验证：Rust **2299/17**（+9：production_context 4、StyleDNA 基线 1、writer/gate/batch/genesis 复用 4）；tsc 0；Vitest **732/3**（不变）；Playwright **144/5**（全量复跑）；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：真机创世首章与普通续写复测；146/149/147/148 训练遗留文风问题继续跟进。
+
 ## v0.99.22（2026-11-25）
 
 **v0.99.21 真机验证通过：总分 0.734 / 文笔 7.01 / 口吻 7.11 / 原书差距 7.07，编审 6 pass / 4 revise / 0 不可用。**

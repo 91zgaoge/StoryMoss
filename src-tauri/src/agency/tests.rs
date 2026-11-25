@@ -6430,3 +6430,247 @@ fn revision_reverts_only_when_first_pass_turns_revise() {
         &verdict("pass")
     ));
 }
+
+/// v0.99.23：生产续写复用训练能力——故事计划主线、原文语体样本、前情提要
+/// 与写作红线必须进入 writer prompt，而不是只在训练沙盒生效。
+#[tokio::test]
+async fn test_production_capabilities_inject_plan_mainline_style_and_brief() {
+    let pool = create_test_pool().unwrap();
+    let story_id = seed_story_with_assets(&pool);
+    let scene_repo = SceneRepository::new(pool.clone());
+    let scene = scene_repo.create(&story_id, 1, Some("第1章")).unwrap();
+    scene_repo
+        .update(
+            &scene.id,
+            &crate::db::repositories::SceneUpdate {
+                content: Some(
+                    "<p>第1章 星环废墟</p><p>阿苔蹲在星环废墟门口，叼着半根烟：“咋整？甭跟老子扯那些没用的。”</p><p>她看着远处的禁区，心里琢磨着这趟买卖到底值不值当，嘴上还得跟老曹扯两句闲篇。风从废墟缝里灌进来，墙根下的影子一点一点挪到脚边。</p>"
+                        .into(),
+                ),
+                characters_present: Some(vec!["阿苔".into()]),
+                setting_location: Some("星环废墟".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let mock = RoutingMock::new(0);
+    mock.push(
+        "writer",
+        vec![
+            r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第5章","content":"第5章正文：阿苔走向禁区入口。","summary":"第5章"}}"#,
+            r#"{"type":"final","content":"完成"}"#,
+        ],
+    );
+    let coordinator =
+        AgencyCoordinator::for_test(pool.clone(), mock.clone()).with_production_capabilities(true);
+    let mut run = AgencyRun::new("rw-prod", "续写");
+    run.story_id = Some(story_id.clone());
+    AgencyRepository::new(pool.clone())
+        .create_run(&run)
+        .unwrap();
+    let board = crate::agency::board::BlackboardService::new(pool.clone());
+    let registry = Arc::new(ToolRegistry::agency_default());
+    let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+    coordinator
+        .write_chapter(
+            &budget,
+            &board,
+            &registry,
+            "rw-prod",
+            &story_id,
+            "续写",
+            5,
+            None,
+            None,
+            &[],
+            "",
+        )
+        .await
+        .expect("生产复用路径应正常产稿");
+    let prompts = mock.writer_prompts.lock().unwrap();
+    assert!(
+        prompts.iter().any(
+            |p| p.contains("【本章故事主线任务（最高优先级；必须落地）】")
+                && p.contains("前往禁区")
+        ),
+        "writer prompt 必须包含故事计划主线: {:?}",
+        prompts
+    );
+    assert!(
+        prompts.iter().any(|p| p.contains("故事基调与设定红线")),
+        "writer prompt 必须复用训练写作红线"
+    );
+    assert!(
+        prompts.iter().any(|p| p.contains("原文语体样本与基线")),
+        "writer prompt 必须复用前文语体样本"
+    );
+    assert!(
+        prompts.iter().any(|p| p.contains("前情提要")),
+        "writer prompt 必须复用前情提要"
+    );
+}
+
+/// v0.99.23：生产 gate 复用训练主线硬核对。故事大纲下一节点要求邵卫江，
+/// 正文未出现时即使 editor 判 pass 也必须 RevisionRequired。
+#[tokio::test]
+async fn test_production_gate_hard_blocks_missing_plan_mainline() {
+    let pool = create_test_pool().unwrap();
+    let story_id = seed_story_with_assets(&pool);
+    {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "UPDATE story_outlines SET content = ?1 WHERE story_id = ?2",
+            rusqlite::params![
+                "【核心冲突】阿苔寻找星环秘密\n【下一节点】前往禁区入口找邵卫江对质",
+                story_id
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+             VALUES ('c2', ?1, '邵卫江', '禁区管事', '强硬', '守住禁区', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story_id],
+        )
+        .unwrap();
+    }
+    crate::db::StoryContractRepository::new(pool.clone())
+        .create(
+            &story_id,
+            "CHAPTER",
+            r#"{"schema_version":"story-system/v1","contract_type":"CHAPTER","generator_version":"test","chapter_number":5,"chapter_directive":{"goal":"阿苔前往禁区入口找邵卫江对质","must_cover_nodes":["邵卫江"],"forbidden_zones":[],"time_anchor":null,"chapter_span":null}}"#,
+        )
+        .unwrap();
+    let repo = AgencyRepository::new(pool.clone());
+    repo.create_run(&AgencyRun::new("rg-prod-plan", "续写"))
+        .unwrap();
+    let board = crate::agency::board::BlackboardService::new(pool.clone());
+    let draft = board
+        .write(
+            "rg-prod-plan",
+            &story_id,
+            AgentRole::LeadWriter,
+            BoardZone::Draft,
+            "chapter",
+            "第5章",
+            &pass_grade_content("第五章正文：阿苔站在禁区外，风把沙吹进领口。"),
+            "第五章草稿",
+        )
+        .unwrap();
+    let llm: Arc<dyn LoopLlm> = MockLlm::scripted(vec![
+        "这不是JSON工具动作，只是审查意见散文。",
+        "依然不是JSON action，本地模型不遵从。",
+        "第三次散文，触发连续解析失败熔断。",
+        r#"{"verdict":"pass","score":4.5,"blocking_issues":[],"suggestions":[],"comments":"合格"}"#,
+    ]);
+    let coordinator =
+        AgencyCoordinator::for_test(pool.clone(), llm).with_production_capabilities(true);
+    let registry = Arc::new(ToolRegistry::agency_default());
+    let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+    let outcome = coordinator
+        .evaluate_gate(
+            &budget,
+            &board,
+            &registry,
+            "rg-prod-plan",
+            &story_id,
+            "续写",
+            &draft,
+            1,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    match outcome {
+        GateOutcome::RevisionRequired { issues, .. } => assert!(
+            issues
+                .iter()
+                .any(|i| i.contains("未落地本章故事主线任务") || i.contains("邵卫江")),
+            "缺失主线必须进入修订 issues: {issues:?}"
+        ),
+        other => panic!("生产主线缺失应强制修订，实际: {:?}", other),
+    }
+}
+
+/// v0.99.23：批量生产主线只让本批首章使用故事大纲「下一节点」，后续章
+/// 不得逐章重复同一节点（否则批量续写会原地踏步）。
+#[tokio::test]
+async fn test_production_batch_mainline_applies_next_node_only_to_first_chapter() {
+    let pool = create_test_pool().unwrap();
+    let story_id = seed_story_with_assets(&pool);
+    let mock = RoutingMock::new(0);
+    let write1 = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"一"}}}}"#,
+        pass_grade_content("第一章正文：阿苔走向禁区入口。")
+    );
+    let write2 = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第2章","content":"{}","summary":"二"}}}}"#,
+        pass_grade_content("第二章正文：阿苔在禁区外扎营。")
+    );
+    mock.push(
+        "writer",
+        vec![
+            write1.as_str(),
+            r#"{"type":"final","content":"第一章完成"}"#,
+            write2.as_str(),
+            r#"{"type":"final","content":"第二章完成"}"#,
+        ],
+    );
+    mock.push("editor", vec![
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好1\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好2\"}"}"#,
+    ]);
+    let coordinator =
+        AgencyCoordinator::for_test(pool.clone(), mock.clone()).with_production_capabilities(true);
+    coordinator
+        .run_continue_batch("rb-prod-plan", &story_id, 1, 2)
+        .await
+        .unwrap();
+    let prompts = mock.writer_prompts.lock().unwrap();
+    let chapter1_prompts: Vec<&String> = prompts.iter().filter(|p| p.contains("第1章")).collect();
+    let chapter2_prompts: Vec<&String> = prompts.iter().filter(|p| p.contains("第2章")).collect();
+    assert!(
+        chapter1_prompts
+            .iter()
+            .any(|p| p.contains("【本章故事主线任务（最高优先级；必须落地）】")),
+        "首章必须收到故事计划主线: {:?}",
+        chapter1_prompts
+    );
+    assert!(
+        chapter2_prompts.iter().any(|p| p.contains("前往禁区")),
+        "故事大纲仍可作为资产出现: {:?}",
+        chapter2_prompts
+    );
+    assert!(
+        !chapter2_prompts
+            .iter()
+            .any(|p| p.contains("【本章故事主线任务（最高优先级；必须落地）】")),
+        "后续章不得重复套用同一个下一节点: {:?}",
+        chapter2_prompts
+    );
+}
+
+/// v0.99.23：创世路径也复用训练写作红线/主线/语体能力（不是只有批量续写）。
+#[tokio::test]
+async fn test_genesis_reuses_production_capability_context() {
+    let pool = create_test_pool().unwrap();
+    let mock = pass_script();
+    let coordinator =
+        AgencyCoordinator::for_test(pool.clone(), mock.clone()).with_production_capabilities(true);
+    coordinator
+        .run_genesis("rf-prod-reuse", LONG_PREMISE)
+        .await
+        .unwrap();
+    let calls = mock.calls.lock().unwrap();
+    assert!(
+        calls.iter().any(|c| c.contains("故事基调与设定红线")),
+        "创世 writer prompt 必须复用训练写作红线: {:?}",
+        calls
+    );
+    assert!(
+        calls
+            .iter()
+            .any(|c| c.contains("StyleDNA 语体基线") || c.contains("原文语体样本与基线")),
+        "创世 writer prompt 必须复用风格基线能力"
+    );
+}
