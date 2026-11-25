@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.24-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.25-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.25 · 日志巡检：健康探测退避失效 + 自动上传旧错误误计
+
+- **问题**：Windows v0.99.14 日志包显示，三个不可用模型跨 24 小时各被「退避重试」93–97 次且退避值恒为 30s——`probe_model` 对调用失败返回 `Ok(success=false)`，调度器只判 `Err`，把失败当成功并不断重置退避；同时 11-23 提议上传日志时称「20 条新错误」，实际全部来自 6–15 天前（`creative_workflow.log` 只追加，旧实现只按文件 mtime 过滤）。
+- **结果**：调度器改按真实 `ProbeResult.success` 判定并按 30→60→…→3600s 指数退避；自动上传错误计数增加行级时间过滤（tracing `timestamp` / 工作流 `ts` / legacy 行首时间戳）；Step2 知识生成对枚举外关系类型（真机 `同门师兄妹`）降级为 `RelatedTo`，不再让整段 JSON 解析失败。Rust **2308/17**（+4）、tsc 0、Vitest **732/3**、Playwright **144/5**、fmt/clippy/guard/prettier 全绿。
 
 ### v0.99.24 · 训练报告通用规则提升层 + 生产回归探针
 

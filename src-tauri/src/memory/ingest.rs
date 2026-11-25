@@ -321,6 +321,28 @@ where
     int_from_json(value).map_err(serde::de::Error::custom)
 }
 
+/// v0.99.25: 关系类型宽容解析。
+///
+/// Step2 的 prompt 用 `Friend/Enemy/Family/...` 引导模型，模型会输出枚举外
+/// 的值（真机 v0.99.14 Windows：`同门师兄妹`），旧实现让整段知识 JSON 解析
+/// 失败并白白多跑一轮 LLM 重试。未知类型降级为 `RelatedTo`，关系本身保留。
+fn de_relation_type_lenient<'de, D>(deserializer: D) -> Result<RelationType, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    let Some(raw) = value.as_str() else {
+        return Ok(RelationType::RelatedTo);
+    };
+    if let Ok(known) =
+        serde_json::from_value::<RelationType>(serde_json::Value::String(raw.to_string()))
+    {
+        return Ok(known);
+    }
+    log::warn!("[Ingest Step2] 未知关系类型「{}」，降级为 RelatedTo", raw);
+    Ok(RelationType::RelatedTo)
+}
+
 fn de_opt_int_or_float<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -434,6 +456,7 @@ pub struct RelationProfile {
     pub source: String,
     #[serde(default)]
     pub target: String,
+    #[serde(deserialize_with = "de_relation_type_lenient")]
     pub relation_type: RelationType,
     #[serde(default)]
     pub description: String,
@@ -2824,5 +2847,33 @@ mod tests {
 
         let entity: AnalyzedEntity = serde_json::from_str(r#"{"name":"陈砚","age":""}"#).unwrap();
         assert_eq!(entity.age, None);
+    }
+
+    /// v0.99.25: 真机日志「unknown variant `同门师兄妹`」——Step2 prompt 的
+    /// `Friend/Enemy/Family/...` 会诱导模型自造类型。未知类型应降级为
+    /// RelatedTo，而不是让整段知识 JSON 解析失败（旧行为会白跑一轮重试）。
+    #[test]
+    fn generated_knowledge_accepts_unknown_relation_type_as_related_to() {
+        let json = r#"{
+            "entities": [],
+            "relations": [
+                {"source": "周成", "target": "宋菀蘅", "relation_type": "同门师兄妹", "strength": 0.7},
+                {"source": "周成", "target": "周府", "relation_type": "BelongsTo", "strength": 0.9}
+            ],
+            "events": []
+        }"#;
+        let knowledge: GeneratedKnowledge = serde_json::from_str(json).unwrap();
+        assert!(
+            matches!(
+                knowledge.relations[0].relation_type,
+                RelationType::RelatedTo
+            ),
+            "未知类型应降级为 RelatedTo，实际 {:?}",
+            knowledge.relations[0].relation_type
+        );
+        assert!(matches!(
+            knowledge.relations[1].relation_type,
+            RelationType::BelongsTo
+        ));
     }
 }

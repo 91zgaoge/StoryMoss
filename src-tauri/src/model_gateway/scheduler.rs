@@ -19,7 +19,8 @@ use std::{
 use tauri::AppHandle;
 use tokio::time::interval;
 
-use super::executor::GatewayExecutor;
+use super::{executor::GatewayExecutor, types::ProbeResult};
+use crate::error::AppError;
 
 /// v0.30.50（issue #14）: 后台探测模式共享开关。
 /// true = `always`（每 10s 保活 + 退避重试，默认）；
@@ -110,8 +111,18 @@ async fn run_full_probe(executor: &GatewayExecutor) {
         models.len()
     );
     for model_id in models {
-        if let Err(e) = executor.probe_model(&model_id).await {
-            log::warn!("[GatewayScheduler] 启动探测 {} 失败: {}", model_id, e);
+        match executor.probe_model(&model_id).await {
+            Ok(result) if result.success => {}
+            Ok(result) => {
+                log::warn!(
+                    "[GatewayScheduler] 启动探测 {} 失败: {}",
+                    model_id,
+                    result.error.unwrap_or_else(|| "探测未通过".to_string())
+                );
+            }
+            Err(e) => {
+                log::warn!("[GatewayScheduler] 启动探测 {} 失败: {}", model_id, e);
+            }
         }
     }
 }
@@ -154,12 +165,19 @@ async fn run_keepalive_probe(executor: &GatewayExecutor) {
             )
             .await
             {
-                Ok(Ok(_)) => {
+                Ok(Ok(result)) if result.success => {
                     probed += 1;
                     log::debug!(
                         "[GatewayScheduler] keepalive {} OK ({:.0}ms)",
                         snapshot.model_id,
                         start.elapsed().as_secs_f64() * 1000.0
+                    );
+                }
+                Ok(Ok(result)) => {
+                    log::warn!(
+                        "[GatewayScheduler] keepalive {} 失败: {}",
+                        snapshot.model_id,
+                        result.error.unwrap_or_else(|| "探测未通过".to_string())
                     );
                 }
                 Ok(Err(e)) => {
@@ -256,22 +274,32 @@ async fn run_retry_probe_with_backoff(
                 failures,
                 current_backoff
             );
-            if let Err(e) = executor.probe_model(&snapshot.model_id).await {
-                log::warn!(
-                    "[GatewayScheduler] 退避重试 {} 仍失败: {}",
-                    snapshot.model_id,
-                    e
-                );
-                // 退避翻倍
-                let next = (current_backoff * 2).min(RETRY_MAX_INTERVAL_SECS);
-                backoffs.insert(snapshot.model_id.clone(), next);
-            } else {
+            let outcome = executor.probe_model(&snapshot.model_id).await;
+            let succeeded = probe_succeeded(&outcome);
+            if succeeded {
                 // 探测成功，重置退避
                 backoffs.remove(&snapshot.model_id);
                 log::info!(
                     "[GatewayScheduler] 退避重试 {} 成功，重置退避",
                     snapshot.model_id
                 );
+            } else {
+                let reason = match &outcome {
+                    Ok(result) => result
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| "探测未通过".to_string()),
+                    Err(e) => e.to_string(),
+                };
+                log::warn!(
+                    "[GatewayScheduler] 退避重试 {} 仍失败: {}",
+                    snapshot.model_id,
+                    reason
+                );
+                // 退避翻倍（封顶 1h）
+                if let Some(next) = next_retry_backoff(current_backoff, false) {
+                    backoffs.insert(snapshot.model_id.clone(), next);
+                }
             }
         } else {
             // 非死模型：正常重试（Degraded / Unknown）
@@ -286,5 +314,62 @@ async fn run_retry_probe_with_backoff(
                 backoffs.remove(&snapshot.model_id);
             }
         }
+    }
+}
+
+/// v0.99.25: 探测是否成功。
+///
+/// `probe_model` 对「调用失败」也返回 `Ok(ProbeResult { success: false, ..
+/// })`， 只有「模型不存在/已禁用」这类前置校验才返回 `Err`。调度器曾只判断
+/// `Err`， 把失败当成功 → 每次重置退避 → 死模型被永久每 30s 探测
+/// （真机 v0.99.14 Windows：三模型连续失败 60+ 次仍停在「退避 30s」）。
+fn probe_succeeded(result: &Result<ProbeResult, AppError>) -> bool {
+    matches!(result, Ok(probe) if probe.success)
+}
+
+/// v0.99.25: 失败后退避翻倍（封顶 1h）；成功返回 `None`（重置）。
+fn next_retry_backoff(current_secs: u64, succeeded: bool) -> Option<u64> {
+    if succeeded {
+        None
+    } else {
+        Some((current_secs * 2).min(RETRY_MAX_INTERVAL_SECS))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn probe(success: bool) -> ProbeResult {
+        ProbeResult {
+            success,
+            ttft_ms: 0,
+            total_tokens: 0,
+            duration_ms: 0,
+            tps: 0.0,
+            error: if success {
+                None
+            } else {
+                Some("boom".to_string())
+            },
+        }
+    }
+
+    #[test]
+    fn probe_result_with_success_false_counts_as_failure() {
+        // 回归：probe_model 对调用失败返回 Ok(success=false)，不能当成功。
+        assert!(!probe_succeeded(&Ok(probe(false))));
+        assert!(probe_succeeded(&Ok(probe(true))));
+        assert!(!probe_succeeded(&Err(AppError::Internal {
+            message: "x".into()
+        })));
+    }
+
+    #[test]
+    fn retry_backoff_doubles_until_cap_and_resets_on_success() {
+        assert_eq!(next_retry_backoff(30, false), Some(60));
+        assert_eq!(next_retry_backoff(1920, false), Some(3600));
+        assert_eq!(next_retry_backoff(3600, false), Some(3600));
+        assert_eq!(next_retry_backoff(30, true), None);
     }
 }

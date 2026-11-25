@@ -1,4 +1,6 @@
-# StoryMoss v0.99.24 架构文档
+# StoryMoss v0.99.25 架构文档
+
+> **v0.99.25**：**日志巡检修复**——`model_gateway::scheduler` 按 `ProbeResult.success` 判定探测结果（`probe_model` 对调用失败返回 `Ok(success=false)`，旧实现只判 `Err` 导致退避每次重置、死模型永久 30s 探测），新增 `next_retry_backoff` 保证失败 30→60→…→3600s、成功重置；`log_report::count_recent_errors` 增加行级时间过滤（tracing `timestamp` / 工作流 `ts` / legacy compact），只统计窗口内新 ERROR；`memory::ingest` 的 `RelationProfile.relation_type` 使用 `de_relation_type_lenient`，枚举外类型 warn 后降级 `RelatedTo`。
 
 > **v0.99.24**：**训练报告通用规则提升层 + 生产回归探针**——新增 `agency::training_rules`：从 `scores_json`/`improvement_md` 提取 8 类通用规则（不含书名/人名/情节），`train_rule_promotions` 按 key 去重累计（V165）；`ProductionStatic` 加载 active 规则并注入 writer/修订/genesis/auto_write/gate；`run_production_probes` 在批量/单章/genesis 装配后核对文风漂移/AI 腔/主线/承接/推进/口吻/节奏/钩子，写入 `[ProductionProbes]`；旧报告升级时从最近 8 份幂等补齐。
 

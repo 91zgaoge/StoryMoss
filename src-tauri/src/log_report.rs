@@ -563,15 +563,22 @@ pub(crate) fn log_scan_dir(app_dir: &std::path::Path) -> std::path::PathBuf {
     app_dir.join("logs")
 }
 
-/// 统计 mtime 晚于 cutoff 的日志文件中的 ERROR
-/// 行数（纯函数，测试可注入临时目录）。 `dir` 必须是 [`log_scan_dir`] 返回的
+/// 统计 mtime 晚于 cutoff 且**行时间戳**也晚于 cutoff 的 ERROR 行数
+/// （纯函数，测试可注入临时目录）。 `dir` 必须是 [`log_scan_dir`] 返回的
 /// `logs/` 目录。
 ///
 /// 匹配规则（对齐生产布局）：
 /// - tracing 轮转文件 `storymoss.YYYY-MM-DD`（生产 JSON，按 `"level":"ERROR"`）
 ///   与 legacy `storymoss.log*`（开发 compact，按 ` ERROR `）；
 /// - 创作工作流 JSONL `creative_workflow.log`（按 `"level":"ERROR"`）。
+///
+/// v0.99.25: 增加行级时间过滤。`creative_workflow.log` 是只追加文件，仅按
+/// 文件 mtime 判断会把数天前的旧 ERROR 当成「新错误」——真机 v0.99.14
+/// Windows 在 11-23 提议上传时统计出「20 条新错误」，实际全部来自
+/// 11-08–11-17。
 pub(crate) fn count_recent_errors(dir: &std::path::Path, cutoff: std::time::SystemTime) -> u64 {
+    let cutoff_system = cutoff;
+    let cutoff = chrono::DateTime::<chrono::Utc>::from(cutoff);
     let mut total = 0u64;
     let Ok(entries) = std::fs::read_dir(dir) else {
         return 0;
@@ -591,7 +598,7 @@ pub(crate) fn count_recent_errors(dir: &std::path::Path, cutoff: std::time::Syst
         let Ok(meta) = std::fs::metadata(&path) else {
             continue;
         };
-        if meta.modified().ok().is_none_or(|m| m <= cutoff) {
+        if meta.modified().ok().is_none_or(|m| m <= cutoff_system) {
             continue;
         }
         let Ok(content) = std::fs::read_to_string(&path) else {
@@ -600,9 +607,37 @@ pub(crate) fn count_recent_errors(dir: &std::path::Path, cutoff: std::time::Syst
         total += content
             .lines()
             .filter(|l| l.contains("\"level\":\"ERROR\"") || l.contains(" ERROR "))
+            .filter(|l| error_line_within_window(l, cutoff))
             .count() as u64;
     }
     total
+}
+
+/// 行时间戳是否落在窗口内；无法解析时间的行按「保留」处理（保守，
+/// legacy compact 行可能没有完整日期）。
+fn error_line_within_window(line: &str, cutoff: chrono::DateTime<chrono::Utc>) -> bool {
+    match error_line_timestamp(line) {
+        Some(ts) => ts >= cutoff,
+        None => true,
+    }
+}
+
+/// 从一行日志里提取时间戳，支持三种生产格式：
+/// tracing JSON（`"timestamp":"…"`）、工作流 JSONL（`"ts":"…"`）与
+/// legacy compact（行首 RFC3339 token）。
+fn error_line_timestamp(line: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    const TRACING_PREFIX: &str = "\"timestamp\":\"";
+    const WORKFLOW_PREFIX: &str = "\"ts\":\"";
+    let raw = if let Some(pos) = line.find(TRACING_PREFIX) {
+        line[pos + TRACING_PREFIX.len()..].split('"').next()
+    } else if let Some(pos) = line.find(WORKFLOW_PREFIX) {
+        line[pos + WORKFLOW_PREFIX.len()..].split('"').next()
+    } else {
+        line.split_whitespace().next()
+    }?;
+    chrono::DateTime::parse_from_rfc3339(raw)
+        .ok()
+        .map(|d| d.with_timezone(&chrono::Utc))
 }
 
 /// 是否应提议自动上传（纯函数）：有新 ERROR 且距上次上传 >24h（从未上传
@@ -735,35 +770,67 @@ mod auto_upload_tests {
             uuid::Uuid::new_v4().simple()
         ));
         std::fs::create_dir_all(&dir).unwrap();
+        let now = chrono::Utc::now();
+        let fresh = (now - chrono::Duration::minutes(5)).to_rfc3339();
+        let stale = (now - chrono::Duration::days(3)).to_rfc3339();
         // 生产 tracing：daily rolling 文件名 storymoss.YYYY-MM-DD，JSON 格式
         std::fs::write(
             dir.join("storymoss.2026-11-17"),
-            "{\"timestamp\":\"2026-11-17T08:45:50Z\",\"level\":\"INFO\",\"fields\":{}}\n\
-             {\"timestamp\":\"2026-11-17T09:01:00Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"llm.generate.error\"}}\n\
-             {\"timestamp\":\"2026-11-17T09:02:00Z\",\"level\":\"ERROR\",\"fields\":{\"message\":\"second\"}}\n",
+            format!(
+                "{{\"timestamp\":\"{stale}\",\"level\":\"ERROR\",\"fields\":{{\"message\":\"old\"}}}}\n\
+                 {{\"timestamp\":\"{fresh}\",\"level\":\"ERROR\",\"fields\":{{\"message\":\"new\"}}}}\n"
+            ),
         )
         .unwrap();
-        // legacy / 开发 compact：storymoss.log.*，级别标记带空格
+        // legacy / 开发 compact：storymoss.log.*，级别标记带空格；行内无完整
+        // 日期时按 mtime 保留（保守）
         std::fs::write(
             dir.join("storymoss.log.2026-11-09"),
             "[02:52:54.659] INFO ok\n[02:55:40.338] ERROR legacy failure\n",
         )
         .unwrap();
+        // v0.99.25: 工作流 JSONL 是只追加文件，旧 ERROR 不能算「新错误」
         std::fs::write(
             dir.join("creative_workflow.log"),
-            "{\"level\":\"INFO\"}\n{\"level\":\"ERROR\"}\n",
+            format!(
+                "{{\"ts\":\"{stale}\",\"level\":\"ERROR\",\"message\":\"old\"}}\n\
+                 {{\"ts\":\"{fresh}\",\"level\":\"ERROR\",\"message\":\"new\"}}\n"
+            ),
         )
         .unwrap();
         // 无关文件与 startup trace 不计入
         std::fs::write(dir.join("unrelated.log"), " ERROR noise\n").unwrap();
         std::fs::write(dir.join("storymoss-startup-trace.log"), " ERROR boot\n").unwrap();
 
-        let recent_past = SystemTime::now() - Duration::from_secs(60);
-        let future = SystemTime::now() + Duration::from_secs(60);
         // cutoff 在未来：新文件 mtime 早于 cutoff → 全部不计
+        let future = SystemTime::now() + Duration::from_secs(60);
         assert_eq!(count_recent_errors(&dir, future), 0);
-        // cutoff 为近过去：2 生产 JSON + 1 legacy + 1 workflow
-        assert_eq!(count_recent_errors(&dir, recent_past), 4);
+        // cutoff 为 1 小时前：只算行时间戳在窗口内的 ERROR
+        // （tracing 新 1 + workflow 新 1 + legacy 无行时间戳 1）
+        let one_hour_ago = SystemTime::now() - Duration::from_secs(3600);
+        assert_eq!(count_recent_errors(&dir, one_hour_ago), 3);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn stale_error_lines_in_append_only_workflow_log_are_not_counted() {
+        // 真机回归：11-23 提议上传时把 11-08–11-17 的 20 条旧 ERROR
+        // 当成新错误。
+        let dir = std::env::temp_dir().join(format!(
+            "storymoss-log-report-stale-test-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let stale = (chrono::Utc::now() - chrono::Duration::days(6)).to_rfc3339();
+        let mut body = String::new();
+        for _ in 0..20 {
+            body.push_str(&format!(
+                "{{\"ts\":\"{stale}\",\"level\":\"ERROR\",\"message\":\"old\"}}\n"
+            ));
+        }
+        std::fs::write(dir.join("creative_workflow.log"), body).unwrap();
+        let one_day_ago = SystemTime::now() - Duration::from_secs(24 * 3600);
+        assert_eq!(count_recent_errors(&dir, one_day_ago), 0);
         std::fs::remove_dir_all(&dir).ok();
     }
 

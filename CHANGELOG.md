@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.25（2026-11-26）
+
+**日志巡检：健康探测退避失效 + 自动上传旧错误误计 + relation_type 宽容解析。**
+
+- 证据（Windows v0.99.14 日志包 `15a05cd0`，11-23 08:07 → 11-25 02:32，tracing 0 ERROR）：`[GatewayScheduler] 退避重试 model-… (连续失败 N 次, 退避 30s)` 三个模型各出现 93–97 次、跨 24 小时，退避值恒为 30s（从未 60/120/…/3600）；同时每轮都记「成功，重置退避」，而连续失败计数持续上涨到 40–61；11-23 启动段 3,363 行日志中约 3k 行是探测/`AppConfig` 读取。`log_report` 在 11-23 08:07:53 提议上传时称「检测到 20 条新错误日志」，实际这 20 条全部来自 11-08–11-17（`creative_workflow.log` 只追加）。
+- 根因 1：`executor::probe_model` 对「调用失败」也返回 `Ok(ProbeResult { success: false, .. })`，只有「模型不存在/已禁用」才返回 `Err`；调度器只判断 `Err`，把失败当成功 → 每轮 `backoffs.remove()` → 死模型永久每 ~30–60s 被探测。
+- 根因 2：`count_recent_errors` 只按**文件 mtime** 过滤，不检查行时间戳；`creative_workflow.log` 是只追加文件，数天前的旧 ERROR 会被当成「新错误」，触发无意义的上传提示与日志包。
+- 根因 3：Step2 生成 prompt 用 `Friend/Enemy/Family/...` 引导模型，模型会输出枚举外类型（真机 `同门师兄妹`）；`serde` 的 unknown variant 让**整段**知识 JSON 解析失败，白白多跑一轮 LLM 重试。
+- 修复：①`model_gateway/scheduler.rs` 新增 `probe_succeeded`（`Ok(success=false)` 视为失败）与 `next_retry_backoff`（失败 30→60→…→3600s 封顶，成功重置），启动全量探测与 keepalive 也按真实结果记 warn。②`log_report.rs` 的 `count_recent_errors` 增加行级时间过滤，支持 tracing JSON `"timestamp"`、工作流 JSONL `"ts"` 与 legacy compact 行首时间戳；无法解析时间的行保守保留。③`memory/ingest.rs` 新增 `de_relation_type_lenient`，枚举外关系类型降级为 `RelatedTo` 并 warn，不再让整段知识解析失败。
+- 验证：Rust **2308/17**（+4：探测失败判定/退避翻倍封顶、追加日志旧 ERROR 不计、生产布局行级过滤、未知关系类型降级）；tsc 0；Vitest **732/3**；Playwright **144/5**；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：安装 v0.99.25 后确认三模型退避按 30→60→120…→3600 递增、探测日志量下降；升级后自动上传提示只统计窗口内的新 ERROR；未知关系类型降级后的知识图谱质量需下一轮 ingest 观察（`同门师兄妹` 归入 RelatedTo 属可接受降级）。
+
 ## v0.99.24（2026-11-25）
 
 **训练报告通用规则提升层 + 生产回归探针：每轮训练的可泛化结论自动进入生产续写。**
