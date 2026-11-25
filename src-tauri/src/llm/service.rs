@@ -129,10 +129,14 @@ use crate::{
 
 /// v0.99.11: 推理模型的思考强度（OpenAI 兼容 `reasoning_effort`）。
 ///
-/// 优先级：profile 显式值 > JSON 结构化任务默认 `low` > 不发送。
+/// 优先级：profile 显式值 > Reasoning 模型默认 `low` > 不发送。
 /// 只有声明 `Reasoning` 能力的模型才自动注入——本地/第三方 OpenAI 兼容端点
 /// 可能拒绝未知参数（Qwren127 只声明 chat/json_mode，不能带）。
-fn default_reasoning_effort(profile: &LlmProfile, structured: bool) -> Option<String> {
+/// v0.99.20：创作调用也默认 low。真机 deepseek-v4 在 38k prompt 上连续 5 次
+/// `finish_reason=length`、completion 30k 全烧在 CoT、content 为空；writer
+/// 的 32768 输出额度已到上限，再放大也无效。创作任务降为 low 后留出正文额度；
+/// profile 显式 effort（如 high）仍优先。
+fn default_reasoning_effort(profile: &LlmProfile, _structured: bool) -> Option<String> {
     if let Some(effort) = profile
         .reasoning_effort
         .as_ref()
@@ -140,9 +144,8 @@ fn default_reasoning_effort(profile: &LlmProfile, structured: bool) -> Option<St
     {
         return Some(effort.clone());
     }
-    if structured && profile.capabilities.contains(&ModelCapability::Reasoning) {
-        // 真机 DeepSeek-V4.1-Flash：默认 effort=high，JSON/抽取任务 CoT
-        // 常把输出额度吃满；结构化任务降为 low。
+    if profile.capabilities.contains(&ModelCapability::Reasoning) {
+        // JSON/抽取与创作散文都默认 low；结构化任务此前已是 low。
         return Some("low".to_string());
     }
     None
@@ -3059,8 +3062,12 @@ mod tests {
             default_reasoning_effort(&profile, true).as_deref(),
             Some("low")
         );
-        // 创作/非结构化保持 API 默认（high），不擅自降智
-        assert_eq!(default_reasoning_effort(&profile, false), None);
+        // v0.99.20：创作/非结构化也默认 low，避免 38k prompt 上 CoT 吃满、
+        // content 为空；profile 显式 effort 仍优先（下个用例）。
+        assert_eq!(
+            default_reasoning_effort(&profile, false).as_deref(),
+            Some("low")
+        );
     }
 
     #[test]

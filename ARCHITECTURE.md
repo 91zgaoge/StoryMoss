@@ -1,4 +1,6 @@
-# StoryMoss v0.99.19 架构文档
+# StoryMoss v0.99.20 架构文档
+
+> **v0.99.20**：**推理模型创作调用默认 low**——`llm::service::default_reasoning_effort` 改为 profile 显式值优先；声明 `Reasoning` 能力的模型，无论 JSON/结构化还是创作散文调用，默认 `reasoning_effort=low`；未声明 Reasoning 的本地端点（Qwren127）仍不发未知参数。v0.99.19 真机训练 12:05–12:08 连续 5 次 writer 空 content（prompt 37,899 tokens、completion 29,773–31,978、`finish_reason=length`），writer 32768 已是上限，×4 重放无效；默认 low 给正文留额度。profile 显式 high 仍覆盖。
 
 > **v0.99.19**：**训练二次收敛**——`narrative_contract::verify` 的 POV 核对接受第一人称：正文「我」≥3 次且未出现 POV 姓名时视为 POV 在场（第一人称续写不会写「周成」）；钩子证据词扩到关门/把门/锁/插上/威胁/刀/枪/脚步声/来人/纸条/短信/电话等动作与悬念词。`agency::style_probe::build_exemplar` 样本权重改为 1 段口语 + 2 段叙述（compact 1+1），叙述长句占多数样本位；`severe_drift_issue` 阈值收紧到句长 <0.75×基线、口语词 <0.65×基线、比喻 >3/千字且 >1.5×基线。gate `style_issue` 仍与 `mainline_missing` 同语义强制修订一次；普通续写参数仍为 None。
 

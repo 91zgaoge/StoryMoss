@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.20（2026-11-25）
+
+**推理模型创作调用默认 `reasoning_effort=low`：38k prompt 上不再 CoT 吃满、content 为空。**
+
+- 证据（v0.99.19 真机训练启动段）：12:05:39–12:08:24 连续 5 次 `agency_writer` 空 content，prompt 37,899 tokens、completion 29,773–31,978 tokens、`finish_reason=length`——writer 输出额度已是 `CREATIVE_MAX_OUTPUT_TOKENS=32768` 上限，v0.99.11 的 ×4 重放已无余量；第 144 章草稿只能靠 tool_loop 已写出的 board draft（2,691 字）救回。v0.99.18 同类空 content 曾靠多次尝试偶然成功，但训练耗时与产出不稳。
+- 改动：`llm::service::default_reasoning_effort` 改为——profile 显式值优先；声明 `Reasoning` 能力的模型，无论结构化还是创作散文调用，默认 `low`；未声明 Reasoning 的本地端点（Qwren127）仍不发送未知参数。这样 CoT 不再吃满 32k 输出额度，正文有空间落 content；显式 `high` 配置仍可覆盖。
+- **测试**：Rust **2290/17**（数量不变，`structured_reasoning_task_defaults_to_low_effort` 断言更新为创作也 low）；tsc 0；Vitest **732/3**；Playwright **144/5**；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：用 v0.99.20 重跑同一 10 章训练，确认 `agency_writer` 空 content 归零、144–153 产出与报告完整；若仍空 content，需在模型配置显式降低 effort 或换模型。
+
 ## v0.99.19（2026-11-25）
 
 **续写训练二次收敛：第一人称 POV/动作钩不再误判修订；语体样本改为「1 口语 + 2 叙述」，句长/口语漂移阈值收紧到 0.75/0.65×基线。**

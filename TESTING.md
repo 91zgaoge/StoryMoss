@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.99.19)
+# 🧪 StoryMoss 自动化测试环境 (v0.99.20)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.99.20 变更说明
+
+- Rust **2290 passed / 17 ignored**（数量不变）：`structured_reasoning_task_defaults_to_low_effort` 断言更新——声明 Reasoning 能力的模型结构化与创作散文调用都默认 `low`；显式 profile effort 仍优先、未声明 Reasoning 的 Qwren 仍不发参数。
+- tsc 0；Vitest **732 passed / 3 skipped**（数量不变）；Playwright **144 passed / 5 skipped**；fmt/clippy/guard/prettier 全绿。
+- 验收：用 v0.99.20 重跑同一 10 章训练，确认 `agency_writer` 空 content 归零、144–153 产出与报告完整；若仍空 content，需在模型配置显式降低 effort 或换模型。
 
 ### v0.99.19 变更说明
 

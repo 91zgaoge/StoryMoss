@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.19-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.20-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.20 · 推理模型创作调用默认 low：训练主创不再被 CoT 吃空
+
+- **问题**：v0.99.19 真机训练启动段 12:05–12:08 连续 5 次 `agency_writer` 空 content——提示词约 37,899 tokens、completion 29,773–31,978 tokens、`finish_reason=length`；主创输出额度已是 `CREATIVE_MAX_OUTPUT_TOKENS=32768` 上限，×4 重放没有余量，第 144 章草稿只能靠 tool_loop 已写出的 board draft（2,691 字）救回。
+- **结果**：`default_reasoning_effort` 改为——profile 显式值优先；声明 `Reasoning` 能力的模型，结构化与创作散文调用都默认 `low`；未声明 Reasoning 的本地端点仍不发送未知参数。CoT 不再吃满 32k 输出额度，正文有空间落 content。测试断言同步更新；Rust **2290/17**（数量不变）、tsc 0、Vitest **732/3**、Playwright **144/5**、fmt/clippy/guard/prettier 全绿。
 
 ### v0.99.19 · 训练二次收敛：第一人称 POV/动作钩 + 叙述样本权重
 
