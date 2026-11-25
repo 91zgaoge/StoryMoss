@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.17-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.18-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.18 · 训练「声音」修复：真实章关键台词/转折 + 单章 AI 腔/地点同义词
+
+- **问题**：v0.99.17 真机 10 章报告 `5a3fb41e`（0.7175 / `reference_gap` 6.5 / 主线探针 9/10 ✓ / style 6.95 / voice 6.85）证明叙述长句样本生效——144 章句长无报警，145/147/148/149/150/152/153 回到 11.6–14.2（上一轮 9.5–13.3）。但 editor 仍判「冷硬 noir/铺陈明喻加重、市井碎嘴自嘲下降」；145 立威丢失「吐烟定住保镖」的术法机制，148 的「妖孽，看我法宝！」没进正文，151 出现「心里咯噔×2/后脊梁发麻×2」，146 夜总会写成「吧台/门厅」触发主线误判修订。
+- **结果**：逐章主线任务新增真实章 `key_turn`（关键转折，必须写出机制）与 `voice_cues`（关键台词，写作时化用口气/句式）；语体样本改为全书按得分取最高 2 段口语 + 1 段叙述；`ai_ism_issue` 单章判「咯噔≥2/后脊梁发麻/后槽牙/比喻密度>4」并接入 gate；地点核对接受场景同义词（夜总会↔包厢/吧台/门厅）；红线改为每章至少 3 处市井碎嘴、比喻≤3、同章身体反应不重复；risk/emotion 证据词扩容减少正确章误判 revise。新增 4 条回归测试；Rust **2289/17**、tsc 0、Vitest **732/3**、Playwright **144/5**、fmt/clippy/guard/prettier 全绿。
 
 ### v0.99.17 · 训练文风硬核对：叙述长句样本 + 严重漂移强制修订
 

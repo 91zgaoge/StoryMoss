@@ -243,6 +243,49 @@ pub fn drift_report(baseline: &StyleProfile, generated: &[(i32, String)]) -> Str
     }
 }
 
+/// 单章 AI 腔硬核对：真机 editor 点名「心里咯噔×2、后脊梁发麻×2、铺陈
+/// 明喻连用」时，聚合探针（10 章合计）会被稀释。这里按章统计，命中重复
+/// 套语或比喻密度 >4/千字时，gate 强制修订一次。
+pub fn ai_ism_issue(plain: &str) -> Option<String> {
+    if plain.trim().is_empty() {
+        return None;
+    }
+    let mut flags: Vec<String> = Vec::new();
+    let gez = plain.matches("咯噔").count();
+    if gez >= 2 {
+        flags.push(format!("咯噔×{gez}"));
+    }
+    let spine = plain.matches("后脊梁").count() + plain.matches("脊背").count();
+    let numb = plain.matches("发麻").count() + plain.matches("发凉").count();
+    if spine >= 1 && numb >= 1 {
+        flags.push(format!("脊背反应×{}", spine + numb));
+    }
+    let molar = plain.matches("后槽牙").count();
+    if molar >= 1 {
+        flags.push(format!("后槽牙×{molar}"));
+    }
+    let tight = plain.matches("心里一紧").count();
+    if tight >= 2 {
+        flags.push(format!("心里一紧×{tight}"));
+    }
+    let nb = count_not_but(plain);
+    if nb >= 2 {
+        flags.push(format!("不是…而是×{nb}"));
+    }
+    let p = profile(plain);
+    if p.metaphor_per_k > 4.0 {
+        flags.push(format!("比喻密度 {:.1}/千字", p.metaphor_per_k));
+    }
+    if flags.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "AI 腔套语重复：{}。优先用动作、对白与平直命名，删掉铺陈式明喻与身体反应成对。",
+            flags.join("｜")
+        ))
+    }
+}
+
 fn deviation(value: f64, baseline: f64, ratio: f64) -> bool {
     if baseline <= f64::EPSILON {
         return value > f64::EPSILON;
@@ -389,8 +432,9 @@ fn count_not_but(text: &str) -> usize {
     count
 }
 
-/// 原文语体样本：从上下文章抽 3 段（compact 2 段），优先对白密集、第一人称
-/// 碎嘴、口语词多的段落；每段 ≤420 字。返回空串表示无法抽取。
+/// 原文语体样本：口语样本（对白密集、第一人称碎嘴、口语词多）+ 叙述样本
+/// （平均句长不低于基线、对白占比低）。full 最多 4 段/1800 字，compact
+/// 1 口语 + 1 叙述/900 字。返回空串表示无法抽取。
 pub fn build_exemplar(context: &[(usize, String)], compact: bool) -> String {
     let baseline = profile(
         &context
@@ -429,53 +473,27 @@ pub fn build_exemplar(context: &[(usize, String)], compact: bool) -> String {
     if voice.is_empty() && narrative.is_empty() {
         return String::new();
     }
-    let mut chapters: Vec<usize> = voice
-        .keys()
-        .chain(narrative.keys())
-        .copied()
-        .collect::<std::collections::BTreeSet<_>>()
+    // v0.99.18：不再只取首/中/尾章。全量按段落得分排序，口语取最高 2
+    // 段（compact 1 段）、叙述取最高 1 段——书里的幽默/市井段落常在中间
+    // 章节，首尾章抽样会让 voice 样本偏冷硬。
+    let mut voice_pool: Vec<(usize, String, i32)> =
+        voice.into_iter().map(|(n, (p, s))| (n, p, s)).collect();
+    voice_pool.sort_by(|a, b| b.2.cmp(&a.2).then(a.0.cmp(&b.0)));
+    let voice_take = if compact { 1 } else { 2 };
+    let mut picked: Vec<(&str, usize, String)> = voice_pool
         .into_iter()
+        .take(voice_take)
+        .map(|(number, passage, _)| ("口语", number, passage))
         .collect();
-    chapters.sort_unstable();
-    let picks = if compact || chapters.len() < 3 {
-        if chapters.len() >= 2 {
-            vec![chapters[0], chapters[chapters.len() - 1]]
-        } else {
-            chapters
-        }
-    } else {
-        vec![
-            chapters[0],
-            chapters[chapters.len() / 2],
-            chapters[chapters.len() - 1],
-        ]
-    };
-    let mut picked: Vec<(&str, usize, String)> = Vec::new();
-    for number in &picks {
-        if let Some((passage, _)) = voice.get(number) {
-            picked.push(("口语", *number, passage.clone()));
-        }
+    let mut narrative_pool: Vec<(usize, String, i32)> =
+        narrative.into_iter().map(|(n, (p, s))| (n, p, s)).collect();
+    narrative_pool.sort_by(|a, b| b.2.cmp(&a.2).then(a.0.cmp(&b.0)));
+    if let Some((number, passage, _)) = narrative_pool.into_iter().next() {
+        // 叙述样本只取 1 段（compact 也 1 段），展示原文长句与连接词节奏；
+        // 口语样本不能替代叙述节奏，否则模型只学到短句对话，句长持续偏短。
+        picked.push(("叙述", number, passage));
     }
-    // compact 只留 1 段口语，把第 2 个名额留给叙述样本；否则截断会把
-    // 叙述样本挤掉，短句问题仍在。
-    if compact && picked.len() > 1 {
-        picked.truncate(1);
-    }
-    // 叙述样本只取 1 段（compact 也 1 段），展示原文长句与连接词节奏；
-    // 口语样本不能替代叙述节奏，否则模型只学到短句对话，句长持续偏短。
-    if let Some(number) = picks
-        .iter()
-        .rev()
-        .find(|number| narrative.contains_key(number))
-        .copied()
-    {
-        if let Some((passage, _)) = narrative.get(&number) {
-            picked.push(("叙述", number, passage.clone()));
-        }
-    }
-    if picked.len() > if compact { 2 } else { 4 } {
-        picked.truncate(if compact { 2 } else { 4 });
-    }
+
     let cap = if compact { 900 } else { 1800 };
     let mut out = String::new();
     out.push_str(&format!(
@@ -484,9 +502,9 @@ pub fn build_exemplar(context: &[(usize, String)], compact: bool) -> String {
     ));
     out.push_str(
         "写作硬约束：本章句长/对白/第一人称/口语词/比喻应落在原文基线 ±25% 内；\
-         每章至少一处主角自嘲或市井调侃；禁止整章冷硬侦探腔、格言式旁白与书面总结腔；\
-         禁止用「后槽牙/喉头一紧/发麻/发凉/酥麻/钻心」等身体反应替代动作与对白；\
-         「不是……而是……」每章最多一次；比喻每 500 字最多一处。\
+         每章至少 3 处市井碎嘴、语气词或主角自嘲；禁止整章冷硬侦探腔、格言式旁白与书面总结腔；\
+         禁止用「后槽牙/喉头一紧/发麻/发凉/酥麻/钻心/心里咯噔/后脊梁发麻」等身体反应套语替代动作与对白，同章同类不得重复；\
+         「不是……而是……」每章最多一次；比喻每章不超过 3 处，禁止铺陈式明喻连用。\
          叙述样本用于校准长句与连接词节奏，口语样本用于校准市井对白；两类都要模仿，不能只写短句。\n",
     );
     for (kind, number, passage) in picked.iter() {
@@ -644,6 +662,17 @@ mod tests {
             exemplar.contains("叙述样本"),
             "compact 必须保留叙述样本: {exemplar}"
         );
+    }
+
+    #[test]
+    fn ai_ism_issue_flags_repeated_body_reactions_per_chapter() {
+        let text = "心里咯噔一下，后脊梁发麻。像老门轴，又像没人要的澡盆。";
+        let issue = ai_ism_issue(text).expect("应判单章 AI 腔");
+        assert!(
+            issue.contains("咯噔") || issue.contains("脊背") || issue.contains("比喻"),
+            "{issue}"
+        );
+        assert!(ai_ism_issue("他推门，灯灭了。").is_none());
     }
 
     #[test]

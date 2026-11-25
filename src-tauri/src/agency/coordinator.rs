@@ -9232,6 +9232,7 @@ impl AgencyCoordinator {
             .map(|exemplar| crate::agency::continue_assets::truncate_chars(exemplar, 700));
         let style_issue = self.style_baseline.as_deref().and_then(|baseline| {
             crate::agency::style_probe::severe_drift_issue(baseline, &draft_plain)
+                .or_else(|| crate::agency::style_probe::ai_ism_issue(&draft_plain))
         });
         let (outcome, gate_score) = evaluate_gate_impl(
             &llm,
@@ -10725,6 +10726,7 @@ impl GateRunner {
             .map(|exemplar| crate::agency::continue_assets::truncate_chars(exemplar, 700));
         let style_issue = self.style_baseline.as_deref().and_then(|baseline| {
             crate::agency::style_probe::severe_drift_issue(baseline, &draft_plain)
+                .or_else(|| crate::agency::style_probe::ai_ism_issue(&draft_plain))
         });
         let (outcome, gate_score) = evaluate_gate_impl(
             &self.llm,

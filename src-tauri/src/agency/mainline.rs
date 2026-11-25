@@ -26,6 +26,10 @@ pub struct MainlineBeat {
     pub title: String,
     /// 该章已发生的主线事件/结果（≤200 字）。
     pub goal: String,
+    /// 该章最大转折（必须写出机制，不得只写结果；≤80 字）。
+    pub key_turn: String,
+    /// 真实章关键对白语感（可化用；truth_hints 教学信号，≤3 条/40 字）。
+    pub voice_cues: Vec<String>,
     /// 该章真实出场的主要人物（已排除主角占位名；用于节拍卡对齐）。
     pub cast: Vec<String>,
     /// 该章主要地点（摘要里的第一个地点段；用于节拍卡对齐）。
@@ -158,6 +162,18 @@ impl MainlineProjection {
         }
         if !terms.is_empty() {
             block.push_str(&format!("关键人物/地点：{terms}\n"));
+        }
+        if !beat.key_turn.trim().is_empty() {
+            block.push_str(&format!(
+                "【本章关键转折（必须写出机制，不得只写结果）】{}\n",
+                beat.key_turn.trim()
+            ));
+        }
+        if !beat.voice_cues.is_empty() {
+            block.push_str("【本章关键对白语感（化用其口气与句式；不要整段照抄旁白）】\n");
+            for cue in &beat.voice_cues {
+                block.push_str(&format!("- 「{}」\n", cue));
+            }
         }
         block.push_str(
             "要求：本章的核心冲突/目的地/关键人物必须与上述主线事件一致；不得把该事件推迟到后续章节，\
@@ -298,10 +314,16 @@ pub fn from_briefs(
                     location: String::new(),
                 }
             });
+        let key_turn = brief
+            .map(|b| b.turning_point.trim().chars().take(80).collect::<String>())
+            .unwrap_or_default();
+        let voice_cues = extract_voice_cues(&plain, &terms.cast);
         beats.push(MainlineBeat {
             chapter_number: chapter,
             title,
             goal,
+            key_turn,
+            voice_cues,
             cast: terms.cast,
             location: terms.location,
             key_terms: terms.key_terms,
@@ -310,6 +332,86 @@ pub fn from_briefs(
     }
     let arc = render_arc(&beats);
     MainlineProjection { arc, beats }
+}
+
+/// 从真实章抽 2–3 条「关键对白语感」。
+///
+/// truth_hints 训练的教学信号：真机 editor 反复点名「陆尘音亮枪的『妖孽，
+/// 看我法宝！』、黄玄然『欲成大事，当行阳谋』」等关键台词没有进入 writer，
+/// 新角色只能靠摘要里的性格标签，声音不像作者。抽取真实章引号短句（≤40
+/// 字、含！/？、含人物名或我/你优先），供 writer 化用口气与句式，不整段
+/// 照抄旁白。
+fn extract_voice_cues(plain: &str, cast: &[String]) -> Vec<String> {
+    let chars: Vec<char> = plain.chars().collect();
+    let pairs = [('“', '”'), ('「', '」'), ('『', '』')];
+    let mut candidates: Vec<(String, i32, usize)> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for (open, close) in pairs {
+        let mut i = 0usize;
+        while i < chars.len() {
+            if chars[i] != open {
+                i += 1;
+                continue;
+            }
+            let start = i + 1;
+            let mut j = start;
+            while j < chars.len() && chars[j] != close {
+                j += 1;
+            }
+            if j > start {
+                let token: String = chars[start..j].iter().collect();
+                let token = token.trim().to_string();
+                i = j + 1;
+                let len = token.chars().count();
+                if len < 4 || len > 40 {
+                    continue;
+                }
+                const GENERIC: [&str; 8] = [
+                    "不知道",
+                    "什么",
+                    "不是",
+                    "没有",
+                    "这个",
+                    "那个",
+                    "怎么回事",
+                    "嗯",
+                ];
+                if GENERIC.iter().any(|g| token == *g) {
+                    continue;
+                }
+                if token.contains("第") && token.contains("章") {
+                    continue;
+                }
+                let mut score = 0i32;
+                if token.contains('！') || token.contains('？') {
+                    score += 2;
+                }
+                if cast.iter().any(|name| token.contains(name.as_str())) {
+                    score += 2;
+                }
+                if token.contains('我') || token.contains('你') {
+                    score += 1;
+                }
+                if score == 0 {
+                    score += 1;
+                }
+                let key: String = token.chars().take(12).collect();
+                if seen.insert(key) {
+                    candidates.push((token, score, start));
+                }
+            }
+        }
+    }
+    candidates.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then(a.0.chars().count().cmp(&b.0.chars().count()))
+            .then(a.2.cmp(&b.2))
+    });
+    candidates
+        .into_iter()
+        .map(|(token, _, _)| token.chars().take(40).collect())
+        .take(3)
+        .collect()
 }
 
 fn beat_goal(brief: &BriefChapter, plain: &str) -> String {
@@ -535,6 +637,34 @@ fn term_matches(text: &str, term: &str) -> bool {
             }
         }
     }
+    // v0.99.18：地点同义词。真机第 146 章主线地点是「夜总会」，正文却写
+    // 「吧台/门厅/珠帘门/场子」——没出现「夜总会」三个字，确定性探针
+    // 判缺失并强制修订，而 editor 已判 pass。场景类型等价词视为命中。
+    const VENUE_SYNONYMS: [(&str, &[&str]); 8] = [
+        (
+            "夜总会",
+            &[
+                "包厢", "吧台", "门厅", "场子", "会所", "大厅", "夜场", "舞厅",
+            ],
+        ),
+        (
+            "医院",
+            &["病房", "走廊", "诊室", "急诊", "护士站", "住院部", "手术室"],
+        ),
+        ("包厢", &["包间", "雅间", "里屋", "厅里", "座上"]),
+        ("道观", &["观里", "三清殿", "大殿", "庙里", "殿里", "山门"]),
+        ("寺庙", &["寺里", "庙里", "大殿", "佛堂", "山门"]),
+        ("客栈", &["店里", "楼上", "房间", "客店", "店堂"]),
+        ("码头", &["江边", "岸边", "渡口", "船坞"]),
+        ("胡同", &["巷子", "巷口", "胡同口", "巷里"]),
+    ];
+    for (venue, synonyms) in VENUE_SYNONYMS {
+        if term == venue || term.ends_with(venue) {
+            if synonyms.iter().any(|synonym| text.contains(*synonym)) {
+                return true;
+            }
+        }
+    }
     false
 }
 
@@ -644,6 +774,8 @@ mod tests {
                 chapter_number: 144,
                 title: "法不可亵".into(),
                 goal: "周成去福摩萨夜总会正面冲撞邵卫江。".into(),
+                key_turn: String::new(),
+                voice_cues: vec!["法不可亵，术不可显".into()],
                 cast: vec!["邵卫江".into()],
                 location: "福摩萨夜总会".into(),
                 key_terms: vec!["福摩萨夜总会".into(), "邵卫江".into()],
@@ -666,6 +798,8 @@ mod tests {
                     chapter_number: 144,
                     title: String::new(),
                     goal: String::new(),
+                    key_turn: String::new(),
+                    voice_cues: vec![],
                     cast: vec!["邵卫江".into()],
                     location: "福摩萨夜总会".into(),
                     key_terms: vec!["福摩萨夜总会".into(), "邵卫江".into()],
@@ -675,6 +809,8 @@ mod tests {
                     chapter_number: 145,
                     title: String::new(),
                     goal: String::new(),
+                    key_turn: String::new(),
+                    voice_cues: vec![],
                     cast: vec!["汪必成".into()],
                     location: "夜总会".into(),
                     key_terms: vec!["汪必成".into()],
@@ -701,6 +837,8 @@ mod tests {
                 chapter_number: 144,
                 title: String::new(),
                 goal: "周成去福摩萨夜总会冲撞邵卫江。".into(),
+                key_turn: String::new(),
+                voice_cues: vec![],
                 cast: vec!["邵卫江".into()],
                 location: "福摩萨夜总会".into(),
                 key_terms: vec!["福摩萨夜总会".into(), "邵卫江".into()],
@@ -722,6 +860,29 @@ mod tests {
         assert!(term_matches("大波浪卷脸都白了", "大波浪卷女人"));
         assert!(term_matches("邵卫江就在里头", "邵卫江"));
         assert!(!term_matches("我在医院走廊审问护士", "邵卫江"));
+    }
+
+    #[test]
+    fn term_matches_accepts_venue_synonyms() {
+        // 真机第 146 章：地点「夜总会」未出现，正文写「吧台/门厅/珠帘门」。
+        assert!(term_matches(
+            "我把珠帘挑开，走进门厅，吧台上摆着两只骰盅",
+            "夜总会"
+        ));
+        assert!(term_matches("病房走廊里护士站还亮着灯", "医院"));
+        assert!(term_matches("观里三清殿的香火没断", "道观"));
+        assert!(!term_matches("大河村诊室里只剩一盏灯", "夜总会"));
+    }
+
+    #[test]
+    fn voice_cues_extract_key_dialogue_from_truth() {
+        let text = "第148章 看我法宝。陆尘音失笑道：“妖孽，看我法宝！”张宝山道：“你他妈疯了？”";
+        let cues = extract_voice_cues(text, &["陆尘音".into(), "张宝山".into()]);
+        assert!(
+            cues.iter().any(|cue| cue.contains("妖孽，看我法宝")),
+            "关键台词应进入 voice_cues: {cues:?}"
+        );
+        assert!(cues.len() <= 3);
     }
 
     #[test]

@@ -1,4 +1,6 @@
-# StoryMoss v0.99.17 架构文档
+# StoryMoss v0.99.18 架构文档
+
+> **v0.99.18**：**训练「声音」修复**——`MainlineBeat` 新增 `key_turn`（真实章最大转折，必须写出机制）与 `voice_cues`（真实章关键对白，≤3 条/40 字，truth_hints 教学信号）；`render_beat_block` 把「本章关键转折」「本章关键对白语感」注入章纲 `scene_info` 与 writer task。`term_matches` 增加场景类型同义词（夜总会↔包厢/吧台/门厅/场子/会所，医院↔病房/走廊/诊室，道观↔三清殿等），避免 146 类正确章因地点名未出现被判主线缺失。`style_probe::ai_ism_issue` 单章统计「咯噔≥2、后脊梁/脊背+发麻/发凉、后槽牙、心里一紧≥2、不是…而是≥2、比喻密度>4/千字」，`AgencyCoordinator` 的 `style_issue` 在 `severe_drift_issue` 之后 `or_else(ai_ism_issue)`，训练 gate 即使 editor 放行也强制修订一次。`build_exemplar` 改为全章节按得分取最高 2 段口语 + 1 段叙述（compact 1+1），不再只看首/中/尾章。训练红线语体边界改「每章至少 3 处市井碎嘴/语气词/自嘲，比喻每章不超过 3 处，同章身体反应套语不得重复」。`narrative_contract` 的 risk 证据词扩到刀/枪/逼/命/死/追/动手/翻脸等，emotion 证据词扩到给/送/赠/护/让/面子/人情等，减少正确章被规则复检误判 revise。
 
 > **v0.99.17**：**训练文风硬核对**——`agency::style_probe::build_exemplar` 在口语样本外新增「叙述样本」：按段落统计平均句长，优先选不低于原文基线、对白占比 <25% 的段落（首/中/尾章各一段；full 最多 4 段/1800 字，compact 2 段/900 字），提示词明确要求口语与叙述两类都模仿。新增 `severe_drift_issue(baseline, draft)`：句长 <0.65×基线且口语词 <0.6×基线（或对白低 20pt、比喻密度 >2.5×基线）时生成带具体指标的问题。`AgencyCoordinator` 新增 `style_baseline: Option<Arc<StyleProfile>>` 与 `with_style_baseline`；`evaluate_gate_impl` 新增 `style_issue` 参数，训练中即使 editor 判 pass 也强制 `RevisionRequired` 一次（editor 已判 revise 时并入 issues），与 `mainline_missing` 同语义；`revision_prose_direct` 已带原文语体样本，修订有可模仿的长句/口语目标。普通续写 `style_baseline`/`style_issue` 均为 None，writer/gate 提示词逐字不变。
 

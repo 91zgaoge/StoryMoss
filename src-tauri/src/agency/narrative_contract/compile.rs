@@ -337,7 +337,10 @@ pub fn axis_keywords(kind: ChangeKind) -> &'static [&'static str] {
             "决定", "改变", "放弃", "转向", "目标", "选择", "答应", "拒绝",
         ],
         ChangeKind::Risk => &[
-            "危险", "威胁", "代价", "失去", "赌注", "筹码", "暴露", "追兵",
+            "危险", "威胁", "代价", "失去", "赌注", "筹码", "暴露", "追兵", "逼", "动手", "下手",
+            "翻脸", "收拾", "废", "丢", "扔", "沉", "杀", "砍", "刀", "枪", "追", "逃", "限期",
+            "后果", "命", "死", "押", "赔", "闯", "砸", "锁", "堵", "围", "压", "抢", "绑", "伤",
+            "血", "疼",
         ],
         ChangeKind::Emotion => &["怕", "怒", "悲", "喜", "羞", "恨", "颤", "哭", "笑", "心疼"],
     }
@@ -454,5 +457,13 @@ mod tests {
         assert_eq!(cc.scenes.len(), 1);
         assert_eq!(cc.scenes[0].index, 0);
         assert_eq!(cc.scenes[0].total, 1);
+    }
+
+    #[test]
+    fn risk_axis_keywords_cover_threat_and_weapon_words() {
+        let words = axis_keywords(ChangeKind::Risk);
+        for expected in ["刀", "枪", "逼", "命", "死", "追", "动手", "翻脸"] {
+            assert!(words.contains(&expected), "风险轴缺少证据词：{expected}");
+        }
     }
 }

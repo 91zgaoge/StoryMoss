@@ -2097,6 +2097,8 @@ mod tests {
             chapter_number: 144,
             title: "法不可亵".into(),
             goal: "周成离开医院后逛到福摩萨夜总会，当面冲撞邵卫江。".into(),
+            key_turn: String::new(),
+            voice_cues: vec![],
             cast: vec!["邵卫江".into(), "大波浪卷".into()],
             location: "福摩萨夜总会包厢".into(),
             key_terms: vec!["福摩萨夜总会".into(), "邵卫江".into()],

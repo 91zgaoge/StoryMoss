@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.99.17)
+# 🧪 StoryMoss 自动化测试环境 (v0.99.18)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.99.18 变更说明
+
+- Rust **2289 passed / 17 ignored**（+4）：`term_matches_accepts_venue_synonyms`（夜总会↔包厢/吧台/门厅、医院↔病房/走廊、道观↔三清殿）、`voice_cues_extract_key_dialogue_from_truth`（「妖孽，看我法宝！」进 voice_cues）、`ai_ism_issue_flags_repeated_body_reactions_per_chapter`（咯噔/后脊梁发麻/比喻密度）、`risk_axis_keywords_cover_threat_and_weapon_words`（刀/枪/逼/命/死/追/翻脸）。
+- tsc 0；Vitest **732 passed / 3 skipped**（数量不变，Rust-only）；Playwright **144 passed / 5 skipped**（全量复跑）；`cargo +nightly-2026-10-05 fmt`、`cargo clippy`（0 error）、`python3 scripts/architecture_guard.py`、`npm run format:check`（src-frontend）全绿。
+- 验收：用 v0.99.18 重跑同一 10 章训练，确认①报告 voice/style 回升、145 立威机制与 148「看我法宝」落地；②146 不再因「夜总会」未出现被判主线缺失；③151 类身体反应套语减少，AI 腔 gate 强制修订不拖出 deadline；④普通续写（无 style baseline）gate 提示词逐字不变。
 
 ### v0.99.17 变更说明
 
