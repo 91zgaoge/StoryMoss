@@ -427,6 +427,7 @@ fn spawn_observe_editor(
             None,
             None,
             None,
+            None,
         )
         .await;
         match result {

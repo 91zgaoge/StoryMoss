@@ -250,6 +250,61 @@ fn deviation(value: f64, baseline: f64, ratio: f64) -> bool {
     ((value - baseline) / baseline).abs() > ratio
 }
 
+/// 严重文风漂移 → gate 强制修订问题。
+///
+/// 真机 2026-11-24 报告：144–153 章句长 9.5–13.3（原文 19.2）、口语词
+/// 1.1–1.4/千字（原文 3.3）；149 章 editor 直接判 style 5「冷硬 noir」。
+/// 只有 editor 分数触发不够（多数章 style 7 仍通过），这里用确定性指标
+/// 兜底：句长偏短 + 口语词不足（或比喻密度超基线 2.5 倍）时，即使 editor
+/// 放行也要求修订一次。
+pub fn severe_drift_issue(baseline: &StyleProfile, plain: &str) -> Option<String> {
+    if baseline.chars == 0 || plain.trim().is_empty() {
+        return None;
+    }
+    let p = profile(plain);
+    let mut flags: Vec<String> = Vec::new();
+    let short =
+        baseline.avg_sentence_len > 0.0 && p.avg_sentence_len < baseline.avg_sentence_len * 0.65;
+    let colloquial =
+        baseline.colloquial_per_k > 0.5 && p.colloquial_per_k < baseline.colloquial_per_k * 0.6;
+    let low_dialogue = p.dialogue_ratio + 0.20 < baseline.dialogue_ratio;
+    let metaphor = baseline.metaphor_per_k > 0.3
+        && p.metaphor_per_k > baseline.metaphor_per_k * 2.5
+        && p.metaphor_per_k > 1.5;
+    if short {
+        flags.push(format!(
+            "平均句长 {:.1} 字（原文 {:.1}）",
+            p.avg_sentence_len, baseline.avg_sentence_len
+        ));
+    }
+    if colloquial {
+        flags.push(format!(
+            "口语词 {:.1}/千字（原文 {:.1}）",
+            p.colloquial_per_k, baseline.colloquial_per_k
+        ));
+    }
+    if low_dialogue {
+        flags.push(format!(
+            "对白占比 {:.0}%（原文 {:.0}%）",
+            p.dialogue_ratio * 100.0,
+            baseline.dialogue_ratio * 100.0
+        ));
+    }
+    if metaphor {
+        flags.push(format!(
+            "比喻密度 {:.1}/千字（原文 {:.1}）",
+            p.metaphor_per_k, baseline.metaphor_per_k
+        ));
+    }
+    if flags.len() < 2 && !metaphor {
+        return None;
+    }
+    Some(format!(
+        "文风严重偏离原文基线：{}。必须按【原文语体样本与基线】恢复原文句长节奏、市井口语与自嘲，禁止冷硬 noir 化与短句堆叠。",
+        flags.join("；")
+    ))
+}
+
 /// AI 腔探针：统计高频指纹，指出重复最多的三项。
 pub fn ai_ism_report(generated: &[(i32, String)]) -> String {
     let mut counts: std::collections::HashMap<&'static str, usize> =
@@ -344,32 +399,43 @@ pub fn build_exemplar(context: &[(usize, String)], compact: bool) -> String {
             .collect::<Vec<_>>()
             .join("\n"),
     );
-    let mut samples: Vec<(usize, String, i32)> = Vec::new();
+    let mut voice: std::collections::BTreeMap<usize, (String, i32)> =
+        std::collections::BTreeMap::new();
+    let mut narrative: std::collections::BTreeMap<usize, (String, i32)> =
+        std::collections::BTreeMap::new();
     for (number, content) in context {
         let plain = crate::utils::text::TextUtils::strip_leading_chapter_heading(
             &crate::export::content::content_to_plain_text(content),
         );
         for passage in candidate_passages(&plain) {
-            let score = passage_score(&passage);
-            samples.push((*number, passage, score));
+            let voice_score = passage_score(&passage);
+            let entry = voice
+                .entry(*number)
+                .or_insert((passage.clone(), voice_score));
+            if voice_score > entry.1 {
+                *entry = (passage.clone(), voice_score);
+            }
+            let n_score = narrative_score(&passage, &baseline);
+            if n_score > 0 {
+                let entry = narrative
+                    .entry(*number)
+                    .or_insert((passage.clone(), n_score));
+                if n_score > entry.1 {
+                    *entry = (passage, n_score);
+                }
+            }
         }
     }
-    if samples.is_empty() {
+    if voice.is_empty() && narrative.is_empty() {
         return String::new();
     }
-    // 每章最多取一段，避免样本全来自同一章。
-    let mut per_chapter: std::collections::BTreeMap<usize, (String, i32)> =
-        std::collections::BTreeMap::new();
-    for (number, passage, score) in samples {
-        let entry = per_chapter
-            .entry(number)
-            .or_insert((passage.clone(), score));
-        if score > entry.1 {
-            *entry = (passage, score);
-        }
-    }
-    // 选首/中/尾三章（compact 首/尾两章），保证语体覆盖全书。
-    let mut chapters: Vec<usize> = per_chapter.keys().copied().collect();
+    let mut chapters: Vec<usize> = voice
+        .keys()
+        .chain(narrative.keys())
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
     chapters.sort_unstable();
     let picks = if compact || chapters.len() < 3 {
         if chapters.len() >= 2 {
@@ -384,13 +450,33 @@ pub fn build_exemplar(context: &[(usize, String)], compact: bool) -> String {
             chapters[chapters.len() - 1],
         ]
     };
-    let mut picked: Vec<(usize, String)> = Vec::new();
-    for number in picks {
-        if let Some((passage, _)) = per_chapter.get(&number) {
-            picked.push((number, passage.clone()));
+    let mut picked: Vec<(&str, usize, String)> = Vec::new();
+    for number in &picks {
+        if let Some((passage, _)) = voice.get(number) {
+            picked.push(("口语", *number, passage.clone()));
         }
     }
-    let cap = if compact { 900 } else { 1600 };
+    // compact 只留 1 段口语，把第 2 个名额留给叙述样本；否则截断会把
+    // 叙述样本挤掉，短句问题仍在。
+    if compact && picked.len() > 1 {
+        picked.truncate(1);
+    }
+    // 叙述样本只取 1 段（compact 也 1 段），展示原文长句与连接词节奏；
+    // 口语样本不能替代叙述节奏，否则模型只学到短句对话，句长持续偏短。
+    if let Some(number) = picks
+        .iter()
+        .rev()
+        .find(|number| narrative.contains_key(number))
+        .copied()
+    {
+        if let Some((passage, _)) = narrative.get(&number) {
+            picked.push(("叙述", number, passage.clone()));
+        }
+    }
+    if picked.len() > if compact { 2 } else { 4 } {
+        picked.truncate(if compact { 2 } else { 4 });
+    }
+    let cap = if compact { 900 } else { 1800 };
     let mut out = String::new();
     out.push_str(&format!(
         "【原文语体样本与基线（逐章对照；模仿其句长、口语颗粒、第一人称碎嘴、市井物象与自嘲；禁止改成冷硬侦探腔/书面总结腔）】\n{}\n",
@@ -400,13 +486,35 @@ pub fn build_exemplar(context: &[(usize, String)], compact: bool) -> String {
         "写作硬约束：本章句长/对白/第一人称/口语词/比喻应落在原文基线 ±25% 内；\
          每章至少一处主角自嘲或市井调侃；禁止整章冷硬侦探腔、格言式旁白与书面总结腔；\
          禁止用「后槽牙/喉头一紧/发麻/发凉/酥麻/钻心」等身体反应替代动作与对白；\
-         「不是……而是……」每章最多一次；比喻每 500 字最多一处。\n",
+         「不是……而是……」每章最多一次；比喻每 500 字最多一处。\
+         叙述样本用于校准长句与连接词节奏，口语样本用于校准市井对白；两类都要模仿，不能只写短句。\n",
     );
-    for (index, (number, passage)) in picked.iter().enumerate() {
+    for (kind, number, passage) in picked.iter() {
         let passage: String = passage.chars().take(420).collect();
-        out.push_str(&format!("[样本{}·第{number}章] {}\n", index + 1, passage));
+        out.push_str(&format!("[{kind}样本·第{number}章] {passage}\n"));
     }
     crate::agency::continue_assets::truncate_chars(&out, cap)
+}
+
+/// 叙述样本评分：优先「平均句长不低于原文基线、对白占比低」的段落。
+/// 真机生成句长 9.5–13.3（原文 19.2），只抽口语/对白样本会继续强化短句。
+fn narrative_score(passage: &str, baseline: &StyleProfile) -> i32 {
+    let p = profile(passage);
+    if p.sentences < 2 || p.dialogue_ratio > 0.25 {
+        return 0;
+    }
+    let mut score = 0i32;
+    if baseline.avg_sentence_len > 0.0 && p.avg_sentence_len >= baseline.avg_sentence_len {
+        score += 4;
+    } else if baseline.avg_sentence_len > 0.0
+        && p.avg_sentence_len >= baseline.avg_sentence_len * 0.85
+    {
+        score += 2;
+    }
+    if p.chars >= 150 {
+        score += 1;
+    }
+    score
 }
 
 fn candidate_passages(plain: &str) -> Vec<String> {
@@ -501,6 +609,41 @@ mod tests {
         let line = drift_report(&baseline, &generated);
         assert!(line.contains("第144章"));
         assert!(line.contains("对白") || line.contains("句长"));
+    }
+
+    #[test]
+    fn severe_drift_issue_flags_short_sentences_and_low_colloquial() {
+        let baseline = profile(
+            &"我蹲在门槛上，叼着半根烟，心里琢磨着这买卖咋整，嘴上跟老曹扯两句啥，甭管值不值当。"
+                .repeat(4),
+        );
+        let draft = "他推门。门轴响了。灯灭了。风进来。街上没人。";
+        let issue = severe_drift_issue(&baseline, draft).expect("应判严重漂移");
+        assert!(issue.contains("句长") || issue.contains("口语词"));
+        assert!(issue.contains("原文语体样本"));
+        let normal =
+            "我蹲在门槛上，叼着半根烟，看着院里那棵老槐树的影子一点一点挪到墙根，心里琢磨着这买卖咋整，嘴上还得跟老曹扯两句啥，甭管值不值当。";
+        assert!(severe_drift_issue(&baseline, normal).is_none());
+    }
+
+    #[test]
+    fn compact_exemplar_keeps_both_voice_and_narrative_samples() {
+        let context = vec![
+            (
+                134,
+                "我蹲在门槛上，叼着半根烟：“咋整？甭跟老子扯那些没用的。”我心里琢磨，这事儿得整个明白。".repeat(4),
+            ),
+            (
+                135,
+                "我蹲在门槛上，看着院里那棵老槐树的影子一点一点挪到墙根，心里琢磨着这趟买卖到底值不值当，嘴上还得跟老曹扯两句闲篇。".repeat(4),
+            ),
+        ];
+        let exemplar = build_exemplar(&context, true);
+        assert!(exemplar.contains("口语样本"), "{exemplar}");
+        assert!(
+            exemplar.contains("叙述样本"),
+            "compact 必须保留叙述样本: {exemplar}"
+        );
     }
 
     #[test]

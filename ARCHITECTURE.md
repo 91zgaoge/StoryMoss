@@ -1,4 +1,6 @@
-# StoryMoss v0.99.16 架构文档
+# StoryMoss v0.99.17 架构文档
+
+> **v0.99.17**：**训练文风硬核对**——`agency::style_probe::build_exemplar` 在口语样本外新增「叙述样本」：按段落统计平均句长，优先选不低于原文基线、对白占比 <25% 的段落（首/中/尾章各一段；full 最多 4 段/1800 字，compact 2 段/900 字），提示词明确要求口语与叙述两类都模仿。新增 `severe_drift_issue(baseline, draft)`：句长 <0.65×基线且口语词 <0.6×基线（或对白低 20pt、比喻密度 >2.5×基线）时生成带具体指标的问题。`AgencyCoordinator` 新增 `style_baseline: Option<Arc<StyleProfile>>` 与 `with_style_baseline`；`evaluate_gate_impl` 新增 `style_issue` 参数，训练中即使 editor 判 pass 也强制 `RevisionRequired` 一次（editor 已判 revise 时并入 issues），与 `mainline_missing` 同语义；`revision_prose_direct` 已带原文语体样本，修订有可模仿的长句/口语目标。普通续写 `style_baseline`/`style_issue` 均为 None，writer/gate 提示词逐字不变。
 
 > **v0.99.16**：**日志巡检三处收口**——①`HealthRegistry::record_prompt_limit_failure` 的参数改为客户端估算 `prompt_tokens_est`（`prompt_chars/2`），GPU OOM 学习与候选容量闸门同单位；`executor::estimate_prompt_tokens` 把 `system_prompt` 计入估算，`resolve_role_model`/候选打分/候选循环共用。旧实现存服务端 tokenizer 计数（中文约 0.71 token/字），学到的上限比闸门估算高约 40%，容量路由不触发（11-24 连续 8 次 Qwren OOM）。②`task_system::continuation_training::suspect_new_terms` 增加首字介词/动词/数词过滤、时间词停用、称谓后缀与器物收尾，记忆探针不再把跨词短语当新专名。③`tracing::sweep_interrupted_traces` 在 `TraceStore::new`（State 就绪前、窗口创建前）同步清理 mtime 超 30 分钟仍 `running` 的 trace：`close_open_steps("failed")` + `finish("failed", 中断原因)`，读写/解析失败跳过，多实例阈值防误伤。
 >

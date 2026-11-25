@@ -1209,6 +1209,8 @@ pub struct AgencyCoordinator {
     /// v0.99.15：训练「原文语体样本与基线」。每章都注入，不再依赖上一轮
     /// style 分是否低于 6.0；普通续写为 None。
     style_exemplar: Option<Arc<String>>,
+    /// v0.99.15：训练原文语体量化基线；gate 用它做严重漂移硬核对。
+    style_baseline: Option<Arc<crate::agency::style_probe::StyleProfile>>,
     /// P0-1（v0.66.0）：测试用向量库注入。生产从 Tauri State 取
     /// （见 `retrieval_store`），测试用 `for_test_with_store` 注入。
     #[cfg(test)]
@@ -1236,6 +1238,7 @@ impl AgencyCoordinator {
             direct_gate_json: false,
             mainline_projection: None,
             style_exemplar: None,
+            style_baseline: None,
             #[cfg(test)]
             test_vector_store: None,
             #[cfg(test)]
@@ -1260,6 +1263,7 @@ impl AgencyCoordinator {
             direct_gate_json: false,
             mainline_projection: None,
             style_exemplar: None,
+            style_baseline: None,
             #[cfg(test)]
             test_vector_store: None,
             #[cfg(test)]
@@ -1333,6 +1337,19 @@ impl AgencyCoordinator {
             None
         } else {
             Some(Arc::new(exemplar))
+        };
+        self
+    }
+
+    /// v0.99.15：训练原文语体量化基线（gate 严重漂移硬核对）。
+    pub fn with_style_baseline(
+        mut self,
+        baseline: crate::agency::style_probe::StyleProfile,
+    ) -> Self {
+        self.style_baseline = if baseline.chars == 0 {
+            None
+        } else {
+            Some(Arc::new(baseline))
         };
         self
     }
@@ -1716,6 +1733,7 @@ impl AgencyCoordinator {
             direct_gate_json: self.direct_gate_json,
             mainline_projection: self.mainline_projection.clone(),
             style_exemplar: self.style_exemplar.clone(),
+            style_baseline: self.style_baseline.clone(),
             #[cfg(test)]
             test_vector_store: self.test_vector_store.clone(),
             #[cfg(test)]
@@ -3600,6 +3618,7 @@ impl AgencyCoordinator {
                 None,
                 None,
                 None,
+                None,
             )
             .await;
             // 取消后不再产出裁决/toast：用户已经终止这次生成，噪声反馈只会误导
@@ -3881,6 +3900,7 @@ impl AgencyCoordinator {
                 direct_gate_json: false,
                 mainline_projection: None,
                 style_exemplar: None,
+                style_baseline: None,
                 #[cfg(test)]
                 test_vector_store: None,
                 #[cfg(test)]
@@ -9148,6 +9168,7 @@ impl AgencyCoordinator {
             direct_gate_json: self.direct_gate_json,
             mainline_projection: self.mainline_projection.clone(),
             style_exemplar: self.style_exemplar.clone(),
+            style_baseline: self.style_baseline.clone(),
         }
     }
 
@@ -9209,6 +9230,9 @@ impl AgencyCoordinator {
             .style_exemplar
             .as_deref()
             .map(|exemplar| crate::agency::continue_assets::truncate_chars(exemplar, 700));
+        let style_issue = self.style_baseline.as_deref().and_then(|baseline| {
+            crate::agency::style_probe::severe_drift_issue(baseline, &draft_plain)
+        });
         let (outcome, gate_score) = evaluate_gate_impl(
             &llm,
             budget,
@@ -9230,6 +9254,7 @@ impl AgencyCoordinator {
             mainline_block.as_deref(),
             mainline_missing.as_deref(),
             style_reference.as_deref(),
+            style_issue.as_deref(),
         )
         .await?;
         // gate 观察埋点（best-effort）：outcome/round/key/issues_count/weighted
@@ -10050,6 +10075,8 @@ pub(crate) async fn evaluate_gate_impl(
     mainline_missing: Option<&[String]>,
     // v0.99.15：训练原文语体基线（editor 核对文风漂移用）。
     style_reference: Option<&str>,
+    // v0.99.15：确定性严重文风漂移问题；非空时即使 editor 放行也强制修订一次。
+    style_issue: Option<&str>,
 ) -> Result<(GateOutcome, Option<crate::agency::gate::GateScore>), AppError> {
     // 1) editor 裁决（解析失败重试一次）。
     // v0.30.19: 本地模型（Qwen/Gemma）在 ReAct tool_loop 内常不遵从 JSON
@@ -10478,6 +10505,33 @@ pub(crate) async fn evaluate_gate_impl(
     } else {
         outcome
     };
+    // v0.99.15：训练文风严重漂移硬拦截（与主线缺失同语义：只做一轮修订）。
+    let outcome = if let Some(issue) = style_issue.map(str::trim).filter(|s| !s.is_empty()) {
+        match outcome {
+            GateOutcome::Passed { mut verdict } => {
+                let value = serde_json::Value::String(issue.to_string());
+                if !verdict.blocking_issues.contains(&value) {
+                    verdict.blocking_issues.push(value);
+                }
+                GateOutcome::RevisionRequired {
+                    issues: vec![issue.to_string()],
+                    verdict,
+                }
+            }
+            GateOutcome::RevisionRequired {
+                mut issues,
+                verdict,
+            } => {
+                if !issues.iter().any(|existing| existing == issue) {
+                    issues.push(issue.to_string());
+                }
+                GateOutcome::RevisionRequired { issues, verdict }
+            }
+            other => other,
+        }
+    } else {
+        outcome
+    };
     // 4) 判定落审查区（编辑审计为审查区 owner，active）
     record_gate_impl(
         board,
@@ -10642,6 +10696,8 @@ pub struct GateRunner {
     /// v0.99.15：训练主线投影与语体样本（普通批量为 None）。
     mainline_projection: Option<Arc<crate::agency::mainline::MainlineProjection>>,
     style_exemplar: Option<Arc<String>>,
+    /// v0.99.15：训练原文语体量化基线；gate 用它做严重漂移硬核对。
+    style_baseline: Option<Arc<crate::agency::style_probe::StyleProfile>>,
 }
 
 impl GateRunner {
@@ -10667,6 +10723,9 @@ impl GateRunner {
             .style_exemplar
             .as_deref()
             .map(|exemplar| crate::agency::continue_assets::truncate_chars(exemplar, 700));
+        let style_issue = self.style_baseline.as_deref().and_then(|baseline| {
+            crate::agency::style_probe::severe_drift_issue(baseline, &draft_plain)
+        });
         let (outcome, gate_score) = evaluate_gate_impl(
             &self.llm,
             &self.budget,
@@ -10685,6 +10744,7 @@ impl GateRunner {
             mainline_block.as_deref(),
             mainline_missing.as_deref(),
             style_reference.as_deref(),
+            style_issue.as_deref(),
         )
         .await?;
         // gate 观察埋点（best-effort；并行批量路径与 coordinator.evaluate_gate

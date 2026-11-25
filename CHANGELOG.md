@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.17（2026-11-25）
+
+**续写训练文风硬核对：原文语体样本补「叙述长句」样本，句长/口语词严重漂移时即使编辑放行也强制改一次。**
+
+- 证据（v0.99.16 真机 10 章训练报告 `7b878237`）：主线修复已生效——`reference_gap` 从 2.9/2.95 升到 6.67、主线落地探针 9/10 章 ✓、AI 腔探针未检出；但文风漂移探针显示 10 章平均句长 9.5–13.3（原文基线 19.2）、口语词 1.1–1.4/千字（基线 3.3），第 149 章 editor 直接判 style 5「冷硬 noir 化」。原样本只抽口语/对白段落，模型越写越短。
+- 改动：`style_probe::build_exemplar` 增加「叙述样本」——从上下文章抽平均句长不低于原文基线、对白占比 <25% 的段落（首/中/尾章各一段），与口语样本一起注入，明确要求两类都模仿、不能只写短句；`severe_drift_issue` 新增确定性严重漂移判定（句长 <0.65×基线 + 口语词 <0.6×基线（或对白低 20pt / 比喻 >2.5×基线）时生成具体问题）；coordinator 新增 `with_style_baseline` 与 gate `style_issue`：训练中即使 editor 判 pass，只要严重漂移也强制 `RevisionRequired` 一次（editor 已判 revise 时并入 issues）；`evaluate_gate_impl` 调用点同步扩展。
+- **测试**：Rust **2285/17**（+2：`severe_drift_issue_flags_short_sentences_and_low_colloquial`、`compact_exemplar_keeps_both_voice_and_narrative_samples`）；tsc 0；Vitest **732/3**（数量不变，Rust-only）；Playwright **144/5**（全量复跑）；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：用 v0.99.17 重跑同一 10 章训练，确认句长/口语词漂移收敛、149 类「冷硬 noir」章减少，且强制修订不把总时长拖出 deadline；连续两轮观察。
+
 ## v0.99.16（2026-11-25）
 
 **日志巡检：GPU 容量路由真正生效（不再连续重撞 OOM）、记忆探针不再把跨词短语当新专名、异常退出后 trace 不再永久卡在 running。本版同时包含上一轮未发版的 v0.99.15（续写训练原著主线投影 + 原文语体样本常驻）。**

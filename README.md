@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.16-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.17-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.17 · 训练文风硬核对：叙述长句样本 + 严重漂移强制修订
+
+- **问题**：v0.99.16 真机 10 章报告 `7b878237` 主线已修复（`reference_gap` 2.9→6.67、主线探针 9/10 ✓、AI 腔未检出），但「文风漂移探针」显示句长 9.5–13.3（原文基线 19.2）、口语词 1.1–1.4/千字（基线 3.3），第 149 章编审直接判 style 5「冷硬 noir」。原样本只抽口语/对白段落，模型越写越短；多数章 style 7 被放行，确定性漂移没有进入质检。
+- **结果**：原文语体样本新增「叙述样本」——平均句长不低于原文基线、对白占比 <25% 的段落（首/中/尾章各一段），与口语样本一起注入，明确要求两类都模仿；新增 `severe_drift_issue` 确定性判定（句长 <0.65×基线 + 口语词 <0.6×基线，或对白低 20pt、比喻 >2.5×基线），训练中即使编审放行也强制修订一次，修订直出同样带原文样本。新增 2 条回归测试；Rust **2285/17**、tsc 0、Vitest **732/3**、Playwright **144/5**、fmt/clippy/guard/prettier 全绿。
 
 ### v0.99.16 · 日志巡检：容量路由 / 记忆探针 / trace 收尾
 

@@ -793,8 +793,10 @@ impl TaskExecutor for ContinuationTrainingExecutor {
         .with_assets_seeded(true)
         .with_batch_progress(progress_sink)
         .with_compact_prompt(compact_prompt)
-        // v0.99.15：原文语体样本每章常驻 writer/修订 prompt。
+        // v0.99.15：原文语体样本每章常驻 writer/修订 prompt；量化基线供
+        // gate 做「严重漂移」硬核对（句长偏短 + 口语词不足）。
         .with_style_exemplar(style_exemplar.clone())
+        .with_style_baseline(style_baseline)
         // v0.99.7：训练批量质检直连 JSON，绕开本地模型永不遵从的
         // ReAct action 格式（真机 v0.99.6 9/10 章质检降级）。
         .with_direct_gate_json(true);

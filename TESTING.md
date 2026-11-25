@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.99.16)
+# 🧪 StoryMoss 自动化测试环境 (v0.99.17)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.99.17 变更说明
+
+- Rust **2285 passed / 17 ignored**（+2）：`severe_drift_issue_flags_short_sentences_and_low_colloquial`（句长 <0.65×基线 + 口语词 <0.6×基线判严重漂移并生成带具体指标的问题；长句正常稿不误报）、`compact_exemplar_keeps_both_voice_and_narrative_samples`（compact 模式保留口语+叙述两类样本）；`style_probe` 共 6 条。
+- tsc 0；Vitest **732 passed / 3 skipped**（数量不变，Rust-only）；Playwright **144 passed / 5 skipped**（全量复跑）；`cargo +nightly-2026-10-05 fmt`、`cargo clippy`（0 error）、`python3 scripts/architecture_guard.py`、`npm run format:check`（src-frontend）全绿。
+- 验收：用 v0.99.17 重跑同一 10 章训练，确认①报告「文风漂移探针」的句长/口语词偏离收窄；②第 149 类「冷硬 noir」章减少或消失；③gate 出现「文风严重偏离原文基线」强制修订但不拖出 deadline；④普通续写（无 style baseline）gate 提示词逐字不变。
 
 ### v0.99.16 变更说明
 
