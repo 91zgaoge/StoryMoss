@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.18-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.19-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.19 · 训练二次收敛：第一人称 POV/动作钩 + 叙述样本权重
+
+- **问题**：v0.99.18 真机报告 `29f3107d`（0.7169 / style 6.875 / voice 7.125 / `reference_gap` 6.5 / 主线探针 9/10 ✓）显示 voice 回升（145 章编审写「口语文体贴合样本，短句、自嘲、语气词都在线」），但句长仍 11.3–13.0（原文 19.2），149/150 纪年与玉碟、146 时间线仍有硬伤；gate 2 通过/8 修订，其中 144 因第一人称正文没有「周成」被判 POV 缺失、章末「路少，把门关上」不被识别为钩子。
+- **结果**：质检接受第一人称（正文「我」≥3 次即视为 POV 在场），钩子证据词扩到关门/把门/锁/威胁/刀/枪/脚步声/纸条/短信等；语体样本改为 1 口语 + 2 叙述（compact 1+1），句长阈值收紧到 0.75×基线、口语 0.65×、比喻 >3/千字。新增 1 条回归测试；Rust **2290/17**、tsc 0、Vitest **732/3**、Playwright **144/5**、fmt/clippy/guard/prettier 全绿。
 
 ### v0.99.18 · 训练「声音」修复：真实章关键台词/转折 + 单章 AI 腔/地点同义词
 

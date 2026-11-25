@@ -1,4 +1,6 @@
-# StoryMoss v0.99.18 架构文档
+# StoryMoss v0.99.19 架构文档
+
+> **v0.99.19**：**训练二次收敛**——`narrative_contract::verify` 的 POV 核对接受第一人称：正文「我」≥3 次且未出现 POV 姓名时视为 POV 在场（第一人称续写不会写「周成」）；钩子证据词扩到关门/把门/锁/插上/威胁/刀/枪/脚步声/来人/纸条/短信/电话等动作与悬念词。`agency::style_probe::build_exemplar` 样本权重改为 1 段口语 + 2 段叙述（compact 1+1），叙述长句占多数样本位；`severe_drift_issue` 阈值收紧到句长 <0.75×基线、口语词 <0.65×基线、比喻 >3/千字且 >1.5×基线。gate `style_issue` 仍与 `mainline_missing` 同语义强制修订一次；普通续写参数仍为 None。
 
 > **v0.99.18**：**训练「声音」修复**——`MainlineBeat` 新增 `key_turn`（真实章最大转折，必须写出机制）与 `voice_cues`（真实章关键对白，≤3 条/40 字，truth_hints 教学信号）；`render_beat_block` 把「本章关键转折」「本章关键对白语感」注入章纲 `scene_info` 与 writer task。`term_matches` 增加场景类型同义词（夜总会↔包厢/吧台/门厅/场子/会所，医院↔病房/走廊/诊室，道观↔三清殿等），避免 146 类正确章因地点名未出现被判主线缺失。`style_probe::ai_ism_issue` 单章统计「咯噔≥2、后脊梁/脊背+发麻/发凉、后槽牙、心里一紧≥2、不是…而是≥2、比喻密度>4/千字」，`AgencyCoordinator` 的 `style_issue` 在 `severe_drift_issue` 之后 `or_else(ai_ism_issue)`，训练 gate 即使 editor 放行也强制修订一次。`build_exemplar` 改为全章节按得分取最高 2 段口语 + 1 段叙述（compact 1+1），不再只看首/中/尾章。训练红线语体边界改「每章至少 3 处市井碎嘴/语气词/自嘲，比喻每章不超过 3 处，同章身体反应套语不得重复」。`narrative_contract` 的 risk 证据词扩到刀/枪/逼/命/死/追/动手/翻脸等，emotion 证据词扩到给/送/赠/护/让/面子/人情等，减少正确章被规则复检误判 revise。
 

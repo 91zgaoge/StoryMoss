@@ -100,7 +100,12 @@ pub fn verify_contract(contract: &SceneContract, prose: &str) -> ContractVerific
     }
 
     // 目标：POV 与阻力双方都出场，且正文不是纯粹复述。
-    let pov_met = !contract.pov.trim().is_empty() && plain.contains(contract.pov.trim());
+    // v0.99.19：第一人称续写里正文只写「我」，不会出现权威姓名「周成」；
+    // 旧核对要求字面姓名，正确章节会被判 POV 缺失并触发无谓修订。
+    let pov = contract.pov.trim();
+    let pov_met = !pov.is_empty()
+        && (plain.contains(pov)
+            || (plain.matches("我").count() >= 3 && plain.matches(pov).count() == 0));
     let goal_status = if pov_met && opp_met {
         ContractStatus::Met
     } else if pov_met {
@@ -204,7 +209,44 @@ pub fn verify_contract(contract: &SceneContract, prose: &str) -> ContractVerific
         || tail.contains('？')
         || contains_any(
             &tail,
-            &["问题", "不知道", "还没", "带走", "等到", "门外", "下一步"],
+            &[
+                "问题",
+                "不知道",
+                "还没",
+                "带走",
+                "等到",
+                "门外",
+                "下一步",
+                "关门",
+                "把门",
+                "锁",
+                "插上",
+                "按住",
+                "拦住",
+                "留下",
+                "别走",
+                "明天",
+                "三天",
+                "期限",
+                "威胁",
+                "警告",
+                "盯着",
+                "盯",
+                "追",
+                "埋伏",
+                "刀",
+                "枪",
+                "脚步声",
+                "来人",
+                "现身",
+                "纸条",
+                "短信",
+                "电话",
+                "命",
+                "死",
+                "再说",
+                "回头",
+            ],
         );
     out.fields.push(FieldResult {
         field: "hook".into(),
@@ -303,6 +345,34 @@ mod tests {
         let v = verify_contract(&contract(), &prose);
         assert!(v.passed(), "{:?}", v.hard_failures);
         assert!(v.score() >= 0.5);
+    }
+
+    #[test]
+    fn first_person_prose_satisfies_named_pov_and_action_hook() {
+        let mut c = contract();
+        c.pov = "周成".into();
+        c.opposition = "邵卫江".into();
+        c.goal = "周成必须让邵卫江承认规矩".into();
+        c.hook_out = "路少把门关上".into();
+        let prose = format!(
+            "我站在包厢里，邵卫江逼我当场耍把戏，我拒绝，双方翻脸。\
+             我把烟从嘴里拿下来，看着邵卫江，给了赵开来面子，也把话搁下。\
+             路少，把门关上。{}",
+            "我站着没动，邵卫江的人围过来，我又把话重复了一遍。\
+             路少，把门关上。"
+                .repeat(4)
+        );
+        let v = verify_contract(&c, &prose);
+        assert!(
+            !v.soft_issues.iter().any(|s| s.contains("POV")),
+            "第一人称不应判 POV 缺失: {:?}",
+            v.soft_issues
+        );
+        assert!(
+            !v.soft_issues.iter().any(|s| s.contains("钩子")),
+            "把门关上应为有效动作钩: {:?}",
+            v.soft_issues
+        );
     }
 
     #[test]

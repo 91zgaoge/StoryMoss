@@ -307,13 +307,13 @@ pub fn severe_drift_issue(baseline: &StyleProfile, plain: &str) -> Option<String
     let p = profile(plain);
     let mut flags: Vec<String> = Vec::new();
     let short =
-        baseline.avg_sentence_len > 0.0 && p.avg_sentence_len < baseline.avg_sentence_len * 0.65;
+        baseline.avg_sentence_len > 0.0 && p.avg_sentence_len < baseline.avg_sentence_len * 0.75;
     let colloquial =
-        baseline.colloquial_per_k > 0.5 && p.colloquial_per_k < baseline.colloquial_per_k * 0.6;
+        baseline.colloquial_per_k > 0.5 && p.colloquial_per_k < baseline.colloquial_per_k * 0.65;
     let low_dialogue = p.dialogue_ratio + 0.20 < baseline.dialogue_ratio;
     let metaphor = baseline.metaphor_per_k > 0.3
-        && p.metaphor_per_k > baseline.metaphor_per_k * 2.5
-        && p.metaphor_per_k > 1.5;
+        && p.metaphor_per_k > baseline.metaphor_per_k * 1.5
+        && p.metaphor_per_k > 3.0;
     if short {
         flags.push(format!(
             "平均句长 {:.1} 字（原文 {:.1}）",
@@ -473,24 +473,22 @@ pub fn build_exemplar(context: &[(usize, String)], compact: bool) -> String {
     if voice.is_empty() && narrative.is_empty() {
         return String::new();
     }
-    // v0.99.18：不再只取首/中/尾章。全量按段落得分排序，口语取最高 2
-    // 段（compact 1 段）、叙述取最高 1 段——书里的幽默/市井段落常在中间
-    // 章节，首尾章抽样会让 voice 样本偏冷硬。
+    // v0.99.18：不再只取首/中/尾章。全量按段落得分排序；v0.99.19 调权重：
+    // 全量只取 1 段口语，叙述取 2 段——真机 report 显示模型仍把句长写短，
+    // 口语样本（短对话）会强化短句，必须让叙述长句样本占多数样本位。
     let mut voice_pool: Vec<(usize, String, i32)> =
         voice.into_iter().map(|(n, (p, s))| (n, p, s)).collect();
     voice_pool.sort_by(|a, b| b.2.cmp(&a.2).then(a.0.cmp(&b.0)));
-    let voice_take = if compact { 1 } else { 2 };
     let mut picked: Vec<(&str, usize, String)> = voice_pool
         .into_iter()
-        .take(voice_take)
+        .take(1)
         .map(|(number, passage, _)| ("口语", number, passage))
         .collect();
     let mut narrative_pool: Vec<(usize, String, i32)> =
         narrative.into_iter().map(|(n, (p, s))| (n, p, s)).collect();
     narrative_pool.sort_by(|a, b| b.2.cmp(&a.2).then(a.0.cmp(&b.0)));
-    if let Some((number, passage, _)) = narrative_pool.into_iter().next() {
-        // 叙述样本只取 1 段（compact 也 1 段），展示原文长句与连接词节奏；
-        // 口语样本不能替代叙述节奏，否则模型只学到短句对话，句长持续偏短。
+    let narrative_take = if compact { 1 } else { 2 };
+    for (number, passage, _) in narrative_pool.into_iter().take(narrative_take) {
         picked.push(("叙述", number, passage));
     }
 

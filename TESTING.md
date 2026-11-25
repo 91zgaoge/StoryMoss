@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.99.18)
+# 🧪 StoryMoss 自动化测试环境 (v0.99.19)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.99.19 变更说明
+
+- Rust **2290 passed / 17 ignored**（+1）：`first_person_prose_satisfies_named_pov_and_action_hook`（第一人称正文只有「我」时不判 POV「周成」缺失；「路少，把门关上」为有效动作钩）。
+- tsc 0；Vitest **732 passed / 3 skipped**（数量不变，Rust-only）；Playwright **144 passed / 5 skipped**（全量复跑）；`cargo +nightly-2026-10-05 fmt`、`cargo clippy`（0 error）、`python3 scripts/architecture_guard.py`、`npm run format:check`（src-frontend）全绿。
+- 验收：用 v0.99.19 重跑同一 10 章训练，确认①gate 不再因第一人称/动作钩误判、144 类章节直接通过而非误修订；②报告句长漂移收敛（叙述样本 2 段权重）；③149/150 年号/羽人图/玉碟与 146 时间线按改进项落地；④普通续写 gate 提示词逐字不变。
 
 ### v0.99.18 变更说明
 
