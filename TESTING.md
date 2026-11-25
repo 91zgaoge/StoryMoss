@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.99.23)
+# 🧪 StoryMoss 自动化测试环境 (v0.99.24)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.99.24 变更说明（训练规则提升 + 生产探针）
+
+- Rust **2304 passed / 17 ignored**（+5：`training_rules` 规则提升幂等/不复制人名、规则块上限、生产探针失败、空规则，V165 迁移幂等）。
+- tsc 0；Vitest **732 passed / 3 skipped**（Rust-only，不变）；Playwright **144 passed / 5 skipped**（全量复跑，不变）；fmt/clippy/guard/prettier 全绿。
+- 未关闭：安装后跑一轮训练再跑生产续写，确认规则入库、writer prompt 出现规则块、`[ProductionProbes]` 无回归失败。
 
 ### v0.99.23 变更说明（生产复用层）
 

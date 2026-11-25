@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.23-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.24-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.24 · 训练报告通用规则提升层 + 生产回归探针
+
+- **问题**：v0.99.23 已复用训练能力，但训练报告里的具体改进仍只回灌下一轮训练；具体书名/人名/情节不能跨故事搬运。
+- **结果**：新增 `training_rules` 与 V165 `training_rule_promotions`，从报告维度均分/通用信号提取 8 类不含书名/人名/情节的规则，按 key 去重累计；生产 writer/修订/genesis/auto_write/gate 自动注入规则块，装配后 `[ProductionProbes]` 核对文风/AI 腔/主线/承接/推进/口吻/节奏/钩子；旧报告升级时幂等补齐。Rust **2304/17**（+5）、tsc 0、Vitest **732/3**、Playwright **144/5**、fmt/clippy/guard/prettier 全绿。
 
 ### v0.99.23 · 续写训练能力全量复用：创世/普通续写/导演/单章均启用
 

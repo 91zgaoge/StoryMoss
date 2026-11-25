@@ -49,6 +49,9 @@ pub struct ProductionStatic {
     pub story_brief: Option<StoryBrief>,
     pub style_source: String,
     pub brief_source: String,
+    /// v0.99.24：从训练报告提升的通用规则（active，按累计次数排序）。
+    pub promoted_rule_block: Option<String>,
+    pub promoted_rule_count: usize,
 }
 
 /// 生产主线投影的纯输入（便于单测，不读 DB）。
@@ -590,12 +593,16 @@ pub fn build_static(pool: &DbPool, story_id: &str) -> ProductionStatic {
     } else {
         "none".to_string()
     };
+    let (promoted_rule_block, promoted_rule_count) =
+        crate::agency::training_rules::load_prompt_block(pool);
     ProductionStatic {
         style_exemplar: style.0,
         style_baseline: style.1,
         story_brief,
         style_source: style.2,
         brief_source,
+        promoted_rule_block,
+        promoted_rule_count,
     }
 }
 

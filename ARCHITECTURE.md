@@ -1,4 +1,6 @@
-# StoryMoss v0.99.23 架构文档
+# StoryMoss v0.99.24 架构文档
+
+> **v0.99.24**：**训练报告通用规则提升层 + 生产回归探针**——新增 `agency::training_rules`：从 `scores_json`/`improvement_md` 提取 8 类通用规则（不含书名/人名/情节），`train_rule_promotions` 按 key 去重累计（V165）；`ProductionStatic` 加载 active 规则并注入 writer/修订/genesis/auto_write/gate；`run_production_probes` 在批量/单章/genesis 装配后核对文风漂移/AI 腔/主线/承接/推进/口吻/节奏/钩子，写入 `[ProductionProbes]`；旧报告升级时从最近 8 份幂等补齐。
 
 > **v0.99.23**：**续写训练能力全量复用**——新增 `agency::production_context`：`StoryPlanInputs`/`from_story_plan` 从故事大纲 `【下一节点】`（兼容 `推进方向：`）、CHAPTER 合同 `goal/must_cover_nodes`、卷纲 `goal/climax`、Blueprint 逐章目的派生 `MainlineProjection`（`MainlineSource::StoryPlan`）；`build_static` 从前文 scene 抽 `style_probe` 语体样本/基线，无前文退到 corpus/StyleDNA，并确定性构建 `StoryBrief`（逐章事实/人物态/伏笔/白名单）。`AgencyCoordinator` 新增 `production_capabilities`/静态缓存/整批主线缓存；`write_chapter`、`write_beat_once`、`write_revision_chapter`、`generate_chapter_outline`、`revision_prose_direct`、`GateRunner`、`evaluate_gate`、genesis fastpath、`spawn_editor_qc` 全部接入；批量主线只有首章用「下一节点」，后续章用合同/卷纲 beat；生产默认直连编审 JSON；genesis 按题材推荐风格 DNA 自动绑定 `stories.style_dna_id`。生产写作红线 9 条；训练显式字段优先，不覆盖训练 LLM brief。
 

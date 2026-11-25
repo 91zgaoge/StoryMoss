@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.24（2026-11-25）
+
+**训练报告通用规则提升层 + 生产回归探针：每轮训练的可泛化结论自动进入生产续写。**
+
+- 新增 `agency/training_rules.rs`：从训练报告 `scores_json` 的维度均分与 `improvement_md` 的通用信号词提取 8 类通用规则（文风/AI 腔/主线落地/承接/推进/口吻/节奏/钩子），按 `rule_key` 去重累计；规则文本只含通用约束，不复制书名、人名、章号或具体情节。
+- V165 `training_rule_promotions` 持久化规则；训练报告落库后自动提升；升级时若规则表为空，从最近 8 份报告幂等补齐，旧训练也能进入生产线。
+- `ProductionStatic` 加载 active 规则；writer/修订/genesis fastpath/auto_write/单角色 writer 任务与 gate 参照文本注入规则块（上限 1800 字/8 条）；训练显式字段仍优先。
+- 生产回归探针按 active 规则核对文风漂移、AI 腔、主线落地、承接开篇重复、状态变化、对白互动、章长与章末强钩；批量/单章/genesis 装配后写入 `[ProductionProbes]` 日志，失败 warn。
+- Rust **2304/17**（+5：规则提升幂等/不复制人名、规则块上限、生产探针失败、空规则、V165 迁移）；tsc 0；Vitest **732/3**；Playwright **144/5**；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：安装 v0.99.24 后跑一轮训练再跑生产续写，确认规则自动入库、prompt 出现规则块、`[ProductionProbes]` 无回归失败；训练遗留 146/149/147/148 文风问题继续跟进。
+
 ## v0.99.23（2026-11-25）
 
 **续写训练能力全量复用：创世/智能创作/普通续写/导演/单章均启用主线投影、语体样本与基线、前情提要、写作红线、直连 gate。**

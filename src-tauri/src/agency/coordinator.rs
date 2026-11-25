@@ -1411,7 +1411,7 @@ impl AgencyCoordinator {
             &self.pool, story_id,
         ));
         log::info!(
-            "agency production context: story={} style_source={} style_chars={} brief_source={} brief_chars={}",
+            "agency production context: story={} style_source={} style_chars={} brief_source={} brief_chars={} promoted_rules={}",
             story_id,
             static_.style_source,
             static_
@@ -1429,7 +1429,8 @@ impl AgencyCoordinator {
                         .chars()
                         .count()
                 })
-                .unwrap_or(0)
+                .unwrap_or(0),
+            static_.promoted_rule_count
         );
         let mut cache = self
             .production_cache
@@ -1503,6 +1504,58 @@ impl AgencyCoordinator {
         (exemplar, baseline)
     }
 
+    /// 生产回归探针：装配后用训练报告沉淀规则核对当前章节，失败写 warn。
+    async fn log_production_probes(&self, story_id: &str, chapter_numbers: Vec<i32>) {
+        if !self.production_capabilities || chapter_numbers.is_empty() {
+            return;
+        }
+        let pool = self.pool.clone();
+        let sid = story_id.to_string();
+        let baseline = self.resolve_style(story_id).1;
+        let first = chapter_numbers.first().copied().unwrap_or(1);
+        let mainline = self
+            .mainline_projection
+            .clone()
+            .or_else(|| self.resolve_mainline(story_id, first, None));
+        let numbers = chapter_numbers;
+        let outcome = self
+            .db(move || {
+                let scenes = SceneRepository::new(pool.clone()).get_by_story(&sid)?;
+                let chapters: Vec<(i32, String)> = scenes
+                    .into_iter()
+                    .filter(|scene| numbers.contains(&scene.sequence_number))
+                    .map(|scene| {
+                        let text = scene
+                            .content
+                            .as_deref()
+                            .map(crate::export::content::content_to_plain_text)
+                            .unwrap_or_default();
+                        (scene.sequence_number, text)
+                    })
+                    .collect();
+                Ok(crate::agency::training_rules::run_production_probes(
+                    &pool,
+                    &chapters,
+                    baseline.as_deref(),
+                    mainline.as_deref(),
+                ))
+            })
+            .await;
+        match outcome {
+            Ok(result) if result.active_rules == 0 => {}
+            Ok(result) if result.failures.is_empty() => {
+                log::info!("[ProductionProbes] story={} {}", story_id, result.line)
+            }
+            Ok(result) => log::warn!(
+                "[ProductionProbes] story={} {}｜failures={:?}",
+                story_id,
+                result.line,
+                result.failures
+            ),
+            Err(e) => log::warn!("[ProductionProbes] story={} 探针失败: {}", story_id, e),
+        }
+    }
+
     /// 生产写作红线：训练显式指令已带 TRAINING_REDLINES 时不重复注入。
     fn production_redlines(&self) -> Option<&'static str> {
         if self.production_capabilities
@@ -1550,6 +1603,15 @@ impl AgencyCoordinator {
             if !exemplar.trim().is_empty() {
                 out.push_str("\n\n");
                 out.push_str(exemplar);
+            }
+        }
+        if let Some(rules) = static_
+            .as_ref()
+            .and_then(|s| s.promoted_rule_block.as_deref())
+        {
+            if !rules.trim().is_empty() {
+                out.push_str("\n\n");
+                out.push_str(rules);
             }
         }
         out
@@ -2099,6 +2161,7 @@ impl AgencyCoordinator {
                 if applied > 0 {
                     self.emit_progress(run_id, "assembly", "completed", "创世完成");
                     self.merge_gate_record_into_run(run_id, None).await;
+                    self.log_production_probes(&r.story_id, vec![1]).await;
                 } else {
                     log::warn!(
                         "agency: run {} 已终态（取消/失败），拒绝写入 completed，不发送完成事件",
@@ -3538,6 +3601,7 @@ impl AgencyCoordinator {
         // final。
         let mainline = self.resolve_mainline(&story_id, 1, None);
         let (style_exemplar, _style_baseline) = self.resolve_style(&story_id);
+        let production_static = self.production_static(&story_id);
         let mut assets_ctx = self
             .build_writer_assets_context(run_id, &story_id, premise, budget)
             .await;
@@ -3557,6 +3621,17 @@ impl AgencyCoordinator {
                     assets_ctx.push_str("\n\n");
                 }
                 assets_ctx.push_str(exemplar);
+            }
+        }
+        if let Some(rules) = production_static
+            .as_ref()
+            .and_then(|s| s.promoted_rule_block.as_deref())
+        {
+            if !rules.trim().is_empty() {
+                if !assets_ctx.is_empty() {
+                    assets_ctx.push_str("\n\n");
+                }
+                assets_ctx.push_str(rules);
             }
         }
         let writer_task = if assets_ctx.is_empty() {
@@ -3826,9 +3901,13 @@ impl AgencyCoordinator {
             None => (None, None),
         };
         let (qc_style_exemplar, qc_style_baseline) = self.resolve_style(&story_id);
-        let qc_style_reference = qc_style_exemplar
-            .as_deref()
-            .map(|ex| crate::agency::continue_assets::truncate_chars(ex, 700));
+        let qc_static = self.production_static(&story_id);
+        let qc_style_reference = gate_reference_text(
+            qc_style_exemplar.as_ref().map(|s| s.as_str()),
+            qc_static
+                .as_ref()
+                .and_then(|s| s.promoted_rule_block.as_deref()),
+        );
         let qc_style_issue = qc_style_baseline.as_deref().and_then(|baseline| {
             crate::agency::style_probe::severe_drift_issue(baseline, &draft_plain)
                 .or_else(|| crate::agency::style_probe::ai_ism_issue(&draft_plain))
@@ -4327,6 +4406,8 @@ impl AgencyCoordinator {
                 if applied > 0 {
                     self.emit_progress(run_id, "assembly", "completed", "续写完成");
                     self.merge_gate_record_into_run(run_id, Some(r.chapter_number))
+                        .await;
+                    self.log_production_probes(&r.story_id, vec![r.chapter_number])
                         .await;
                 } else {
                     log::warn!(
@@ -6819,6 +6900,15 @@ impl AgencyCoordinator {
                 user.push_str(exemplar);
             }
         }
+        if let Some(rules) = production_static
+            .as_ref()
+            .and_then(|s| s.promoted_rule_block.as_deref())
+        {
+            if !rules.trim().is_empty() {
+                user.push_str("\n\n");
+                user.push_str(rules);
+            }
+        }
         let frozen = self.continue_freeze.pin(
             run_id,
             crate::agency::continue_freeze::FrozenContinueShot {
@@ -7531,6 +7621,17 @@ impl AgencyCoordinator {
                 assets_ctx.push_str(exemplar);
             }
         }
+        if let Some(rules) = production_static
+            .as_ref()
+            .and_then(|s| s.promoted_rule_block.as_deref())
+        {
+            if !rules.trim().is_empty() {
+                if !assets_ctx.is_empty() {
+                    assets_ctx.push_str("\n\n");
+                }
+                assets_ctx.push_str(rules);
+            }
+        }
         // v0.79.1：批量续写按章契约 + 1–3 场投影写，不再只拿「章纲 + 资产 +
         // 有起伏」。契约失败只降级，不阻断批量；gate 仍取第一场契约核对。
         let deterministic = if crate::agency::narrative_contract::enabled() {
@@ -7861,6 +7962,15 @@ impl AgencyCoordinator {
             if !exemplar.trim().is_empty() {
                 assets_ctx.push_str("\n\n");
                 assets_ctx.push_str(exemplar);
+            }
+        }
+        if let Some(rules) = production_static
+            .as_ref()
+            .and_then(|s| s.promoted_rule_block.as_deref())
+        {
+            if !rules.trim().is_empty() {
+                assets_ctx.push_str("\n\n");
+                assets_ctx.push_str(rules);
             }
         }
         let mainline_task = mainline
@@ -9361,6 +9471,8 @@ impl AgencyCoordinator {
         // 收尾再查一次：最后一章 handle_gate 内修订/装配耗时长，确保 cancelled
         // 不被 completed 覆盖
         self.check_cancel(cancel)?;
+        let probe_numbers: Vec<i32> = chapters.iter().map(|c| c.chapter_number).collect();
+        self.log_production_probes(story_id, probe_numbers).await;
 
         Ok(AgencyBatchResult {
             run_id: run_id.to_string(),
@@ -9629,9 +9741,13 @@ impl AgencyCoordinator {
             None => (None, None),
         };
         let (gate_style_exemplar, gate_style_baseline) = self.resolve_style(story_id);
-        let style_reference = gate_style_exemplar
-            .as_deref()
-            .map(|exemplar| crate::agency::continue_assets::truncate_chars(exemplar, 700));
+        let gate_static = self.production_static(story_id);
+        let style_reference = gate_reference_text(
+            gate_style_exemplar.as_ref().map(|s| s.as_str()),
+            gate_static
+                .as_ref()
+                .and_then(|s| s.promoted_rule_block.as_deref()),
+        );
         let style_issue = gate_style_baseline.as_deref().and_then(|baseline| {
             crate::agency::style_probe::severe_drift_issue(baseline, &draft_plain)
                 .or_else(|| crate::agency::style_probe::ai_ism_issue(&draft_plain))
@@ -11163,9 +11279,12 @@ impl GateRunner {
                 .and_then(|s| s.style_baseline)
                 .map(Arc::new)
         });
-        let style_reference = gate_style_exemplar
-            .as_deref()
-            .map(|exemplar| crate::agency::continue_assets::truncate_chars(exemplar, 700));
+        let style_reference = gate_reference_text(
+            gate_style_exemplar.as_ref().map(|s| s.as_str()),
+            self.production_static
+                .as_ref()
+                .and_then(|s| s.promoted_rule_block.as_deref()),
+        );
         let style_issue = gate_style_baseline.as_deref().and_then(|baseline| {
             crate::agency::style_probe::severe_drift_issue(baseline, &draft_plain)
                 .or_else(|| crate::agency::style_probe::ai_ism_issue(&draft_plain))
@@ -11209,6 +11328,24 @@ impl GateRunner {
         );
         Ok(outcome)
     }
+}
+
+/// 生产 gate 参照文本：语体样本在前，训练沉淀规则在后；合并上限 1600。
+fn gate_reference_text(exemplar: Option<&str>, promoted_rules: Option<&str>) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(ex) = exemplar.filter(|s| !s.trim().is_empty()) {
+        parts.push(crate::agency::continue_assets::truncate_chars(ex, 700));
+    }
+    if let Some(rules) = promoted_rules.filter(|s| !s.trim().is_empty()) {
+        parts.push(rules.to_string());
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    Some(crate::agency::continue_assets::truncate_chars(
+        &parts.join("\n\n"),
+        1_600,
+    ))
 }
 
 /// gate 观察元数据（coordinator.evaluate_gate 与 'static GateRunner 共用）。

@@ -51,6 +51,7 @@ pub mod technique_feedback;
 pub mod tool_loop;
 pub mod tools;
 pub mod training_assets;
+pub mod training_rules;
 
 pub use models::*;
 

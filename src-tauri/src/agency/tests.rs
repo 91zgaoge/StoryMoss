@@ -6453,6 +6453,19 @@ async fn test_production_capabilities_inject_plan_mainline_style_and_brief() {
             },
         )
         .unwrap();
+    // v0.99.24：训练报告沉淀规则必须进入生产 writer prompt。
+    crate::agency::training_rules::TrainingRuleRepository::new(pool.clone())
+        .upsert(&crate::agency::training_rules::TrainingRule {
+            rule_key: "hooks.ending".into(),
+            dimension: "hooks".into(),
+            probe_kind: "hook_ending".into(),
+            rule_text: "章末只留一个具体强钩，禁止预告腔与多源堆叠。".into(),
+            source_report_id: "test-report".into(),
+            score: Some(4.0),
+            promotion_count: 1,
+            active: true,
+        })
+        .unwrap();
     let mock = RoutingMock::new(0);
     mock.push(
         "writer",
@@ -6507,6 +6520,13 @@ async fn test_production_capabilities_inject_plan_mainline_style_and_brief() {
     assert!(
         prompts.iter().any(|p| p.contains("前情提要")),
         "writer prompt 必须复用前情提要"
+    );
+    assert!(
+        prompts
+            .iter()
+            .any(|p| p.contains("训练报告沉淀通用规则") && p.contains("章末只留一个具体强钩")),
+        "writer prompt 必须注入训练报告沉淀规则: {:?}",
+        prompts
     );
 }
 

@@ -1217,6 +1217,23 @@ impl TaskExecutor for ContinuationTrainingExecutor {
             )
             .map_err(|e| e.to_string())?;
         }
+        // v0.99.24：报告 → 通用规则提升层。只沉淀维度短板与通用探针信号，
+        // 不复制书名/人名/具体情节；生产续写通过 active 规则注入并回归。
+        let promoted = crate::agency::training_rules::promote_from_report(
+            &self.pool,
+            &report_id,
+            &scores_json,
+            &improvement_md,
+        );
+        if promoted > 0 {
+            ctx.log(
+                "info",
+                &format!(
+                    "通用规则提升：{} 条报告规则已沉淀到 training_rule_promotions（生产续写自动注入）",
+                    promoted
+                ),
+            );
+        }
         self.cleanup_old_sandboxes(&payload.book_title, KEEP_SANDBOXES);
 
         ctx.update_progress(
