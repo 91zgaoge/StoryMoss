@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.21（2026-11-25）
+
+**创作思考强度回滚 + 空稿重试临时降 low + 文风门禁改建议性：低 effort 不再压低 voice/style。**
+
+- 证据（v0.99.20 真机 10 章报告 `21b15629`）：低 effort 让 10 章全部产出且编审 10/10 可用（上一轮 8/10），但总分 **0.689**（上一轮 0.7169）、style 6.75（6.875）、voice 6.5（7.125）——editor 判「黄玄然絮叨被削成短刀、陆尘音功能化、第一人称自嘲递减」；144 章 editor 原判 style 8/voice 8，确定性 style gate（句长 10.8<0.75×19.2）强制修订后报告 style 反而 6.5。空 content 仍出现：writer 输出额度已是 32768，`should_retry_truncated_empty` 因 `max_tokens < cap` 失效，从未降 effort 重试。
+- 改动：①`default_reasoning_effort` 回滚到 v0.99.11 语义——结构化任务默认 low，创作保持模型/显式 effort；质量优先。②`llm/openai.rs` 撞额度空稿判定允许封顶时重试（`max_tokens <= cap`），重试时把 `reasoning_effort` 临时设为 low，日志写明「重试 max_tokens=… 并降 reasoning_effort=low」；首次调用仍保留原 effort。③`evaluate_gate_impl` 的文风/AI 腔 `style_issue` 改为建议性：只在 editor 已判 RevisionRequired 且 style 分 <7 时并入 issues，不再把 Passed 强制改修订；文风漂移仍在报告/下一轮改进中提示。
+- **测试**：Rust **2290/17**（数量不变，`should_retry_truncated_empty` 封顶重试断言更新、创作 effort 回 None）；tsc 0；Vitest **732/3**；Playwright **144/5**；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：用 v0.99.21 重跑同一 10 章训练，确认 voice/style 回到 v0.99.18 水平、空稿重试有效、editor pass 的章节不再被确定性文风门禁误改；148-150 主线钩与小梅身份仍需按报告改进项落地。
+
 ## v0.99.20（2026-11-25）
 
 **推理模型创作调用默认 `reasoning_effort=low`：38k prompt 上不再 CoT 吃满、content 为空。**

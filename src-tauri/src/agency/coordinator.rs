@@ -10506,24 +10506,23 @@ pub(crate) async fn evaluate_gate_impl(
     } else {
         outcome
     };
-    // v0.99.15：训练文风严重漂移硬拦截（与主线缺失同语义：只做一轮修订）。
+    // v0.99.21：训练文风漂移改为建议性：只在 editor 已判修订且 style 分<7
+    // 时并入 issues；editor 判 pass 的章节不再因确定性句长指标被迫修订。
+    // v0.99.20 真机里 144 章 editor style 8/voice 8 原可放行，确定性 style
+    // gate 强制修订后报告 style 反而降到 6.5——确定性指标不能覆盖 editor。
     let outcome = if let Some(issue) = style_issue.map(str::trim).filter(|s| !s.is_empty()) {
         match outcome {
-            GateOutcome::Passed { mut verdict } => {
-                let value = serde_json::Value::String(issue.to_string());
-                if !verdict.blocking_issues.contains(&value) {
-                    verdict.blocking_issues.push(value);
-                }
-                GateOutcome::RevisionRequired {
-                    issues: vec![issue.to_string()],
-                    verdict,
-                }
-            }
             GateOutcome::RevisionRequired {
                 mut issues,
                 verdict,
             } => {
-                if !issues.iter().any(|existing| existing == issue) {
+                let style_low = verdict
+                    .dimension_scores
+                    .as_ref()
+                    .and_then(|scores| scores.get("style"))
+                    .map(|score| *score < 7.0)
+                    .unwrap_or(true);
+                if style_low && !issues.iter().any(|existing| existing == issue) {
                     issues.push(issue.to_string());
                 }
                 GateOutcome::RevisionRequired { issues, verdict }

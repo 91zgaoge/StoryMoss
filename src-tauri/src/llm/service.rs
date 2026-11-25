@@ -129,14 +129,12 @@ use crate::{
 
 /// v0.99.11: 推理模型的思考强度（OpenAI 兼容 `reasoning_effort`）。
 ///
-/// 优先级：profile 显式值 > Reasoning 模型默认 `low` > 不发送。
-/// 只有声明 `Reasoning` 能力的模型才自动注入——本地/第三方 OpenAI 兼容端点
-/// 可能拒绝未知参数（Qwren127 只声明 chat/json_mode，不能带）。
-/// v0.99.20：创作调用也默认 low。真机 deepseek-v4 在 38k prompt 上连续 5 次
-/// `finish_reason=length`、completion 30k 全烧在 CoT、content 为空；writer
-/// 的 32768 输出额度已到上限，再放大也无效。创作任务降为 low 后留出正文额度；
-/// profile 显式 effort（如 high）仍优先。
-fn default_reasoning_effort(profile: &LlmProfile, _structured: bool) -> Option<String> {
+/// 优先级：profile 显式值 > JSON 结构化任务默认 `low` > 不发送。
+/// v0.99.20 曾把创作调用也默认 low，但 v0.99.20 真机报告 voice 6.5/style 6.75
+/// 低于 v0.99.18 的 voice 7.125/style 6.875——创作降智压低了人物声口。
+/// v0.99.21 回滚：创作保持模型/显式 effort；只有空正文重试时由适配器临时
+/// 降 low（见 `llm/openai.rs` 的 truncation retry），兼顾空稿止血与质量。
+fn default_reasoning_effort(profile: &LlmProfile, structured: bool) -> Option<String> {
     if let Some(effort) = profile
         .reasoning_effort
         .as_ref()
@@ -144,8 +142,7 @@ fn default_reasoning_effort(profile: &LlmProfile, _structured: bool) -> Option<S
     {
         return Some(effort.clone());
     }
-    if profile.capabilities.contains(&ModelCapability::Reasoning) {
-        // JSON/抽取与创作散文都默认 low；结构化任务此前已是 low。
+    if structured && profile.capabilities.contains(&ModelCapability::Reasoning) {
         return Some("low".to_string());
     }
     None
@@ -3062,12 +3059,8 @@ mod tests {
             default_reasoning_effort(&profile, true).as_deref(),
             Some("low")
         );
-        // v0.99.20：创作/非结构化也默认 low，避免 38k prompt 上 CoT 吃满、
-        // content 为空；profile 显式 effort 仍优先（下个用例）。
-        assert_eq!(
-            default_reasoning_effort(&profile, false).as_deref(),
-            Some("low")
-        );
+        // v0.99.21：创作保持模型/显式 effort，空正文时适配器重试临时降 low。
+        assert_eq!(default_reasoning_effort(&profile, false), None);
     }
 
     #[test]

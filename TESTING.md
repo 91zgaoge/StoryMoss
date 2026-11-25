@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.99.20)
+# 🧪 StoryMoss 自动化测试环境 (v0.99.21)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.99.21 变更说明
+
+- Rust **2290 passed / 17 ignored**（数量不变）：`should_retry_truncated_empty` 封顶时仍允许重试（降 effort），`structured_reasoning_task_defaults_to_low_effort` 创作 effort 回 None；文风门禁改为 editor 判修订且 style<7 时才并入。
+- tsc 0；Vitest **732 passed / 3 skipped**；Playwright **144 passed / 5 skipped**；fmt/clippy/guard/prettier 全绿。
+- 验收：用 v0.99.21 重跑同一 10 章训练，确认 voice/style 回到 v0.99.18 水平、空稿重试有效、editor pass 的章节不再被确定性文风门禁误改；148–150 主线钩与小梅身份按报告改进项落地。
 
 ### v0.99.20 变更说明
 

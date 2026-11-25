@@ -1,4 +1,6 @@
-# StoryMoss v0.99.20 架构文档
+# StoryMoss v0.99.21 架构文档
+
+> **v0.99.21**：**创作 effort 回滚 + 封顶空稿降 effort 重试 + 文风门禁建议化**——`default_reasoning_effort` 回到 v0.99.11 语义（结构化 low、创作保持模型/显式 effort），避免 v0.99.20 低 effort 压低 voice/style；`llm/openai.rs` 的 `should_retry_truncated_empty` 改为封顶仍允许重试（`max_tokens <= cap`），重试时 `reasoning_effort=low`（首次保留原 effort），解决 writer 32768 封顶时永不重试。`evaluate_gate_impl` 的 `style_issue`（文风/AI 腔）改为建议性：只在 editor 已判 `RevisionRequired` 且 `dimension_scores.style < 7` 时并入 issues，不再把 `Passed` 强制改修订；文风漂移仍在报告与下一轮改进中提示。
 
 > **v0.99.20**：**推理模型创作调用默认 low**——`llm::service::default_reasoning_effort` 改为 profile 显式值优先；声明 `Reasoning` 能力的模型，无论 JSON/结构化还是创作散文调用，默认 `reasoning_effort=low`；未声明 Reasoning 的本地端点（Qwren127）仍不发未知参数。v0.99.19 真机训练 12:05–12:08 连续 5 次 writer 空 content（prompt 37,899 tokens、completion 29,773–31,978、`finish_reason=length`），writer 32768 已是上限，×4 重放无效；默认 low 给正文留额度。profile 显式 high 仍覆盖。
 

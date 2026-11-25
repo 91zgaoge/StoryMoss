@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.20-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.21-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.21 · 创作 effort 回滚 + 封顶空稿降 effort 重试 + 文风门禁建议化
+
+- **问题**：v0.99.20 真机报告 `21b15629` 显示低 effort 让 10 章全部产出、编审 10/10 可用（上轮 8/10），但总分 **0.689**（上轮 0.7169）、style 6.75、voice 6.5（上轮 7.125）—— editor 判「黄玄然絮叨被削成短刀、陆尘音功能化、第一人称自嘲递减」。144 章 editor 原判 style 8/voice 8，确定性 style gate（句长 10.8<0.75×19.2）强制修订后报告 style 反而 6.5；空 content 仍在：writer 32768 封顶，`should_retry_truncated_empty` 因 `max_tokens < cap` 从未重试。
+- **结果**：创作 effort 回滚（结构化仍 low）；空稿封顶时仍重试一次并临时降 `reasoning_effort=low`（首次保留原 effort）；文风/AI 腔 `style_issue` 改为建议性——只在 editor 已判 RevisionRequired 且 style<7 时并入 issues，不再强制改 pass。新增断言更新；Rust **2290/17**（数量不变）、tsc 0、Vitest **732/3**、Playwright **144/5**、fmt/clippy/guard/prettier 全绿。
 
 ### v0.99.20 · 推理模型创作调用默认 low：训练主创不再被 CoT 吃空
 

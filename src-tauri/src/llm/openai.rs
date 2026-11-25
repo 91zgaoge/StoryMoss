@@ -194,7 +194,8 @@ fn should_retry_truncated_empty(
         && !has_tool_calls
         && reasoning_chars > 0
         && finish_reason == Some("length")
-        && max_tokens < cap
+        // v0.99.21：封顶时也允许重试一次——不放大 tokens，而是降 effort。
+        && max_tokens <= cap
 }
 
 /// v0.99.11: 撞额度后重试的放大值（×4，封顶 32k）。
@@ -510,6 +511,9 @@ impl OpenAiAdapter {
         );
         let mut max_tokens = request.max_tokens.unwrap_or(self.default_max_tokens);
         let mut truncation_retried = false;
+        // v0.99.21：空正文重试时临时把思考强度降为 low——保留首次调用的
+        // 模型/显式 effort（质量优先），只有撞额度空稿才降智止血。
+        let mut reasoning_effort = request.reasoning_effort.clone();
         let primary_url = format!("{}/chat/completions", self.api_base);
         let fallback_url = format!("{}/v1/chat/completions", self.api_base);
 
@@ -528,7 +532,7 @@ impl OpenAiAdapter {
                     .as_ref()
                     .filter(|s| !s.is_empty())
                     .map(|s| openai_tools_payload(s)),
-                reasoning_effort: request.reasoning_effort.clone(),
+                reasoning_effort: reasoning_effort.clone(),
             };
 
             let mut response = send_with_response_timeout(
@@ -590,16 +594,18 @@ impl OpenAiAdapter {
                 )
             {
                 let next = next_truncation_retry_budget(max_tokens);
-                if next > max_tokens {
+                if next > max_tokens || max_tokens >= TRUNCATION_RETRY_CAP {
+                    let retry_tokens = next.max(max_tokens);
                     log::warn!(
                         "[OpenAI] 空正文撞额度：finish_reason=length，reasoning={} 字符，\
-                         completion_tokens={}，max_tokens={} → 放大到 {} 重试一次",
+                         completion_tokens={}，max_tokens={} → 重试 max_tokens={} 并降 reasoning_effort=low",
                         parsed.reasoning_chars,
                         parsed.completion_tokens,
                         max_tokens,
-                        next
+                        retry_tokens
                     );
-                    max_tokens = next;
+                    max_tokens = retry_tokens;
+                    reasoning_effort = Some("low".to_string());
                     truncation_retried = true;
                     continue;
                 }
@@ -1162,8 +1168,8 @@ mod tests {
             8192,
             TRUNCATION_RETRY_CAP
         ));
-        // 已在封顶：不再放大
-        assert!(!should_retry_truncated_empty(
+        // 已在封顶：仍重试一次（降 effort，不再放大 tokens）
+        assert!(should_retry_truncated_empty(
             true,
             false,
             Some("length"),
