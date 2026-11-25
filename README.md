@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.21-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.22-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.22 · v0.99.21 真机验证：总分 0.734 / 口吻 7.11 / 原书差距 7.07
+
+- **结果**：本机 10 章训练报告 `018e787e`（13:20–14:12）加权 **0.734**（历轮最高：v0.99.16 0.729、v0.99.20 0.689、v0.99.17 0.7175），style **7.01**、plot **7.67**、voice **7.11**、pacing **7.17**、hooks **7.28**，承接 8.9、`reference_gap` **7.07**（最初问题轮 2.9）；编审 **6 pass / 4 revise / 0 unavailable**，质量门 3 通过 / 7 修订 / 0 降级，主线探针 9/10 ✓；10 章全部落库 2.7–3.8k 字。承接近乎无缝、145/150/151 主线节点与真实章几乎逐一对应、148「妖孽，看我法宝」/151 碑线/152 身世落地。
+- **仍未根治**：146 小梅诊室试探改村口跪求、149 玉碟敕神/宋辨经考据压成三件套、147 周成荤腔纯情化、148/152/153 偶发格言/预告腔；文风探针句长仍 9.6–14.0（原文 19.2）。下一轮按报告改进项继续。测试 **2290/17**（文档验证版，数量不变）、tsc 0、Vitest **732/3**、Playwright **144/5**、fmt/clippy/guard/prettier 全绿。
 
 ### v0.99.21 · 创作 effort 回滚 + 封顶空稿降 effort 重试 + 文风门禁建议化
 

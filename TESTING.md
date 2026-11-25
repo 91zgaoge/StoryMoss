@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.99.21)
+# 🧪 StoryMoss 自动化测试环境 (v0.99.22)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.99.22 变更说明（文档验证版）
+
+- 真机验证（报告 `018e787e`，10 章）：总分 **0.734**、style **7.01**、plot **7.67**、voice **7.11**、pacing **7.17**、hooks **7.28**、承接 8.9、`reference_gap` **7.07**；编审 6 pass / 4 revise / 0 unavailable；质量门 3 通过 / 7 修订 / 0 降级；主线探针 9/10 ✓。
+- Rust **2290 passed / 17 ignored**（数量不变，文档验证版）；tsc 0；Vitest **732 passed / 3 skipped**；Playwright **144 passed / 5 skipped**；fmt/clippy/guard/prettier 全绿。
+- 未关闭：146 小梅诊室试探改村口跪求、149 玉碟敕神/宋辨经考据压成三件套、147 周成荤腔纯情化、148/152/153 偶发格言/预告腔；文风探针句长仍 9.6–14.0（原文 19.2）。
 
 ### v0.99.21 变更说明
 

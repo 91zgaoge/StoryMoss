@@ -1,7 +1,7 @@
 {
   "name": "storymoss-frontend",
   "private": true,
-  "version": "0.99.21",
+  "version": "0.99.22",
   "type": "module",
   "scripts": {
     "dev": "vite",

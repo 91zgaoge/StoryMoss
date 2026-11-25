@@ -1,4 +1,6 @@
-# StoryMoss v0.99.21 架构文档
+# StoryMoss v0.99.22 架构文档
+
+> **v0.99.22**：**v0.99.21 真机验证结果**——10 章训练报告 `018e787e`：加权 0.734、style 7.01、plot 7.67、voice 7.11、pacing 7.17、hooks 7.28、承接 8.9、`reference_gap` 7.07、编审 6 pass/4 revise/0 unavailable、主线探针 9/10 ✓。架构不变（v0.99.21 的创作 effort/封顶空稿重试/建议性文风门禁已验证）。仍未根治：146 小梅诊室试探替换、149 考据压缩、147 荤腔纯情化、148/152/153 格言/预告腔；下一轮按报告改进项继续。
 
 > **v0.99.21**：**创作 effort 回滚 + 封顶空稿降 effort 重试 + 文风门禁建议化**——`default_reasoning_effort` 回到 v0.99.11 语义（结构化 low、创作保持模型/显式 effort），避免 v0.99.20 低 effort 压低 voice/style；`llm/openai.rs` 的 `should_retry_truncated_empty` 改为封顶仍允许重试（`max_tokens <= cap`），重试时 `reasoning_effort=low`（首次保留原 effort），解决 writer 32768 封顶时永不重试。`evaluate_gate_impl` 的 `style_issue`（文风/AI 腔）改为建议性：只在 editor 已判 `RevisionRequired` 且 `dimension_scores.style < 7` 时并入 issues，不再把 `Passed` 强制改修订；文风漂移仍在报告与下一轮改进中提示。
 
