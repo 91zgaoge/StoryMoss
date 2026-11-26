@@ -35,6 +35,13 @@ pub struct HealthRecord {
     /// 时，按 N * Y / X 估算；只在 30 分钟窗口内生效，避免永久误杀。
     pub prompt_limit_tokens: Option<u32>,
     pub last_prompt_limit_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// v0.99.26：最近一次**真实生成调用**（成功或失败）的时间。
+    ///
+    /// 与 `snapshot.last_checked_at` 不同：后者也会被健康探测刷新。保活
+    /// 调度器用它区分「正在被使用的模型」（10s 保活）与「闲置模型」
+    /// （5 分钟保活）——真机 v0.99.25 一天 15,584 次探测 vs 45 次真实生成，
+    /// 99.7% 的 LLM 请求只是为了说 OK。
+    pub last_real_activity_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// 健康注册表
@@ -204,6 +211,7 @@ impl HealthRegistry {
         record.snapshot.last_error = error;
         record.snapshot.last_checked_at = Some(chrono::Utc::now().to_rfc3339());
         record.snapshot.model_id = model_id.to_string();
+        record.last_real_activity_at = Some(chrono::Utc::now());
         if record.snapshot.model_name.is_empty() {
             record.snapshot.model_name = model_name.to_string();
         }
@@ -219,9 +227,17 @@ impl HealthRegistry {
         record.snapshot.last_error = None;
         record.snapshot.last_checked_at = Some(chrono::Utc::now().to_rfc3339());
         record.snapshot.model_id = model_id.to_string();
+        record.last_real_activity_at = Some(chrono::Utc::now());
         if record.snapshot.model_name.is_empty() {
             record.snapshot.model_name = model_name.to_string();
         }
+    }
+
+    /// v0.99.26：最近一次真实生成调用的时间（探测不写入）。
+    pub fn last_real_activity(&self, model_id: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.records
+            .get(model_id)
+            .and_then(|r| r.last_real_activity_at)
     }
 
     /// v0.23.59: 查询模型连续失败次数（预探测 + 真实调用合计）。
@@ -240,6 +256,7 @@ impl HealthRegistry {
         let record = self.records.entry(model_id.to_string()).or_default();
         record.empty_content_failures = record.empty_content_failures.saturating_add(1);
         record.last_empty_content_at = Some(chrono::Utc::now());
+        record.last_real_activity_at = Some(chrono::Utc::now());
         record.snapshot.model_id = model_id.to_string();
         if record.snapshot.model_name.is_empty() {
             record.snapshot.model_name = model_name.to_string();
@@ -569,6 +586,32 @@ mod tests {
     fn test_consecutive_failures_zero_for_missing_model() {
         let registry = HealthRegistry::new();
         assert_eq!(registry.consecutive_failures("nonexistent"), 0);
+        assert!(registry.last_real_activity("nonexistent").is_none());
+    }
+
+    #[test]
+    fn real_activity_only_tracks_real_calls() {
+        // v0.99.26：保活调度器靠 last_real_activity 区分「活跃」与「闲置」。
+        // 健康快照更新（探测/报告回填）不得被当成真实活动。
+        let mut registry = HealthRegistry::new();
+        registry.update(make_snapshot("model-a", HealthStatus::Healthy));
+        assert!(registry.last_real_activity("model-a").is_none());
+
+        registry.record_success("model-a", "Model A");
+        assert!(registry.last_real_activity("model-a").is_some());
+
+        // 另一个模型：真实失败也算活动
+        registry.record_failure(
+            "model-b",
+            "Model B",
+            HealthStatus::Degraded,
+            Some("boom".into()),
+        );
+        assert!(registry.last_real_activity("model-b").is_some());
+
+        // 空正文（推理模型 CoT-only）同样是真实调用
+        registry.record_empty_content("model-c", "Model C");
+        assert!(registry.last_real_activity("model-c").is_some());
     }
 
     #[test]

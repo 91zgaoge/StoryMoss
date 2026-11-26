@@ -37,6 +37,20 @@ const KEEPALIVE_INTERVAL_SECS: u64 = 10;
 /// 后面排队的探测 5s 必然超时，把「busy」误判成「down」。放宽后仍以 10s
 /// 间隔轮询，超时不再制造 85 条/天的假故障。
 const KEEPALIVE_TIMEOUT_SECS: u64 = 30;
+/// 活跃模型的保活间隔：最近 2 分钟内有真实生成调用。
+const KEEPALIVE_ACTIVE_INTERVAL_SECS: i64 = 10;
+/// 闲置模型的保活间隔。
+///
+/// v0.99.26：真机 v0.99.25 一天 **15,584 次探测 vs 45 次真实生成**（其中
+/// 10,413 次打在付费远端 deepseek-v4），tracing 日志 86% 是探测行，每小时
+/// ~1,000 次探测即便凌晨无人使用也照跑。闲置模型不需要 10s 新鲜度：真正
+/// 要用它时网关会按 `is_health_fresh`（15s）内联探测一次，成本远低于常驻
+/// 轮询。
+const KEEPALIVE_IDLE_INTERVAL_SECS: i64 = 300;
+/// 「活跃模型」判定窗口：最近一次真实生成调用在此窗口内。
+const KEEPALIVE_ACTIVE_WINDOW_SECS: i64 = 120;
+/// 连续失败达到该值视为死模型：保活不再探测，交给退避重试。
+const DEAD_MODEL_FAILURES: u32 = 3;
 /// 网关信任缓存的保鲜期（<此值跳过内联探测）
 pub const HEALTH_FRESHNESS_THRESHOLD_SECS: i64 = 15;
 /// 重试退避初始间隔（秒）
@@ -129,8 +143,12 @@ async fn run_full_probe(executor: &GatewayExecutor) {
 
 /// v0.23.60: 快速保活探测——仅探测健康/降级模型，30s 超时。
 ///
-/// 保持 HealthRegistry 的 `last_checked_at` 在 10s 以内，
-/// 网关 generate() 读缓存时 <15s 即可跳过内联探测。
+/// 保持 HealthRegistry 的 `last_checked_at` 新鲜度，让网关 generate()
+/// 读缓存时 <15s 即可跳过内联探测。
+///
+/// v0.99.26：加入按模型的新鲜度门禁（`keepalive_due`）——闲置模型 5 分钟
+/// 一次，活跃模型 10s 一次，死模型交给退避重试。此前每 tick 无条件探测
+/// 所有健康/降级模型，真机单日探测 15,584 次（真实生成仅 45 次）。
 async fn run_keepalive_probe(executor: &GatewayExecutor) {
     let health = match executor.health_registry().lock() {
         Ok(g) => g.all(),
@@ -148,52 +166,65 @@ async fn run_keepalive_probe(executor: &GatewayExecutor) {
         })
         .unwrap_or_default();
 
+    let now = chrono::Utc::now();
     let mut probed = 0u32;
     for snapshot in health {
         if !enabled_ids.contains(&snapshot.model_id) {
             continue;
         }
-        if matches!(
-            snapshot.status,
-            super::types::HealthStatus::Healthy | super::types::HealthStatus::Degraded
+        // 失败计数与真实活动时间一次性取出（锁不跨 await）。
+        let (failures, last_real_activity) = match executor.health_registry().lock() {
+            Ok(g) => (
+                g.consecutive_failures(&snapshot.model_id),
+                g.last_real_activity(&snapshot.model_id),
+            ),
+            Err(_) => (0, None),
+        };
+        if !keepalive_due(
+            &snapshot.status,
+            failures,
+            snapshot.last_checked_at.as_deref(),
+            last_real_activity,
+            now,
         ) {
-            // 30s 超时的轻量探测
-            let start = Instant::now();
-            match tokio::time::timeout(
-                Duration::from_secs(KEEPALIVE_TIMEOUT_SECS),
-                executor.probe_model(&snapshot.model_id),
-            )
-            .await
-            {
-                Ok(Ok(result)) if result.success => {
-                    probed += 1;
-                    log::debug!(
-                        "[GatewayScheduler] keepalive {} OK ({:.0}ms)",
-                        snapshot.model_id,
-                        start.elapsed().as_secs_f64() * 1000.0
-                    );
-                }
-                Ok(Ok(result)) => {
-                    log::warn!(
-                        "[GatewayScheduler] keepalive {} 失败: {}",
-                        snapshot.model_id,
-                        result.error.unwrap_or_else(|| "探测未通过".to_string())
-                    );
-                }
-                Ok(Err(e)) => {
-                    log::warn!(
-                        "[GatewayScheduler] keepalive {} 失败: {}",
-                        snapshot.model_id,
-                        e
-                    );
-                }
-                Err(_) => {
-                    log::warn!(
-                        "[GatewayScheduler] keepalive {} 超时 ({}s)",
-                        snapshot.model_id,
-                        KEEPALIVE_TIMEOUT_SECS
-                    );
-                }
+            continue;
+        }
+        // 30s 超时的轻量探测
+        let start = Instant::now();
+        match tokio::time::timeout(
+            Duration::from_secs(KEEPALIVE_TIMEOUT_SECS),
+            executor.probe_model(&snapshot.model_id),
+        )
+        .await
+        {
+            Ok(Ok(result)) if result.success => {
+                probed += 1;
+                log::debug!(
+                    "[GatewayScheduler] keepalive {} OK ({:.0}ms)",
+                    snapshot.model_id,
+                    start.elapsed().as_secs_f64() * 1000.0
+                );
+            }
+            Ok(Ok(result)) => {
+                log::warn!(
+                    "[GatewayScheduler] keepalive {} 失败: {}",
+                    snapshot.model_id,
+                    result.error.unwrap_or_else(|| "探测未通过".to_string())
+                );
+            }
+            Ok(Err(e)) => {
+                log::warn!(
+                    "[GatewayScheduler] keepalive {} 失败: {}",
+                    snapshot.model_id,
+                    e
+                );
+            }
+            Err(_) => {
+                log::warn!(
+                    "[GatewayScheduler] keepalive {} 超时 ({}s)",
+                    snapshot.model_id,
+                    KEEPALIVE_TIMEOUT_SECS
+                );
             }
         }
     }
@@ -202,6 +233,42 @@ async fn run_keepalive_probe(executor: &GatewayExecutor) {
             "[GatewayScheduler] keepalive 轮完成: {} 个模型探测通过",
             probed
         );
+    }
+}
+
+/// v0.99.26: 本次 tick 是否应为该模型执行保活探测（纯函数）。
+///
+/// - 只保活健康/降级模型（Unhealthy 由退避重试负责，Unknown 由启动探测负责）；
+/// - 连续失败 ≥3 的死模型不再保活，避免「保活失败 → 退避 → 保活又打」双路探测；
+/// - 活跃模型（最近 2 分钟有真实生成）10s 一次，闲置模型 5 分钟一次；
+/// - `last_checked_at` 缺失（从未探测）时立即探测。
+fn keepalive_due(
+    status: &super::types::HealthStatus,
+    consecutive_failures: u32,
+    last_checked_at: Option<&str>,
+    last_real_activity_at: Option<chrono::DateTime<chrono::Utc>>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    if !matches!(
+        status,
+        super::types::HealthStatus::Healthy | super::types::HealthStatus::Degraded
+    ) {
+        return false;
+    }
+    if consecutive_failures >= DEAD_MODEL_FAILURES {
+        return false;
+    }
+    let active = last_real_activity_at
+        .map(|t| (now - t).num_seconds() <= KEEPALIVE_ACTIVE_WINDOW_SECS)
+        .unwrap_or(false);
+    let required_secs = if active {
+        KEEPALIVE_ACTIVE_INTERVAL_SECS
+    } else {
+        KEEPALIVE_IDLE_INTERVAL_SECS
+    };
+    match last_checked_at.and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok()) {
+        Some(ts) => (now - ts.with_timezone(&chrono::Utc)).num_seconds() >= required_secs,
+        None => true,
     }
 }
 
@@ -339,6 +406,7 @@ fn next_retry_backoff(current_secs: u64, succeeded: bool) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model_gateway::types::HealthStatus;
 
     fn probe(success: bool) -> ProbeResult {
         ProbeResult {
@@ -371,5 +439,85 @@ mod tests {
         assert_eq!(next_retry_backoff(1920, false), Some(3600));
         assert_eq!(next_retry_backoff(3600, false), Some(3600));
         assert_eq!(next_retry_backoff(30, true), None);
+    }
+
+    fn ts_secs_ago(secs: i64) -> String {
+        (chrono::Utc::now() - chrono::Duration::seconds(secs)).to_rfc3339()
+    }
+
+    #[test]
+    fn keepalive_skips_unhealthy_dead_and_recent_models() {
+        let now = chrono::Utc::now();
+        // Unhealthy 交给退避重试
+        assert!(!keepalive_due(&HealthStatus::Unhealthy, 1, None, None, now));
+        // 连续失败 ≥3 的死模型不再保活
+        assert!(!keepalive_due(
+            &HealthStatus::Healthy,
+            3,
+            Some(&ts_secs_ago(3600)),
+            None,
+            now
+        ));
+        // 从未探测过：立即探测
+        assert!(keepalive_due(&HealthStatus::Healthy, 0, None, None, now));
+    }
+
+    #[test]
+    fn keepalive_idle_models_probe_every_five_minutes() {
+        let now = chrono::Utc::now();
+        // 闲置（无真实活动）：30s 前探测过 → 不重复
+        assert!(!keepalive_due(
+            &HealthStatus::Healthy,
+            0,
+            Some(&ts_secs_ago(30)),
+            None,
+            now
+        ));
+        // 闲置 6 分钟 → 到期
+        assert!(keepalive_due(
+            &HealthStatus::Healthy,
+            0,
+            Some(&ts_secs_ago(360)),
+            None,
+            now
+        ));
+        // 真实活动在 2 分钟窗口外，按闲置节奏
+        assert!(!keepalive_due(
+            &HealthStatus::Healthy,
+            0,
+            Some(&ts_secs_ago(30)),
+            Some(now - chrono::Duration::seconds(200)),
+            now
+        ));
+    }
+
+    #[test]
+    fn keepalive_active_models_probe_every_ten_seconds() {
+        let now = chrono::Utc::now();
+        let active = Some(now - chrono::Duration::seconds(20));
+        // 活跃模型刚探测过 → 跳过
+        assert!(!keepalive_due(
+            &HealthStatus::Healthy,
+            0,
+            Some(&ts_secs_ago(5)),
+            active,
+            now
+        ));
+        // 活跃模型 15s 前探测过 → 到期（真机训练期间保持新鲜度）
+        assert!(keepalive_due(
+            &HealthStatus::Healthy,
+            0,
+            Some(&ts_secs_ago(15)),
+            active,
+            now
+        ));
+        // Degraded 但未连续失败 3 次：仍按节奏保活
+        assert!(keepalive_due(
+            &HealthStatus::Degraded,
+            2,
+            Some(&ts_secs_ago(400)),
+            None,
+            now
+        ));
     }
 }

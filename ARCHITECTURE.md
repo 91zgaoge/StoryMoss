@@ -1,4 +1,6 @@
-# StoryMoss v0.99.25 架构文档
+# StoryMoss v0.99.26 架构文档
+
+> **v0.99.26**：**保活探测闲置降频 + 探测提示词缓存**——`model_gateway::scheduler::run_keepalive_probe` 改用纯函数 `keepalive_due` 决定本轮是否探测：只保活 Healthy/Degraded，连续失败 ≥3 的死模型交给退避重试，闲置模型（最近 2 分钟无真实生成）5 分钟一次、活跃模型 10s 一次（真机 v0.99.25 单日 15,584 次探测 vs 45 次真实生成）。`health::HealthRecord` 新增 `last_real_activity_at`（只由 `record_success`/`record_failure`/`record_empty_content` 写入，探测与快照回填不写），`HealthRegistry::last_real_activity` 供调度器读取。`model_gateway::executor::GatewayExecutor` 新增 `ProbePromptCache`（60s TTL、`Arc` 跨 clone 共享），探测提示词解析不再每次查 SQLite/AppConfig（DB 忙时旧路径会新建连接池并打印 `[AppConfig] Loaded from SQLite`）。
 
 > **v0.99.25**：**日志巡检修复**——`model_gateway::scheduler` 按 `ProbeResult.success` 判定探测结果（`probe_model` 对调用失败返回 `Ok(success=false)`，旧实现只判 `Err` 导致退避每次重置、死模型永久 30s 探测），新增 `next_retry_backoff` 保证失败 30→60→…→3600s、成功重置；`log_report::count_recent_errors` 增加行级时间过滤（tracing `timestamp` / 工作流 `ts` / legacy compact），只统计窗口内新 ERROR；`memory::ingest` 的 `RelationProfile.relation_type` 使用 `de_relation_type_lenient`，枚举外类型 warn 后降级 `RelatedTo`。
 

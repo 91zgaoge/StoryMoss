@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.99.25)
+# 🧪 StoryMoss 自动化测试环境 (v0.99.26)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.99.26 变更说明（保活探测降频 / 探测提示词缓存）
+
+- Rust **2313 passed / 17 ignored**（+5：`keepalive_due` 跳过 Unhealthy/连续失败 ≥3/未探测模型、闲置 5 分钟节奏、活跃 10s 节奏、`last_real_activity` 仅真实调用写入、`ProbePromptCache` TTL 过期）。
+- tsc 0；Vitest **732 passed / 3 skipped**（Rust-only，不变）；Playwright **144 passed / 5 skipped**（全量复跑，不变）；fmt/clippy/guard/prettier 全绿。
+- 未关闭：安装 v0.99.26 后观察一天，确认探测降到 1,000 次/天量级、`[AppConfig] Loaded from SQLite` 大幅下降、keepalive WARN 不再占日志主体。
 
 ### v0.99.25 变更说明（日志巡检：探测退避 / 自动上传计数 / 关系类型）
 

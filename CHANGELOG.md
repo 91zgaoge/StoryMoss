@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.26（2026-11-27）
+
+**日志巡检：健康保活探测闲置降频 + 探测提示词缓存（单日 15,584 次探测 vs 45 次真实生成）。**
+
+- 证据（本机 v0.99.25，`storymoss.2026-11-26`，全天 0 ERROR）：33,819 行 tracing 中约 29,000 行（86%）是健康探测——`[LLM] Starting sync generation … prompt_len=33` 15,529 行（其中付费远端 `deepseek-v4` 10,413 次）、`Sync generation completed`（`response_len=2`）13,700 行、`[AppConfig] Loaded from SQLite` 3,324 行；真实生成仅 **45 次**。探测每小时稳定 ~1,000 次，凌晨 2–8 点无人使用也照跑。WARN 907 条中 685 条是 `[GatewayScheduler] keepalive … 失败`（两个端点 5–7% 抖动）；v0.99.25 的退避重试已生效（日志可见 30→60→120s 递增），但 10s 保活仍对所有健康模型无条件轮询。
+- 根因 1：`run_keepalive_probe` 每个 10s tick 探测所有 Healthy/Degraded 模型，不看 `last_checked_at`、不看连续失败，也不区分模型是否在被使用；活跃模型的真实调用本身就在刷新健康数据，闲置模型完全不需要 10s 新鲜度。
+- 根因 2：`probe_model` 每次探测都重新 `resolve_prompt`（SQLite 查询）；DB 忙时回退 `AppConfig::load`（新建连接池 + 建表 + 查询），单日 3,324 次 `[AppConfig] Loaded from SQLite` 即来自这条路径。
+- 修复：①`scheduler.rs` 新增 `keepalive_due`（纯函数）：只保活 Healthy/Degraded；连续失败 ≥3 交给退避重试；**闲置模型（2 分钟内无真实生成）5 分钟一次、活跃模型 10s 一次**；`last_checked_at` 缺失立即探测。②`health.rs` 的 `HealthRecord` 增加 `last_real_activity_at`（仅真实调用写入，探测不写），新增 `HealthRegistry::last_real_activity`。③`executor.rs` 新增 `ProbePromptCache`（60s TTL、`Arc` 跨 clone 共享），探测提示词解析不再每请求一次 DB 读；用户保存覆盖后 60s 内生效。
+- 验证：Rust **2313/17**（+5：保活跳过 Unhealthy/死模型/未探测、闲置节奏、活跃节奏、真实活动来源、探测提示词缓存 TTL）；tsc 0；Vitest **732/3**；Playwright **144/5**；fmt/clippy/guard/prettier 全绿。
+- **未关闭**：安装 v0.99.26 后观察一天，确认探测降到 1,000 次/天量级、`[AppConfig] Loaded from SQLite` 大幅下降、两个抖动端点的 keepalive WARN 不再占日志主体（端点抖动本身属用户环境，本版只降低探测频率与日志噪声）。
+
 ## v0.99.25（2026-11-26）
 
 **日志巡检：健康探测退避失效 + 自动上传旧错误误计 + relation_type 宽容解析。**

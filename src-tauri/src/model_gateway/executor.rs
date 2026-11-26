@@ -174,6 +174,34 @@ where
     (dropped, false)
 }
 
+/// v0.99.26：探测提示词缓存 TTL。
+///
+/// 探测提示词只在用户在「提示词」面板保存覆盖时才变化，60s 足够新；
+/// 缓存换掉的是每次探测一次 `resolve_prompt`（SQLite 查询）以及 DB 忙时
+/// 的 `AppConfig::load`（新建连接池 + 建表 + 查询）。
+const PROBE_PROMPT_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// v0.99.26：探测提示词的短 TTL 缓存（锁内只有一次 clone）。
+#[derive(Debug, Default)]
+struct ProbePromptCache {
+    entry: std::sync::Mutex<Option<(std::time::Instant, String)>>,
+}
+
+impl ProbePromptCache {
+    fn get(&self, now: std::time::Instant, ttl: std::time::Duration) -> Option<String> {
+        let guard = self.entry.lock().ok()?;
+        guard.as_ref().and_then(|(at, prompt)| {
+            (now.saturating_duration_since(*at) < ttl).then(|| prompt.clone())
+        })
+    }
+
+    fn put(&self, now: std::time::Instant, prompt: String) {
+        if let Ok(mut guard) = self.entry.lock() {
+            *guard = Some((now, prompt));
+        }
+    }
+}
+
 /// 网关执行器
 pub struct GatewayExecutor<R: Runtime = Wry> {
     app_handle: AppHandle<R>,
@@ -182,6 +210,7 @@ pub struct GatewayExecutor<R: Runtime = Wry> {
     probe_engine: ProbeEngine,
     llm_service: LlmService<R>,
     pool: DbPool,
+    probe_prompt_cache: Arc<ProbePromptCache>,
 }
 
 impl<R: Runtime> Clone for GatewayExecutor<R> {
@@ -193,6 +222,7 @@ impl<R: Runtime> Clone for GatewayExecutor<R> {
             probe_engine: self.probe_engine.clone(),
             llm_service: self.llm_service.clone(),
             pool: self.pool.clone(),
+            probe_prompt_cache: self.probe_prompt_cache.clone(),
         }
     }
 }
@@ -214,6 +244,7 @@ impl<R: Runtime> GatewayExecutor<R> {
             probe_engine: ProbeEngine::new(),
             llm_service,
             pool,
+            probe_prompt_cache: Arc::new(ProbePromptCache::default()),
         }
     }
 
@@ -1711,6 +1742,46 @@ impl<R: Runtime> GatewayExecutor<R> {
         }))
     }
 
+    /// v0.99.26：探测提示词（60s 缓存）。
+    fn resolve_probe_prompt(&self) -> String {
+        let now = std::time::Instant::now();
+        if let Some(prompt) = self.probe_prompt_cache.get(now, PROBE_PROMPT_CACHE_TTL) {
+            return prompt;
+        }
+        let prompt = self.resolve_probe_prompt_uncached();
+        self.probe_prompt_cache.put(now, prompt.clone());
+        prompt
+    }
+
+    /// 探测提示词的真实解析顺序（仅在缓存未命中时执行）。
+    fn resolve_probe_prompt_uncached(&self) -> String {
+        let from_registry = self
+            .app_handle
+            .try_state::<crate::db::DbPool>()
+            .and_then(|pool| {
+                crate::prompts::registry::resolve_prompt(pool.inner(), "model_gateway_probe").ok()
+            });
+        from_registry
+            .or_else(|| {
+                // v0.18.1 修复：使用 app_data_dir() 而非 current_dir()
+                let app_dir = self
+                    .app_handle
+                    .path()
+                    .app_data_dir()
+                    .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+                crate::config::AppConfig::load(&app_dir)
+                    .ok()
+                    .and_then(|cfg| {
+                        if cfg.probe_prompt_override.is_empty() {
+                            None
+                        } else {
+                            Some(cfg.probe_prompt_override.clone())
+                        }
+                    })
+            })
+            .unwrap_or_else(|| "Respond with exactly the word OK.".to_string())
+    }
+
     /// 轻量探测：用极短 prompt 测试模型可用性
     ///
     /// v0.26.54: 禁用模型（不在 enabled 注册表）直接拒绝，不发起 LLM 调用。
@@ -1732,34 +1803,10 @@ impl<R: Runtime> GatewayExecutor<R> {
         // v0.17.1: 优先从 PromptRegistry 读取，回退到
         // AppConfig.probe_prompt_override，
         // 最后回退到内置默认。让前端能在「提示词」面板编辑探测 prompt。
-        let probe_prompt = {
-            let from_registry = self
-                .app_handle
-                .try_state::<crate::db::DbPool>()
-                .and_then(|pool| {
-                    crate::prompts::registry::resolve_prompt(pool.inner(), "model_gateway_probe")
-                        .ok()
-                });
-            from_registry
-                .or_else(|| {
-                    // v0.18.1 修复：使用 app_data_dir() 而非 current_dir()
-                    let app_dir = self
-                        .app_handle
-                        .path()
-                        .app_data_dir()
-                        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
-                    crate::config::AppConfig::load(&app_dir)
-                        .ok()
-                        .and_then(|cfg| {
-                            if cfg.probe_prompt_override.is_empty() {
-                                None
-                            } else {
-                                Some(cfg.probe_prompt_override.clone())
-                            }
-                        })
-                })
-                .unwrap_or_else(|| "Respond with exactly the word OK.".to_string())
-        };
+        // v0.99.26: 解析结果缓存 60s。真机单日 15,584 次探测每次都查
+        // SQLite；DB 忙时还会回退 AppConfig::load（新建连接池），
+        // 单日 3,324 次 `[AppConfig] Loaded from SQLite` 就是这条路径。
+        let probe_prompt = self.resolve_probe_prompt();
 
         let request = GenerateRequest {
             prompt: probe_prompt,
@@ -1954,6 +2001,25 @@ mod tests {
         llm::service::LlmService,
         router::{UnifiedModel, UnifiedModelRegistry},
     };
+
+    #[test]
+    fn probe_prompt_cache_expires_after_ttl() {
+        let cache = ProbePromptCache::default();
+        let now = std::time::Instant::now();
+        assert!(cache.get(now, PROBE_PROMPT_CACHE_TTL).is_none());
+        cache.put(now, "Respond with exactly the word OK.".to_string());
+        assert_eq!(
+            cache.get(
+                now + std::time::Duration::from_secs(5),
+                PROBE_PROMPT_CACHE_TTL
+            ),
+            Some("Respond with exactly the word OK.".to_string())
+        );
+        // 超过 TTL 后必须重新解析（用户可能刚改了探测提示词）
+        assert!(cache
+            .get(now + PROBE_PROMPT_CACHE_TTL, PROBE_PROMPT_CACHE_TTL)
+            .is_none());
+    }
 
     #[test]
     fn drop_empty_content_demoted_filters_only_marked_models() {

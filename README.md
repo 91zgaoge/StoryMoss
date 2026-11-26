@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.25-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.26-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.26 · 日志巡检：后台保活探测降频 + 探测开销收敛
+
+- **问题**：本机 v0.99.25 一天日志里 **15,584 次健康探测 vs 45 次真实生成**——10s 保活对所有模型无条件轮询（含付费远端 `deepseek-v4` 10,413 次），凌晨无人使用也每小时 ~1,000 次；tracing 86% 的行是探测，另有 3,324 次探测顺带重新读取 `AppConfig`（DB 忙时还会新建连接池）。
+- **结果**：保活改为按模型节奏——闲置模型（2 分钟无真实生成）5 分钟一次、活跃模型 10s 一次，连续失败 ≥3 的死模型交给退避重试；探测提示词加 60s 缓存，不再每次查 SQLite/AppConfig。预计探测请求降到 1,000 次/天量级，日志里真实生成与错误更容易被发现。Rust **2313/17**（+5）、tsc 0、Vitest **732/3**、Playwright **144/5**、fmt/clippy/guard/prettier 全绿。
 
 ### v0.99.25 · 日志巡检：健康探测退避失效 + 自动上传旧错误误计
 
