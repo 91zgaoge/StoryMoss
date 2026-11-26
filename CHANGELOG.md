@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.27（2026-11-27）
+
+**修复任务心跳与 finish 的落库竞态（v0.99.26 tag 构建 macOS 端唯一失败用例）。**
+
+- 证据：v0.99.26 的 `rust-check (macos-latest)` 唯一失败 `agency::reporter::tests::test_reporting_llm_heartbeats_and_finish`（`assertion left: 0, right: 1`，2312 passed / 1 failed），Windows/Ubuntu 与本地全绿——典型时序 flake，历史多轮 tag 构建均偶发。
+- 根因：`TaskReporter::heartbeat` 用 `spawn_blocking` fire-and-forget，`finish` 另起一个阻塞任务写完成状态；两者在阻塞池上的顺序不确定。`TaskRepository::heartbeat` 的 `UPDATE … WHERE status IN ('running','waiting')` 一旦在完成之后执行就会静默丢弃心跳，`turn_count` 少计（任务统计与训练/导演运行面板的心跳计数也会偶发偏少）。
+- 修复：`TaskReporter` 新增 `pending_heartbeats` 登记未落库的心跳句柄；`finish` 先 `drain_heartbeats()`（每个最多等 5s，超时 warn 后继续）再写完成状态。心跳保持 fire-and-forget，不阻塞 LLM 调用。
+- 验证：Rust **2314/17**（+1：8 次心跳后 finish 的确定性回归）；tsc 0；Vitest **732/3**；Playwright **144/5**；fmt/clippy/guard/prettier 全绿；`gitnexus impact` `TaskReporter::finish`/`heartbeat` MEDIUM（各 5 个直接调用方，签名不变）。
+- **未关闭**：v0.99.27 tag 构建确认 macOS rust-check 转绿、`latest.json` 更新为 0.99.27。
+
 ## v0.99.26（2026-11-27）
 
 **日志巡检：健康保活探测闲置降频 + 探测提示词缓存（单日 15,584 次探测 vs 45 次真实生成）。**

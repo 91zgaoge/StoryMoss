@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.26-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.27-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.27 · 修复任务心跳与 finish 的落库竞态
+
+- **问题**：v0.99.26 的 macOS CI 唯一失败用例暴露真实时序——任务心跳是 fire-and-forget，`finish` 可能先写完成状态，后到的心跳被 `WHERE status IN ('running','waiting')` 静默丢弃，`turn_count` 少计；历史 tag 构建的「reporter heartbeat flake」都是它。
+- **结果**：`TaskReporter` 登记未落库的心跳，`finish` 先等待它们落库（每个上限 5s）再写完成状态；心跳仍不阻塞 LLM 调用。新增 8 次心跳后 finish 的确定性回归用例。Rust **2314/17**（+1）、tsc 0、Vitest **732/3**、Playwright **144/5**、fmt/clippy/guard/prettier 全绿。
 
 ### v0.99.26 · 日志巡检：后台保活探测降频 + 探测开销收敛
 

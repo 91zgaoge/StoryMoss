@@ -1,4 +1,6 @@
-# StoryMoss v0.99.26 架构文档
+# StoryMoss v0.99.27 架构文档
+
+> **v0.99.27**：**任务心跳与 finish 的落库顺序**——`agency::reporter::TaskReporter` 新增 `pending_heartbeats`（`Arc<Mutex<Vec<JoinHandle<()>>>>`）：`heartbeat` 仍以 `spawn_blocking` fire-and-forget，但会登记句柄并清理已完成项；`finish` 在写完成状态前 `drain_heartbeats()`（逐个 await，每个上限 5s，超时 warn）。原因：`TaskRepository::heartbeat` 的 `UPDATE … WHERE status IN ('running','waiting')` 在完成之后到达会静默丢弃，`turn_count` 少计（v0.99.26 tag 构建 macOS `test_reporting_llm_heartbeats_and_finish` 0≠1 的真实根因）。
 
 > **v0.99.26**：**保活探测闲置降频 + 探测提示词缓存**——`model_gateway::scheduler::run_keepalive_probe` 改用纯函数 `keepalive_due` 决定本轮是否探测：只保活 Healthy/Degraded，连续失败 ≥3 的死模型交给退避重试，闲置模型（最近 2 分钟无真实生成）5 分钟一次、活跃模型 10s 一次（真机 v0.99.25 单日 15,584 次探测 vs 45 次真实生成）。`health::HealthRecord` 新增 `last_real_activity_at`（只由 `record_success`/`record_failure`/`record_empty_content` 写入，探测与快照回填不写），`HealthRegistry::last_real_activity` 供调度器读取。`model_gateway::executor::GatewayExecutor` 新增 `ProbePromptCache`（60s TTL、`Arc` 跨 clone 共享），探测提示词解析不再每次查 SQLite/AppConfig（DB 忙时旧路径会新建连接池并打印 `[AppConfig] Loaded from SQLite`）。
 

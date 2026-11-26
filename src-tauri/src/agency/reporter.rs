@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use tauri::{AppHandle, Emitter};
 
@@ -24,6 +27,8 @@ pub struct TaskReporter {
     run_id: String,
     role: AgentRole,
     app: Option<AppHandle>,
+    /// v0.99.27：已发出但未落库的心跳任务。`finish` 前必须 drain。
+    pending_heartbeats: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
 }
 
 impl TaskReporter {
@@ -42,6 +47,7 @@ impl TaskReporter {
             run_id: run_id.into(),
             role,
             app,
+            pending_heartbeats: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -66,9 +72,35 @@ impl TaskReporter {
         let id = self.task_id.clone();
         let phase = phase.to_string();
         let tool = last_tool.map(|s| s.to_string());
-        tokio::task::spawn_blocking(move || {
+        let handle = tokio::task::spawn_blocking(move || {
             let _ = TaskRepository::new(pool).heartbeat(&id, &phase, 0, tool.as_deref());
         });
+        // v0.99.27：登记未落库的心跳，供 finish 等待；顺手清掉已完成的句柄。
+        if let Ok(mut pending) = self.pending_heartbeats.lock() {
+            pending.retain(|h| !h.is_finished());
+            pending.push(handle);
+        }
+    }
+
+    /// v0.99.27：等待已发出的心跳落库。
+    ///
+    /// `heartbeat` 是 fire-and-forget；`TaskRepository::heartbeat` 只在
+    /// `status IN ('running','waiting')` 时更新。若 `finish` 先写完成状态，
+    /// 后到的心跳会被静默丢弃（`turn_count` 少计），CI 的
+    /// `test_reporting_llm_heartbeats_and_finish` 因此偶发 0≠1。
+    async fn drain_heartbeats(&self) {
+        let handles: Vec<_> = match self.pending_heartbeats.lock() {
+            Ok(mut pending) => std::mem::take(&mut *pending),
+            Err(_) => return,
+        };
+        for handle in handles {
+            if tokio::time::timeout(Duration::from_secs(5), handle)
+                .await
+                .is_err()
+            {
+                log::warn!("[TaskReporter] 心跳落库等待超时（5s），继续完成");
+            }
+        }
     }
 
     pub async fn finish(
@@ -77,6 +109,7 @@ impl TaskReporter {
         result_summary: Option<&str>,
         error: Option<&str>,
     ) -> Result<(), AppError> {
+        self.drain_heartbeats().await;
         let pool = self.pool.clone();
         let id = self.task_id.clone();
         let status_s = status.to_string();
@@ -274,5 +307,49 @@ mod tests {
         assert_eq!(loaded.status, "completed");
         assert_eq!(loaded.turn_count, 1);
         assert_eq!(loaded.result_summary.as_deref(), Some("ok"));
+    }
+
+    #[tokio::test]
+    async fn finish_waits_for_pending_heartbeats() {
+        // v0.99.27 回归：心跳是 fire-and-forget（spawn_blocking），`finish`
+        // 若不等 它落库，`UPDATE … WHERE status IN
+        // ('running','waiting')` 会让后到的心跳 静默丢失，turn_count
+        // 少计（CI 曾偶发 0≠1）。
+        let pool = create_test_pool().unwrap();
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT INTO stories (id, title, created_at, updated_at)
+             VALUES ('story-2', '测试故事', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+        let td = crate::agency::models::AgencyAgentTask::new(
+            "chat:s2",
+            "story-2",
+            AgentRole::Producer,
+            "补齐世界观",
+            None,
+            "{}",
+        );
+        TaskRepository::new(pool.clone()).create_task(&td).unwrap();
+        let reporter = TaskReporter::new(
+            pool.clone(),
+            &td.id,
+            "story-2",
+            "chat:s2",
+            AgentRole::Producer,
+            None,
+        );
+        reporter.start().await.unwrap();
+        for _ in 0..8 {
+            reporter.heartbeat("llm", Some("llm"));
+        }
+        reporter
+            .finish("completed", Some("ok"), None)
+            .await
+            .unwrap();
+        let loaded = TaskRepository::new(pool).get_task(&td.id).unwrap().unwrap();
+        assert_eq!(loaded.status, "completed");
+        assert_eq!(loaded.turn_count, 8);
     }
 }

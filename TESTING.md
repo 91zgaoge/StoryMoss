@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.99.26)
+# 🧪 StoryMoss 自动化测试环境 (v0.99.27)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.99.27 变更说明（reporter 心跳落库顺序）
+
+- Rust **2314 passed / 17 ignored**（+1：`finish_waits_for_pending_heartbeats`——8 次心跳后 finish 必须得到 `turn_count == 8`，锁定 `drain_heartbeats` 语义）。
+- tsc 0；Vitest **732 passed / 3 skipped**（Rust-only，不变）；Playwright **144 passed / 5 skipped**（全量复跑，不变）；fmt/clippy/guard/prettier 全绿。
+- 未关闭：v0.99.27 tag 构建确认 macOS `rust-check` 不再因 reporter 用例偶发红。
 
 ### v0.99.26 变更说明（保活探测降频 / 探测提示词缓存）
 
