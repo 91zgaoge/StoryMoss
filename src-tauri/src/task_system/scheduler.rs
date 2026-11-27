@@ -153,11 +153,17 @@ impl TaskScheduler {
     }
 
     /// 使用 cron crate 解析标准 Cron 表达式
+    ///
+    /// v0.99.28: 前端（训练页/任务页）使用标准 5 字段 `分 时 日 月 周`
+    /// （如 `0 9 * * *`），而 `cron` crate 要求 6/7 字段（多一个秒字段）。
+    /// 旧实现直接 `parse()`，导致 UI 创建的定时任务全部注册失败——真机
+    /// 日志 `Invalid cron pattern '0 9 * * *'`，任务保存成功但从未执行。
     fn parse_cron_schedule(
         pattern: Option<&str>,
     ) -> Result<cron::Schedule, Box<dyn std::error::Error>> {
         let pattern = pattern.ok_or("Cron pattern is required for cron schedule type")?;
-        let schedule: cron::Schedule = pattern
+        let normalized = normalize_cron_pattern(pattern);
+        let schedule: cron::Schedule = normalized
             .parse()
             .map_err(|e| format!("Invalid cron pattern '{}': {:?}", pattern, e))?;
         Ok(schedule)
@@ -192,6 +198,21 @@ impl TaskScheduler {
     }
 }
 
+/// 归一化 cron 表达式。
+///
+/// 5 字段（`分 时 日 月 周`）是前端与用户习惯的标准写法，`cron` crate 需要
+/// 秒字段；补 `0` 秒后再解析。已是 6/7 字段或 `@daily` 别名的表达式保持
+/// 原样，不改变既有语义。
+fn normalize_cron_pattern(pattern: &str) -> String {
+    let trimmed = pattern.trim();
+    let fields: Vec<&str> = trimmed.split_whitespace().collect();
+    if fields.len() == 5 {
+        format!("0 {}", fields.join(" "))
+    } else {
+        trimmed.to_string()
+    }
+}
+
 impl Clone for TaskScheduler {
     fn clone(&self) -> Self {
         Self {
@@ -204,5 +225,42 @@ impl Clone for TaskScheduler {
 impl Default for TaskScheduler {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn five_field_cron_gets_zero_second_prefix() {
+        assert_eq!(normalize_cron_pattern("0 9 * * *"), "0 0 9 * * *");
+        assert_eq!(normalize_cron_pattern("  30  8  *  *  1  "), "0 30 8 * * 1");
+    }
+
+    #[test]
+    fn five_field_cron_parses_and_schedules_daily_nine() {
+        // 真机 v0.99.27：UI 默认 `0 9 * * *` 注册失败，定时训练从未执行。
+        let schedule = TaskScheduler::parse_cron_schedule(Some("0 9 * * *"))
+            .expect("标准 5 字段 cron 应可解析");
+        let next = schedule
+            .upcoming(chrono::Utc)
+            .next()
+            .expect("应存在下一次触发时间");
+        assert_eq!(next.format("%H:%M:%S").to_string(), "09:00:00");
+    }
+
+    #[test]
+    fn six_field_cron_keeps_seconds_semantics() {
+        assert_eq!(normalize_cron_pattern("*/5 * * * * *"), "*/5 * * * * *");
+        let schedule = TaskScheduler::parse_cron_schedule(Some("*/5 * * * * *"))
+            .expect("6 字段 cron 应保持可用");
+        assert!(schedule.upcoming(chrono::Utc).next().is_some());
+    }
+
+    #[test]
+    fn invalid_cron_still_reports_error() {
+        assert!(TaskScheduler::parse_cron_schedule(Some("not a cron")).is_err());
+        assert!(TaskScheduler::parse_cron_schedule(None).is_err());
     }
 }

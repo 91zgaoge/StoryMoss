@@ -325,7 +325,11 @@ where
 ///
 /// Step2 的 prompt 用 `Friend/Enemy/Family/...` 引导模型，模型会输出枚举外
 /// 的值（真机 v0.99.14 Windows：`同门师兄妹`），旧实现让整段知识 JSON 解析
-/// 失败并白白多跑一轮 LLM 重试。未知类型降级为 `RelatedTo`，关系本身保留。
+/// 失败并白白多跑一轮 LLM 重试。
+///
+/// v0.99.28: 先归一化再降级。模型常返回复合值
+/// （`Family/Partner`、`敌对/控制`、`同伙分账/推诿`），v0.99.25 一律降级
+/// `RelatedTo` 会丢掉图谱语义（真机 2026-11-27 单日 30+ 次）。
 fn de_relation_type_lenient<'de, D>(deserializer: D) -> Result<RelationType, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -334,14 +338,168 @@ where
     let Some(raw) = value.as_str() else {
         return Ok(RelationType::RelatedTo);
     };
-    if let Ok(known) =
-        serde_json::from_value::<RelationType>(serde_json::Value::String(raw.to_string()))
-    {
+    if let Some(known) = normalize_relation_type(raw) {
         return Ok(known);
     }
     log::warn!("[Ingest Step2] 未知关系类型「{}」，降级为 RelatedTo", raw);
     Ok(RelationType::RelatedTo)
 }
+
+/// 把模型返回的关系类型归一化到 `RelationType`。
+///
+/// 1. 按 `/`、`|`、`、`、`，`、`与`、`和` 等分隔符拆词，逐词匹配英文枚举名
+///    （大小写/下划线不敏感）与常见同义词；
+/// 2. 英文复合词按核心关系后缀识别（`PotentialEnemy` → Enemy）；
+/// 3. 中文按语义关键词映射（`敌对/控制` → Enemy，`同伙分账/推诿` → Ally）；
+/// 4. 仍无法识别返回 `None`，由调用方降级为 `RelatedTo`。
+fn normalize_relation_type(raw: &str) -> Option<RelationType> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    for token in raw.split(['/', '|', ';', ',', '，', '、', '与', '和']) {
+        if let Some(known) = relation_type_from_english_token(token) {
+            return Some(known);
+        }
+    }
+
+    ZH_RELATION_KEYWORDS
+        .iter()
+        .find(|(needle, _)| raw.contains(*needle))
+        .map(|(_, ty)| ty.clone())
+}
+
+fn relation_type_from_english_token(token: &str) -> Option<RelationType> {
+    let word = token.trim().to_ascii_lowercase().replace('_', "");
+    if word.is_empty() {
+        return None;
+    }
+
+    let exact = match word.as_str() {
+        "friend" => Some(RelationType::Friend),
+        "enemy" | "hostile" => Some(RelationType::Enemy),
+        "family" => Some(RelationType::Family),
+        "lover" => Some(RelationType::Lover),
+        "mentor" => Some(RelationType::Mentor),
+        "rival" | "confrontation" => Some(RelationType::Rival),
+        "ally" | "companion" | "partner" => Some(RelationType::Ally),
+        "locatedat" => Some(RelationType::LocatedAt),
+        "belongsto" => Some(RelationType::BelongsTo),
+        "uses" | "use" => Some(RelationType::Uses),
+        "owns" | "own" => Some(RelationType::Owns),
+        "created" | "create" => Some(RelationType::Created),
+        "destroyed" | "destroy" => Some(RelationType::Destroyed),
+        "partof" => Some(RelationType::PartOf),
+        "leads" | "lead" => Some(RelationType::Leads),
+        "memberof" => Some(RelationType::MemberOf),
+        "founderof" => Some(RelationType::FounderOf),
+        "causes" | "cause" => Some(RelationType::Causes),
+        "enables" | "enable" => Some(RelationType::Enables),
+        "prevents" | "prevent" => Some(RelationType::Prevents),
+        "resultsin" => Some(RelationType::ResultsIn),
+        "similarto" => Some(RelationType::SimilarTo),
+        "oppositeof" => Some(RelationType::OppositeOf),
+        "relatedto" | "related" => Some(RelationType::RelatedTo),
+        "evolvesinto" => Some(RelationType::EvolvesInto),
+        "supersedes" => Some(RelationType::Supersedes),
+        "contradicts" => Some(RelationType::Contradicts),
+        "participatesin" => Some(RelationType::ParticipatesIn),
+        "setupin" => Some(RelationType::SetUpIn),
+        _ => None,
+    };
+    if exact.is_some() {
+        return exact;
+    }
+
+    // 英文复合词（PotentialEnemy / SecretAlly / CloseFriend）按核心关系后缀。
+    const CORE_SUFFIXES: &[(&str, RelationType)] = &[
+        ("friend", RelationType::Friend),
+        ("enemy", RelationType::Enemy),
+        ("family", RelationType::Family),
+        ("lover", RelationType::Lover),
+        ("mentor", RelationType::Mentor),
+        ("rival", RelationType::Rival),
+        ("ally", RelationType::Ally),
+    ];
+    CORE_SUFFIXES
+        .iter()
+        .find(|(suffix, _)| word.len() > suffix.len() && word.ends_with(*suffix))
+        .map(|(_, ty)| ty.clone())
+}
+
+/// 中文关系关键词。顺序即优先级：敌对/冲突在前，避免
+/// `利用与栽赃` 被后面的 `利用` 抢先映射成 Uses。
+const ZH_RELATION_KEYWORDS: &[(&str, RelationType)] = &[
+    ("敌对", RelationType::Enemy),
+    ("仇敌", RelationType::Enemy),
+    ("敌人", RelationType::Enemy),
+    ("仇恨", RelationType::Enemy),
+    ("刺杀", RelationType::Enemy),
+    ("反杀", RelationType::Enemy),
+    ("栽赃", RelationType::Enemy),
+    ("陷害", RelationType::Enemy),
+    ("对抗", RelationType::Enemy),
+    ("冲突", RelationType::Enemy),
+    ("宿敌", RelationType::Rival),
+    ("对手", RelationType::Rival),
+    ("竞争", RelationType::Rival),
+    ("对峙", RelationType::Rival),
+    ("较量", RelationType::Rival),
+    ("家人", RelationType::Family),
+    ("亲属", RelationType::Family),
+    ("血缘", RelationType::Family),
+    ("父子", RelationType::Family),
+    ("母女", RelationType::Family),
+    ("兄弟", RelationType::Family),
+    ("姐妹", RelationType::Family),
+    ("夫妻", RelationType::Family),
+    ("爱慕", RelationType::Lover),
+    ("恋人", RelationType::Lover),
+    ("情侣", RelationType::Lover),
+    ("暗恋", RelationType::Lover),
+    ("师徒", RelationType::Mentor),
+    ("师父", RelationType::Mentor),
+    ("师傅", RelationType::Mentor),
+    ("弟子", RelationType::Mentor),
+    ("门徒", RelationType::Mentor),
+    ("导师", RelationType::Mentor),
+    ("主仆", RelationType::MemberOf),
+    ("上下级", RelationType::MemberOf),
+    ("下属", RelationType::MemberOf),
+    ("隶属", RelationType::MemberOf),
+    ("朋友", RelationType::Friend),
+    ("好友", RelationType::Friend),
+    ("挚友", RelationType::Friend),
+    ("同门", RelationType::Ally),
+    ("同伙", RelationType::Ally),
+    ("盟友", RelationType::Ally),
+    ("同伴", RelationType::Ally),
+    ("伙伴", RelationType::Ally),
+    ("合作", RelationType::Ally),
+    ("搭档", RelationType::Ally),
+    ("合谋", RelationType::Ally),
+    ("护卫", RelationType::Ally),
+    ("属于", RelationType::BelongsTo),
+    ("拥有", RelationType::Owns),
+    ("持有", RelationType::Owns),
+    ("佩戴", RelationType::Owns),
+    ("使用", RelationType::Uses),
+    ("利用", RelationType::Uses),
+    ("位于", RelationType::LocatedAt),
+    ("所在", RelationType::LocatedAt),
+    ("创造", RelationType::Created),
+    ("创建", RelationType::Created),
+    ("摧毁", RelationType::Destroyed),
+    ("毁灭", RelationType::Destroyed),
+    ("领导", RelationType::Leads),
+    ("统领", RelationType::Leads),
+    ("创立", RelationType::FounderOf),
+    ("参与", RelationType::ParticipatesIn),
+    ("违逆", RelationType::Contradicts),
+    ("反噬", RelationType::Contradicts),
+    ("矛盾", RelationType::Contradicts),
+];
 
 fn de_opt_int_or_float<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
 where
@@ -1308,7 +1466,7 @@ impl IngestPipeline {
     {{
       "source": "源实体",
       "target": "目标实体",
-      "relation_type": "Friend/Enemy/Family/...",
+      "relation_type": "Friend/Enemy/Family/Lover/Mentor/Rival/Ally/BelongsTo/Owns/Uses/LocatedAt/MemberOf/Leads/PartOf/RelatedTo",
       "description": "关系描述",
       "strength": 0.8,
       "evolution": "关系发展趋势"
@@ -1328,7 +1486,8 @@ impl IngestPipeline {
 1. 为每个实体生成完整档案
 2. 计算关系强度（0-1）
 3. 评估事件重要性（1-10）
-4. 确保JSON格式正确"#,
+4. relation_type 只能从上面列表中选择一个，不要组合或自造（如 Family/Partner）
+5. 确保JSON格式正确"#,
             analysis_json
         );
 
@@ -2850,30 +3009,79 @@ mod tests {
     }
 
     /// v0.99.25: 真机日志「unknown variant `同门师兄妹`」——Step2 prompt 的
-    /// `Friend/Enemy/Family/...` 会诱导模型自造类型。未知类型应降级为
+    /// `Friend/Enemy/Family/...` 会诱导模型自造类型。无法识别的类型应降级为
     /// RelatedTo，而不是让整段知识 JSON 解析失败（旧行为会白跑一轮重试）。
+    ///
+    /// v0.99.28: 可识别的复合/中文类型先归一化，不再一律降级。
     #[test]
-    fn generated_knowledge_accepts_unknown_relation_type_as_related_to() {
+    fn generated_knowledge_normalizes_relation_types_and_falls_back() {
         let json = r#"{
             "entities": [],
             "relations": [
                 {"source": "周成", "target": "宋菀蘅", "relation_type": "同门师兄妹", "strength": 0.7},
-                {"source": "周成", "target": "周府", "relation_type": "BelongsTo", "strength": 0.9}
+                {"source": "周成", "target": "周府", "relation_type": "BelongsTo", "strength": 0.9},
+                {"source": "周成", "target": "齐少杰", "relation_type": "Family/Partner", "strength": 0.8},
+                {"source": "周成", "target": "三理教", "relation_type": "敌对/控制", "strength": 0.8},
+                {"source": "周成", "target": "老曹", "relation_type": "同伙分账/推诿", "strength": 0.6},
+                {"source": "周成", "target": "无名氏", "relation_type": "奇妙难解", "strength": 0.5}
             ],
             "events": []
         }"#;
         let knowledge: GeneratedKnowledge = serde_json::from_str(json).unwrap();
         assert!(
-            matches!(
-                knowledge.relations[0].relation_type,
-                RelationType::RelatedTo
-            ),
-            "未知类型应降级为 RelatedTo，实际 {:?}",
+            matches!(knowledge.relations[0].relation_type, RelationType::Ally),
+            "同门师兄妹应归入 Ally，实际 {:?}",
             knowledge.relations[0].relation_type
         );
         assert!(matches!(
             knowledge.relations[1].relation_type,
             RelationType::BelongsTo
         ));
+        assert!(
+            matches!(knowledge.relations[2].relation_type, RelationType::Family),
+            "Family/Partner 应取 Family，实际 {:?}",
+            knowledge.relations[2].relation_type
+        );
+        assert!(
+            matches!(knowledge.relations[3].relation_type, RelationType::Enemy),
+            "敌对/控制 应归入 Enemy，实际 {:?}",
+            knowledge.relations[3].relation_type
+        );
+        assert!(
+            matches!(knowledge.relations[4].relation_type, RelationType::Ally),
+            "同伙分账/推诿 应归入 Ally，实际 {:?}",
+            knowledge.relations[4].relation_type
+        );
+        assert!(
+            matches!(
+                knowledge.relations[5].relation_type,
+                RelationType::RelatedTo
+            ),
+            "真正未知的类型应降级为 RelatedTo，实际 {:?}",
+            knowledge.relations[5].relation_type
+        );
+    }
+
+    #[test]
+    fn normalize_relation_type_handles_compound_and_chinese_values() {
+        // 真机 2026-11-27 Ingest Step2 实际返回值
+        for (raw, expected) in [
+            ("Friend/Informant", "Friend"),
+            ("Negotiation/Rival", "Rival"),
+            ("Ally/Informant", "Ally"),
+            ("PotentialEnemy", "Enemy"),
+            ("Manipulation/Use", "Uses"),
+            ("仇敌", "Enemy"),
+            ("合谋", "Ally"),
+            ("主仆", "MemberOf"),
+            ("违逆/反噬", "Contradicts"),
+            ("属于", "BelongsTo"),
+            ("DoctorPatient/SecretHarm", "RelatedTo"),
+        ] {
+            let got = normalize_relation_type(raw)
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| "RelatedTo".to_string());
+            assert_eq!(got, expected, "relation_type={raw}");
+        }
     }
 }

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.27-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.99.28-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -115,6 +115,11 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.99.28 · 日志巡检：定时任务真正会跑、心跳不再 0 秒刷屏、关系图谱保语义
+
+- **问题**：本机 v0.99.27 日志里 2 条 ERROR 都是 `Invalid cron pattern '0 9 * * *'`——前端用标准 5 字段 cron，后端 `cron` crate 要 6/7 字段，UI 创建的定时任务保存成功但从未注册执行；`[Heartbeat] fired: elapsed=0s` 一天 431 条（占 WARN 45%），每次 LLM 调用都先发一条「已等待 0 秒」；Ingest Step2 一天 31 次把 `Family/Partner`、`敌对/控制`、`同伙分账/推诿` 等可归一的关系全降级成 `RelatedTo`，知识图谱丢语义。
+- **结果**：后端解析前为 5 字段补 0 秒（6/7 字段与 `@daily` 不变），既有 `续写训练 · 阴脉先生` 任务下次启动即注册；心跳先消费 tokio interval 的立即 tick，首条心跳在 10s 后发出；关系类型按英文枚举/复合后缀/中文关键词归一（`PotentialEnemy`→Enemy、`敌对/控制`→Enemy、`同门师兄妹`→Ally），Step2 prompt 改为显式枚举并禁止组合自造。Rust **2319/17**（+5）、tsc 0、Vitest **732/3**、Playwright **144/5**、fmt/clippy/guard/prettier 全绿。
 
 ### v0.99.27 · 修复任务心跳与 finish 的落库竞态
 

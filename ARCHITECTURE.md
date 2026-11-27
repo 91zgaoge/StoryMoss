@@ -1,4 +1,6 @@
-# StoryMoss v0.99.27 架构文档
+# StoryMoss v0.99.28 架构文档
+
+> **v0.99.28**：**任务调度/心跳/关系图谱三处入口语义**——①`task_system::scheduler::normalize_cron_pattern`：`cron` crate 要求 6/7 字段（秒在最前），前端标准 5 字段在解析前补 `0` 秒；`parse_cron_schedule` 的错误信息继续回报用户原始表达式。此前 UI 创建的定时任务全部注册失败（任务行 `enabled=1` 但无 timer）。②`llm::service` 的生成心跳在 spawn 后先消费 `tokio::time::interval` 的立即首个 tick，再开始计时；否则每次调用都 emit `elapsed=0s` 进度并写 WARN。③`memory::ingest::normalize_relation_type`：Step2 关系类型先按分隔符拆词匹配英文枚举/同义词，再按核心后缀识别英文复合词（`PotentialEnemy`→Enemy），再按中文关键词映射（`敌对/控制`→Enemy、`同伙分账/推诿`→Ally、`同门师兄妹`→Ally），仍无法识别才降级 `RelatedTo`；Step2 prompt 改为显式枚举且禁止组合/自造。原 v0.99.25 的宽容解析只保证整段知识 JSON 不失败。
 
 > **v0.99.27**：**任务心跳与 finish 的落库顺序**——`agency::reporter::TaskReporter` 新增 `pending_heartbeats`（`Arc<Mutex<Vec<JoinHandle<()>>>>`）：`heartbeat` 仍以 `spawn_blocking` fire-and-forget，但会登记句柄并清理已完成项；`finish` 在写完成状态前 `drain_heartbeats()`（逐个 await，每个上限 5s，超时 warn）。原因：`TaskRepository::heartbeat` 的 `UPDATE … WHERE status IN ('running','waiting')` 在完成之后到达会静默丢弃，`turn_count` 少计（v0.99.26 tag 构建 macOS `test_reporting_llm_heartbeats_and_finish` 0≠1 的真实根因）。
 

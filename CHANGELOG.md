@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.99.28（2026-11-28）
+
+**日志巡检：定时任务 cron 5 字段注册失败 + 心跳 0 秒刷屏 + 关系类型复合值降级。**
+
+- 证据（本机 v0.99.27，`storymoss.2026-11-27`，8,166 行：2 ERROR / 960 WARN）：①`[TaskService] Failed to register new scheduled task: Invalid cron pattern '0 9 * * *'`（06:34:29Z）与 `Failed to re-register scheduled task: Invalid cron pattern '0 1 * * *'`（06:35:35Z）；库中 `续写训练 · 阴脉先生` 任务 `enabled=1`、`cron_pattern='0 1 * * *'`、`status=pending`，创建后从未注册执行。②`[Heartbeat] fired: elapsed=0s` **431 条**（writer 146 / producer 145 / editor 82 / 训练章评 42 / 其余 16），占当日 WARN 45%，前端进度在每次 LLM 调用瞬间显示「已等待 0 秒」。③`[Ingest Step2] 未知关系类型「…」，降级为 RelatedTo` **31 次**，包括 `Family/Partner`、`Friend/Informant`、`Negotiation/Rival`、`PotentialEnemy`、`敌对/控制`、`同伙分账/推诿`、`仇敌`、`合谋`、`主仆` 等明显可归一的值。
+- 根因 1：前端（训练页 `DEFAULT_CRON='0 9 * * *'`、任务页占位符）使用标准 **5 字段** `分 时 日 月 周`，`cron` crate 要求 **6/7 字段**（多一个秒字段）；`TaskScheduler::parse_cron_schedule` 直接 `parse()`，因此 UI 创建的定时任务全部注册失败，任务保存成功但永不执行（只留 ERROR 日志）。
+- 根因 2：`tokio::time::interval` 的**第一次 tick 立即完成**；心跳循环未消费首个 tick，每次 LLM 调用都立刻 emit 一条 `elapsed=0s` 进度并写 WARN。
+- 根因 3：v0.99.25 的宽容解析只保证「未知关系类型不让整段 JSON 失败」，一律降级 `RelatedTo` 丢失了知识图谱语义；Step2 prompt 仍用 `Friend/Enemy/Family/...` 诱导模型输出复合值。
+- 修复：①`normalize_cron_pattern` 在解析前把 5 字段补 `0` 秒（6/7 字段与 `@daily` 保持原样），错误信息仍显示用户原始表达式；前端标签/占位符明确「5 字段」。②心跳 spawn 先消费首个立即 tick，第一条心跳在 10s 后发出。③新增 `normalize_relation_type`：按 `/`、`、`、`与` 等拆词匹配英文枚举/同义词、英文复合词按核心后缀识别（`PotentialEnemy`→Enemy）、中文关键词映射（`敌对/控制`→Enemy、`同伙分账/推诿`→Ally、`同门师兄妹`→Ally），仍无法识别才降级；Step2 prompt 改为显式枚举并禁止组合/自造。
+- 验证：Rust **2319/17**（+5：cron 5 字段补秒/日程 09:00/6 字段保持/非法仍报错 4、关系类型复合与中文归一 1；原「同门师兄妹降级」用例改写为归一化+真未知降级）；tsc 0；Vitest **732/3**；Playwright **144/5**；fmt/clippy/guard/prettier 全绿；`gitnexus impact` `parse_cron_schedule`/`de_relation_type_lenient` 均 LOW。
+- **未关闭**：安装 v0.99.28 后确认 ①既有 `0 1 * * *` 训练任务启动即注册、次日 01:00 触发；②`[Heartbeat] fired: elapsed=0s` 归零；③Ingest 的 31 类复合关系落到对应枚举、`RelatedTo` 只留真正未知值。本机 `Qwen3.5-27B` keepalive 失败/超时（124 次）与 `model-a62431a7` GPU OOM 属环境（端点不可达/显存不足），只记录不修。
+
 ## v0.99.27（2026-11-27）
 
 **修复任务心跳与 finish 的落库竞态（v0.99.26 tag 构建 macOS 端唯一失败用例）。**

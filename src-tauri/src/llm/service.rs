@@ -1868,6 +1868,10 @@ impl<R: Runtime> LlmService<R> {
         } else {
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_secs(10));
+                // v0.99.28: tokio interval 的第一次 tick 立即完成。消费掉它，
+                // 否则每次 LLM 调用都会在 0 秒时发一条「已等待 0 秒」心跳并
+                // 写 WARN（真机 2026-11-27 单日 431 条）。
+                interval.tick().await;
                 let start = std::time::Instant::now();
                 loop {
                     interval.tick().await;

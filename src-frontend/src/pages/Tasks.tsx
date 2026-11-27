@@ -732,7 +732,7 @@ export function Tasks() {
             {newTask.schedule_type === 'cron' && (
               <input
                 type="text"
-                placeholder="Cron 表达式 (如: 0 3 * * *)"
+                placeholder="Cron 表达式 (5 字段，如: 0 3 * * *)"
                 value={newTask.cron_pattern}
                 onChange={e => setNewTask({ ...newTask, cron_pattern: e.target.value })}
                 className="px-3 py-2 bg-cinema-900 border border-cinema-700 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cinema-gold"

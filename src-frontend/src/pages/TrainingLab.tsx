@@ -700,7 +700,7 @@ export default function TrainingLab() {
                   />
                 </Field>
               )}
-              <Field label="定时计划（cron，留空默认每天 09:00）">
+              <Field label="定时计划（cron 5 字段，留空默认每天 09:00）">
                 <Input
                   value={cron}
                   onChange={e => setCron(e.target.value)}

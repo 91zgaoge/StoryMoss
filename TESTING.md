@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.99.27)
+# 🧪 StoryMoss 自动化测试环境 (v0.99.28)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.99.28 变更说明（cron 5 字段 / 心跳首 tick / 关系类型归一）
+
+- Rust **2319 passed / 17 ignored**（+5：5 字段补 0 秒、5 字段 `0 9 * * *` 下一次触发为 09:00:00、6 字段保持秒语义、非法表达式/缺省仍报错 4 条；关系类型复合/中文归一 1 条（含真机 11 类值）；原「同门师兄妹降级 RelatedTo」用例改写为归一化 + 真未知降级）。
+- tsc 0；Vitest **732 passed / 3 skipped**（仅 cron 文案「5 字段」，不变）；Playwright **144 passed / 5 skipped**（全量复跑，不变）；fmt/clippy/guard/prettier 全绿。
+- 未关闭：安装 v0.99.28 后确认既有 `0 1 * * *` 训练任务启动即注册并按 01:00 触发、`[Heartbeat] fired: elapsed=0s` 归零、Ingest 复合关系落到对应枚举。
 
 ### v0.99.27 变更说明（reporter 心跳落库顺序）
 
